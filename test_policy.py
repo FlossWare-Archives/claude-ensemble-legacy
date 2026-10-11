@@ -118,3 +118,28 @@ def test_policy_from_dict_rejects_non_finite_and_invalid_booleans() -> None:
         assert "JSON object" in str(exc)
     else:
         raise AssertionError("expected policy shape validation failure")
+
+
+
+def test_policy_rejects_impossible_supplied_telemetry_even_without_thresholds() -> None:
+    for field, value, reason in (
+        ("estimated_cost_usd", -1, "estimated_cost_usd must be >= 0"),
+        ("estimated_latency_ms", -1, "estimated_latency_ms must be >= 0"),
+        ("confidence", -0.1, "confidence must be >= 0"),
+        ("confidence", 1.1, "confidence must be <= 1"),
+        ("estimated_cost_usd", True, "estimated_cost_usd must be a number"),
+        ("estimated_latency_ms", math.nan, "estimated_latency_ms must be finite"),
+        ("confidence", math.inf, "confidence must be finite"),
+    ):
+        result = evaluate({field: value}, Policy())
+        assert not result.allowed
+        assert reason in result.reasons
+
+
+def test_policy_accepts_valid_telemetry_boundaries() -> None:
+    result = evaluate(
+        {"estimated_cost_usd": 0, "estimated_latency_ms": 0, "confidence": 1},
+        Policy(max_cost_usd=0, max_latency_ms=0, min_confidence=1),
+    )
+    assert result.allowed
+    assert result.reasons == ()
