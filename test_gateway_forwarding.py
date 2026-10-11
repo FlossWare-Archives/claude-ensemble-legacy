@@ -189,6 +189,7 @@ def test_gateway_reports_unavailable_downstream_service(tmp_path, monkeypatch):
     finally:
         stop(gateway, thread)
 
+
 def test_gateway_forwards_delete_method_path_query_and_response(tmp_path, monkeypatch):
     monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
     downstream = ThreadingHTTPServer(("127.0.0.1", 0), StubServiceHandler)
