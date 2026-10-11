@@ -213,7 +213,14 @@ def _forward(
     # local case) or another Ensemble instance. The latter is discovered from
     # its health endpoint so callers keep exactly the same public REST path.
     remote_ensemble = _ensemble_target(base)
-    target_path = f"{API_PREFIX}{path}" if remote_ensemble else path
+    if remote_ensemble:
+        target_path = f"{API_PREFIX}{path}"
+    elif path in {"/graph/health", "/memory/health"}:
+        # Public gateway health paths are service-scoped; concrete services
+        # expose their health endpoint at the root.
+        target_path = "/health"
+    else:
+        target_path = path
     request = urllib.request.Request(base.rstrip("/") + target_path, data=body, method=method)
     for name, value in handler.headers.items():
         if name.lower() in FORWARD_SAFE_HEADERS:

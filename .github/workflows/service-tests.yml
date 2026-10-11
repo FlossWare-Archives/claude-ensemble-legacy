@@ -65,6 +65,9 @@ jobs:
       - name: Run Code Search MCP contract tests
         run: python -m unittest discover -s code-search-mcp -p 'test_*.py' -v
 
+      - name: Run gateway REST integration tests
+        run: python server/test_ensemble_server.py
+
       - name: Run service unit and integration tests
         run: |
           python -m pytest \
