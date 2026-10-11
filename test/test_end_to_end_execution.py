@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
-import tempfile
 import threading
 import time
 import urllib.request
@@ -19,31 +17,20 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-THOMPSON_SOCKET = Path(tempfile.gettempdir()) / f"claude-thompson-e2e-{os.getpid()}.sock"
-
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
 from execution import ExecutionContext, ExecutionEngine, ExecutionStatus
 from execution.nodes import ModelExecution
 from providers.model_provider import ModelProvider, ModelRequest, ModelResponse
-import shared.thompson_client as thompson_client_module
 
 
-<<<<<<< HEAD
-=======
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
->>>>>>> origin/main
 sys.path.insert(0, str(ROOT / "memory-service"))
 sys.path.insert(0, str(ROOT / "learning"))
 sys.path.insert(0, str(ROOT / "learning-service"))
 sys.path.insert(0, str(ROOT / "shared"))
 
-<<<<<<< HEAD
-import thompson_client as flat_thompson_client_module
-=======
 from shared import thompson_client as thompson_client_module
->>>>>>> origin/main
 from learning_client import LearningClient
 from memory_client import MemoryClient
 from learning_service import LearningService
@@ -65,17 +52,6 @@ def _load_graph_service():
     spec = importlib.util.spec_from_file_location(
         "claude_ensemble_graph_service",
         ROOT / "graph-service" / "graph_service.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_thompson_service():
-    spec = importlib.util.spec_from_file_location(
-        "claude_ensemble_thompson_service",
-        ROOT / "thompson-service" / "thompson_service.py",
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -143,20 +119,8 @@ def _json_request(url: str, payload: dict | None = None) -> dict:
 def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_path: Path, monkeypatch) -> None:
     """Exercise request -> execution -> arbitration -> learning -> Memory/Graph."""
 
-<<<<<<< HEAD
-    monkeypatch.setattr(thompson_client_module, "SOCKET_PATH", THOMPSON_SOCKET)
-    monkeypatch.setattr(flat_thompson_client_module, "SOCKET_PATH", THOMPSON_SOCKET)
-    thompson_module = _load_thompson_service()
-    thompson_state = tmp_path / "thompson-state.json"
-    thompson_service = thompson_module.ThompsonService(THOMPSON_SOCKET, thompson_state)
-    thompson_thread = threading.Thread(target=thompson_service.start, daemon=True)
-    thompson_thread.start()
-    _wait_for(lambda: THOMPSON_SOCKET.exists())
-
-=======
     thompson_socket = tmp_path / "thompson.sock"
     thompson_state = tmp_path / "thompson-state.json"
->>>>>>> origin/main
     memory_socket = tmp_path / "memory.sock"
     memory_dir = tmp_path / "memory"
     learning_socket = tmp_path / "learning.sock"
@@ -272,7 +236,6 @@ def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_pa
             request.prompt
             for request in provider.requests[arbitration_request_start:]
             if request.model in {"worker-a", "worker-b"}
-            and serialized_context in request.prompt
         ]
         assert len(worker_requests) == 2
         for prompt in worker_requests:
@@ -379,16 +342,6 @@ def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_pa
         assert traversed_learning["properties"]["adjudicated_result"] == final_result
 
     finally:
-<<<<<<< HEAD
-        graph_server.shutdown()
-        graph_server.server_close()
-        learning_service.stop()
-        memory_service.stop()
-        thompson_service.stop()
-        learning_thread.join(timeout=2.0)
-        memory_thread.join(timeout=2.0)
-        thompson_thread.join(timeout=2.0)
-=======
         if graph_server is not None:
             if graph_thread is not None and graph_thread.is_alive():
                 graph_server.shutdown()
@@ -407,4 +360,3 @@ def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_pa
             memory_thread.join(timeout=2.0)
         if thompson_thread is not None:
             thompson_thread.join(timeout=2.0)
->>>>>>> origin/main
