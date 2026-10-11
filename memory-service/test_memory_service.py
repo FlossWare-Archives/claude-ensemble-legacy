@@ -504,20 +504,24 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
                 status, body = post("/memory/write", {"name": "../escape", "content": "no"})
                 self.assertEqual(status, 400)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "validation")
 
                 status, body = post("/memory/read", {"name": "missing"})
                 self.assertEqual(status, 404)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "not_found")
 
                 with patch.object(service.store, "write_file", return_value=False):
                     status, body = post("/memory/write", {"name": "write-failure", "content": "x"})
                 self.assertEqual(status, 500)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
 
                 with patch.object(service.store, "read_file", side_effect=OSError("disk failure")):
                     status, body = post("/memory/read", {"name": "read-failure"})
                 self.assertEqual(status, 500)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
 
                 status, body = post("/memory/write", {"name": "valid", "content": "stored"})
                 self.assertEqual(status, 200)

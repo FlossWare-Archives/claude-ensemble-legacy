@@ -942,7 +942,13 @@ class MemoryService:
                 name = req_data.get("name")
                 content = req_data.get("content")
                 success = self.store.write_file(name, content)
-                return json.dumps({"ok": success})
+                if not success:
+                    return json.dumps({
+                        "ok": False,
+                        "error": "memory write failed",
+                        "error_type": "internal",
+                    })
+                return json.dumps({"ok": True})
 
             if operation == "append":
                 name = req_data.get("name")
