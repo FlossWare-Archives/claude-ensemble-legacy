@@ -188,3 +188,26 @@ def test_gateway_reports_unavailable_downstream_service(tmp_path, monkeypatch):
         assert "service unavailable" in body["error"]
     finally:
         stop(gateway, thread)
+
+def test_gateway_forwards_delete_method_path_query_and_response(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    downstream = ThreadingHTTPServer(("127.0.0.1", 0), StubServiceHandler)
+    downstream_thread = start(downstream)
+    gateway = create_server(
+        "127.0.0.1", 0, graph_url=f"http://127.0.0.1:{downstream.server_port}"
+    )
+    gateway_thread = start(gateway)
+    try:
+        status, result = request(
+            gateway, "DELETE", "/api/v1/graph/nodes/node-a?force=true&version=3"
+        )
+        assert status == 200
+        assert result == {
+            "ok": True,
+            "method": "DELETE",
+            "path": "/graph/nodes/node-a?force=true&version=3",
+            "body": "",
+        }
+    finally:
+        stop(gateway, gateway_thread)
+        stop(downstream, downstream_thread)
