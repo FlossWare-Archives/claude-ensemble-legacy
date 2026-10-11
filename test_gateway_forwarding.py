@@ -82,7 +82,7 @@ def test_gateway_forwards_method_path_query_body_and_health(tmp_path, monkeypatc
         status, graph = request(gateway, "GET", "/api/v1/graph/health")
         assert status == 200
         assert graph["method"] == "GET"
-        assert graph["path"] == "/graph/health"
+        assert graph["path"] == "/health"
 
         status, memory = request(gateway, "GET", "/api/v1/memory/search?q=needle&limit=3")
         assert status == 200
@@ -171,7 +171,7 @@ def test_gateway_uses_service_url_environment_configuration(tmp_path, monkeypatc
     try:
         status, result = request(gateway, "GET", "/api/v1/graph/health")
         assert status == 200
-        assert result["path"] == "/graph/health"
+        assert result["path"] == "/health"
     finally:
         stop(gateway, gateway_thread)
         stop(downstream, downstream_thread)
