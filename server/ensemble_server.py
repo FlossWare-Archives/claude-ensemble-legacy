@@ -18,7 +18,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from capability_health import CapabilityHealthView
 from experiments import Experiment, ExperimentStore, evaluate as evaluate_experiment
@@ -43,6 +43,8 @@ DEFAULT_SERVICE_URLS = {
 
 MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
 MAX_FORWARD_HOPS = 4
+DEFAULT_METRICS_PAGE_SIZE = 100
+MAX_METRICS_PAGE_SIZE = 500
 DEFAULT_COLLAB_SOLVERS = ("sonnet", "haiku")
 DEFAULT_COLLAB_ARBITER = "opus"
 DEFAULT_COLLAB_REVIEWERS: tuple[str, ...] = ()
@@ -300,7 +302,7 @@ class EnsembleApplication:
             self._handle_experiments(handler, remainder)
             return
         if service == "metrics":
-            self._handle_metrics(handler, remainder)
+            self._handle_metrics(handler, remainder, parsed.query)
             return
         try:
             if service == "decision":
@@ -403,9 +405,40 @@ class EnsembleApplication:
             return
         _send(handler, HTTPStatus.NOT_FOUND, {"ok": False, "error": "policy endpoint not found"})
 
-    def _handle_metrics(self, handler: BaseHTTPRequestHandler, path: str) -> None:
+    def _handle_metrics(
+        self, handler: BaseHTTPRequestHandler, path: str, query: str = ""
+    ) -> None:
         if handler.command == "GET" and path == "/":
-            _send(handler, HTTPStatus.OK, {"ok": True, "metrics": [record.to_dict() for record in self.metrics.read()]})
+            try:
+                parameters = parse_qs(query, keep_blank_values=True)
+                if set(parameters) - {"limit", "offset"}:
+                    raise ValueError("only limit and offset query parameters are supported")
+                for name, values in parameters.items():
+                    if len(values) != 1 or not values[0]:
+                        raise ValueError(f"{name} must be specified exactly once")
+                try:
+                    limit = int(parameters.get("limit", [str(DEFAULT_METRICS_PAGE_SIZE)])[0])
+                    offset = int(parameters.get("offset", ["0"])[0])
+                except ValueError as exc:
+                    raise ValueError("limit and offset must be integers") from exc
+                if limit < 1 or limit > MAX_METRICS_PAGE_SIZE:
+                    raise ValueError(f"limit must be between 1 and {MAX_METRICS_PAGE_SIZE}")
+                if offset < 0:
+                    raise ValueError("offset must be a non-negative integer")
+                page = self.metrics.read_page(limit + 1, offset)
+                has_more = len(page) > limit
+                records = page[:limit]
+                _send(handler, HTTPStatus.OK, {
+                    "ok": True,
+                    "metrics": [record.to_dict() for record in records],
+                    "limit": limit,
+                    "offset": offset,
+                    "next_offset": offset + limit if has_more else None,
+                })
+            except ValueError as exc:
+                _send(handler, HTTPStatus.BAD_REQUEST, {
+                    "ok": False, "error_code": "invalid_request", "error": str(exc)
+                })
             return
         if handler.command == "GET" and path == "/aggregate":
             _send(handler, HTTPStatus.OK, {"ok": True, "aggregate": self.metrics.aggregate()})

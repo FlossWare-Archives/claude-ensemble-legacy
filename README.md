@@ -457,3 +457,7 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 **Status:** Production-ready, all tools active  
 **License:** See `LICENSE`  
 **Contributors:** Generated with Claude Ensemble
+
+## Operational Metrics API
+
+The metrics REST listing is bounded and paginated. See [Operational Metrics REST API](docs/OPERATIONAL_METRICS.md) for page limits, continuation semantics, and aggregation behavior.
