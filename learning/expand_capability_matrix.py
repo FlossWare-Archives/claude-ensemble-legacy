@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scoring_function import (
@@ -139,7 +139,7 @@ def build_expanded_matrix(
                 "confidence": 0.95,
                 "samples": num_samples_per_entry,
                 "sample_scores": [round(s, 3) for s in samples],
-                "last_updated": datetime.utcnow().isoformat(),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
             }
 
     return matrix
@@ -168,7 +168,7 @@ def save_matrix(
     """Save expanded matrix to JSON file."""
     output = {
         "schema_version": "2.0",
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
         "description": "GA-evolvable capability matrix with synthetic scores",
         "statistics": {
             "total_entries": len(matrix),
