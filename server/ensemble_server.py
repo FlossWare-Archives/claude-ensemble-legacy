@@ -720,7 +720,7 @@ class EnsembleApplication:
             status = {
                 "invalid_request": HTTPStatus.BAD_REQUEST,
                 "dependency_unavailable": HTTPStatus.SERVICE_UNAVAILABLE,
-                "no_data": HTTPStatus.UNPROCESSABLE_CONTENT,
+                "no_data": HTTPStatus.UNPROCESSABLE_ENTITY,
                 "internal_error": HTTPStatus.INTERNAL_SERVER_ERROR,
             }.get(error_code, HTTPStatus.INTERNAL_SERVER_ERROR)
         _send(handler, status, result)

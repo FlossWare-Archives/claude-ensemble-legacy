@@ -60,9 +60,9 @@ class Experiment:
             raise ValueError("experiment_id must be a non-empty string")
         if not isinstance(self.hypothesis, str) or not self.hypothesis.strip():
             raise ValueError("hypothesis must be a non-empty string")
-        _jsonable(self.baseline)
-        _jsonable(self.variant)
-        _jsonable(self.inputs)
+        _jsonable(_thaw(self.baseline))
+        _jsonable(_thaw(self.variant))
+        _jsonable(_thaw(self.inputs))
         if not isinstance(self.measurements, dict) or not self.measurements:
             raise ValueError("measurements must be a non-empty object")
         for name, measurement in self.measurements.items():

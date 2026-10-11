@@ -10,6 +10,21 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: learning
+          POSTGRES_USER: ensemble
+          POSTGRES_PASSWORD: ensemble-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ensemble -d learning"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +43,27 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-cov
+
+      - name: Install JavaScript dependencies from lockfile
+        run: npm ci
+
+      - name: Run JavaScript tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: learning
+          PGUSER: ensemble
+          PGPASSWORD: ensemble-test
+        run: npm test
+
+      - name: Run JavaScript syntax checks
+        run: npm run lint
+
+      - name: Run reviewer MCP contract and HTTP tests
+        run: python -m unittest discover -s reviewer-mcp -p 'test_*.py' -v
+
+      - name: Run Code Search MCP contract tests
+        run: python -m unittest discover -s code-search-mcp -p 'test_*.py' -v
 
       - name: Run service unit and integration tests
         run: |

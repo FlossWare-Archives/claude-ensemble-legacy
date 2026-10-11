@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from execution.context import ExecutionContext
-from memory_service.memory_service import MemoryStore
+from memory_service import MemoryStore
 
 
 def _context(*, execution_id, request_id="request-1", lineage=(), parent=None):

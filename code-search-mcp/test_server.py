@@ -4,7 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import sys
 
+sys.path.insert(0, str(Path(__file__).parent))
 import server
 
 
@@ -51,9 +53,10 @@ class CodeSearchTest(unittest.TestCase):
 
     def test_cache_hit_skips_rg(self):
         cached = {"matches": [{"path": "x", "line": 1, "text": "x"}], "count": 1, "truncated": False}
-        with patch.object(server, "cache_get", return_value=cached):
-            with patch.object(server.subprocess, "run") as run:
-                result = server.search_code({"pattern": "x"})
+        with patch.object(server, "repo_root", return_value=Path("/repo")):
+            with patch.object(server, "cache_get", return_value=cached):
+                with patch.object(server.subprocess, "run") as run:
+                    result = server.search_code({"pattern": "x"})
         self.assertTrue(result["cached"])
         run.assert_not_called()
 

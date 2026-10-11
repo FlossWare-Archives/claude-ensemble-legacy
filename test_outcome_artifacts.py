@@ -34,7 +34,7 @@ def test_outcome_becomes_independent_portable_artifact():
 
     assert restored.artifact_type == "outcome-feedback"
     assert restored.payload["outcome"]["selected_model"] == "model-a"
-    assert restored.payload["outcome"]["candidates"] == ["model-a", "model-b"]
+    assert restored.payload["outcome"]["candidates"] == ("model-a", "model-b")
     assert restored.payload["feedback"]["thompson_ranking"] == 1
     assert restored.payload["ground_truth"]["correct"] is True
     assert restored.provenance["task_id"] == "task-1"

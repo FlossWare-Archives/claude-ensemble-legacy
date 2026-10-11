@@ -666,7 +666,23 @@ ${decision.key_concerns.map(c => `- ${c}`).join('\n')}
 *Automated review by pr-review-auto workflow*
 *Approval Criteria: Quality ≥ ${minQuality}, Consensus ≥ ${CONFIG.autoApprove.minConsensus}%, No breaking changes*`
 
-  let trustedPRContext\n  try {\n    trustedPRContext = getTrustedPRContext(prNum)\n  } catch (error) {\n    log(`🔒 PR mutation context unavailable: ${error.message}`)\n    return {\n      ...pr,\n      auto_action: 'MUTATIONS_BLOCKED',\n      approved: false,\n      rejected: false,\n      authorization_blocked: true,\n    }\n  }\n\n  const { repository, baseBranch } = trustedPRContext\n  const commentAuthorization = authorizePRMutation({ action: 'comment', repository, baseBranch })\n  if (commentAuthorization.allowed) {
+  let trustedPRContext
+  try {
+    trustedPRContext = getTrustedPRContext(prNum)
+  } catch (error) {
+    log(`🔒 PR mutation context unavailable: ${error.message}`)
+    return {
+      ...pr,
+      auto_action: 'MUTATIONS_BLOCKED',
+      approved: false,
+      rejected: false,
+      authorization_blocked: true,
+    }
+  }
+
+  const { repository, baseBranch } = trustedPRContext
+  const commentAuthorization = authorizePRMutation({ action: 'comment', repository, baseBranch })
+  if (commentAuthorization.allowed) {
     await postComment(agent, platform, 'pr', prNum, comment)
     log(`✅ Review comment posted`)
   } else {

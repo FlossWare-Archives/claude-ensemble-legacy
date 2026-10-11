@@ -16,7 +16,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+root_repo = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root_repo))
+sys.path.insert(0, str(root_repo / "shared"))
 
 from thompson_client import CircuitBreaker, CircuitState, ThompsonClient
 

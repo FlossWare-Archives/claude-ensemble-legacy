@@ -27,7 +27,7 @@ def _resolve_pricing(model: str) -> dict:
     model_lower = model.lower()
     if model_lower in CLAUDE_PRICING:
         return CLAUDE_PRICING[model_lower]
-    if model_lower.startswith("gemini-") or model_lower.startswith("models/gemini-"):
+    if model_lower == "gemini" or model_lower.startswith("gemini-") or model_lower.startswith("models/gemini-"):
         return GEMINI_PRICING
     if model_lower.startswith("claude-"):
         if "haiku" in model_lower:

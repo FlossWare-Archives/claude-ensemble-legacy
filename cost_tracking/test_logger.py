@@ -7,12 +7,8 @@ Simulates 5 RH API calls with different models and verifies logging behavior.
 import json
 import tempfile
 from pathlib import Path
-import sys
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-
-from logger import CostLogger
+from cost_tracking.logger import CostLogger
 
 
 def test_cost_calculations():

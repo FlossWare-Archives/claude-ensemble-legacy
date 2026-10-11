@@ -15,16 +15,12 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import sys
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-
-from aggregator import CostAggregator, CostEntry, ModelPricing
+from cost_tracking.aggregator import CostAggregator
 
 
-def create_sample_log_file() -> Path:
-    """Create a sample cost log file with realistic data."""
-    # Ensure directory exists first
-    log_dir = Path.home() / '.claude' / 'cost_tracking'
+def create_sample_log_file(directory: Path | None = None) -> Path:
+    """Create an isolated sample cost log file with realistic data."""
+    log_dir = directory or (Path(tempfile.gettempdir()) / "claude-ensemble-cost-tracking")
     log_dir.mkdir(parents=True, exist_ok=True)
 
     temp_file = tempfile.NamedTemporaryFile(
@@ -114,16 +110,18 @@ def create_sample_log_file() -> Path:
     return Path(temp_file.name)
 
 
-def test_daily_summary():
+def test_daily_summary(tmp_path):
     """Test daily cost summary generation."""
     print("\n" + "="*80)
     print("TEST: Daily Cost Summary")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     report = aggregator.daily_summary()
+    assert report["daily_summaries"]
+    assert sum(day["total_calls"] for day in report["daily_summaries"].values()) > 0
 
     print(f"\nPeriod: {report['period']}")
     print(f"Generated: {report['generated_at']}")
@@ -143,19 +141,19 @@ def test_daily_summary():
         print()
 
     print(f"✓ Daily summary generated successfully\n")
-    return report
 
-
-def test_weekly_summary():
+def test_weekly_summary(tmp_path):
     """Test weekly cost summary generation."""
     print("\n" + "="*80)
     print("TEST: Weekly Cost Summary")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     report = aggregator.weekly_summary()
+    assert report["weekly_summaries"]
+    assert sum(week["total_calls"] for week in report["weekly_summaries"].values()) > 0
 
     print(f"\nPeriod: {report['period']}")
     print(f"Generated: {report['generated_at']}")
@@ -174,19 +172,19 @@ def test_weekly_summary():
         print()
 
     print(f"✓ Weekly summary generated successfully\n")
-    return report
 
-
-def test_monthly_summary():
+def test_monthly_summary(tmp_path):
     """Test monthly cost summary generation."""
     print("\n" + "="*80)
     print("TEST: Monthly Cost Summary")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     report = aggregator.monthly_summary()
+    assert report["monthly_summaries"]
+    assert sum(month["total_calls"] for month in report["monthly_summaries"].values()) > 0
 
     print(f"\nPeriod: {report['period']}")
     print(f"Generated: {report['generated_at']}")
@@ -209,19 +207,20 @@ def test_monthly_summary():
         print()
 
     print(f"✓ Monthly summary generated successfully\n")
-    return report
 
-
-def test_savings_report():
+def test_savings_report(tmp_path):
     """Test comprehensive savings report generation."""
     print("\n" + "="*80)
     print("TEST: Savings Report with Compression & Cache Metrics")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     report = aggregator.savings_report()
+    assert report["total_entries_analyzed"] > 0
+    assert report["compression_metrics"]["total_tokens"] > 0
+    assert report["cost_summary"]["total_actual_cost_usd"] >= 0
 
     print(f"\nReport Type: {report['report_type']}")
     print(f"Generated: {report['generated_at']}")
@@ -271,19 +270,19 @@ def test_savings_report():
         print()
 
     print(f"✓ Savings report generated successfully\n")
-    return report
 
-
-def test_summary_stats():
+def test_summary_stats(tmp_path):
     """Test overall summary statistics."""
     print("\n" + "="*80)
     print("TEST: Summary Statistics")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     stats = aggregator.get_summary_stats()
+    assert stats["total_entries"] > 0
+    assert stats["total_cost_usd"] >= 0
 
     print(f"\nTotal Entries: {stats['total_entries']}")
     print(f"Total Cost: ${stats['total_cost_usd']:.6f}")
@@ -293,16 +292,14 @@ def test_summary_stats():
     print(f"Date Range: {stats['date_range']['start']} to {stats['date_range']['end']}")
 
     print(f"\n✓ Summary statistics generated successfully\n")
-    return stats
 
-
-def test_add_entry():
+def test_add_entry(tmp_path):
     """Test adding new entries to the aggregator."""
     print("\n" + "="*80)
     print("TEST: Add New Entry")
     print("="*80)
 
-    log_file = create_sample_log_file()
+    log_file = create_sample_log_file(tmp_path)
     aggregator = CostAggregator(str(log_file))
 
     initial_count = len(aggregator.entries)
@@ -324,12 +321,21 @@ def test_add_entry():
 
     aggregator.add_entry(new_entry)
     final_count = len(aggregator.entries)
+    assert final_count == initial_count + 1
+    added = aggregator.entries[-1]
+    assert added.model == new_entry["model"]
+    assert added.worker_id == "test-worker"
+    assert added.cache_hit is True
+    assert added.compression_ratio == 0.93
+    assert added.uncompressed_tokens == 4400
 
     print(f"After adding entry: {final_count}")
     print(f"Entry added successfully: {final_count == initial_count + 1}")
 
     # Verify the entry was persisted
     aggregator2 = CostAggregator(str(log_file))
+    assert len(aggregator2.entries) == final_count
+    assert aggregator2.entries[-1].worker_id == "test-worker"
     print(f"Verification (reload from disk): {len(aggregator2.entries) == final_count}")
 
     print(f"\n✓ Add entry test passed\n")

@@ -49,6 +49,25 @@ class CostRecord:
     def uncompressed_tokens(self) -> int:
         return int(self.metadata.get("uncompressed_tokens", 0))
 
+    @property
+    def compression_ratio(self) -> float:
+        return float(self.metadata.get("compression_ratio", 1.0))
+
+    @property
+    def worker_id(self) -> str | None:
+        value = self.metadata.get("worker_id")
+        return str(value) if value is not None else None
+
+    @property
+    def workflow_id(self) -> str | None:
+        value = self.metadata.get("workflow_id")
+        return str(value) if value is not None else None
+
+    @property
+    def task_hash(self) -> str | None:
+        value = self.metadata.get("task_hash")
+        return str(value) if value is not None else None
+
     def to_dict(self) -> dict[str, Any]:
         """Return the canonical JSON representation."""
         return {
@@ -77,9 +96,23 @@ class CostRecord:
             raw_cost = data.get("total_cost_usd", data.get("cost", 0.0))
 
         task_name = data.get("task_name", data.get("task", "unknown"))
-        metadata = data.get("metadata", {})
-        if not isinstance(metadata, dict):
-            metadata = {"legacy_metadata": metadata}
+        metadata_value = data.get("metadata", {})
+        if isinstance(metadata_value, dict):
+            metadata = dict(metadata_value)
+        else:
+            metadata = {"legacy_metadata": metadata_value}
+        # Migrate fields written by the legacy aggregator into the canonical
+        # metadata object so historical records remain readable by new code.
+        for field_name in (
+            "cache_hit",
+            "compression_ratio",
+            "uncompressed_tokens",
+            "worker_id",
+            "workflow_id",
+            "task_hash",
+        ):
+            if field_name in data and field_name not in metadata:
+                metadata[field_name] = data[field_name]
 
         return cls(
             timestamp=str(data.get("timestamp", "")),

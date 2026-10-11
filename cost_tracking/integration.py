@@ -386,9 +386,24 @@ class CostLogger:
             self.file_logger.error(f"Flush error: {e}")
 
     def stop(self):
-        """Stop logger (flushes all remaining items)"""
+        """Stop the logger once, wake its worker, and flush queued records."""
+        if not self.running:
+            if self.flush_thread.is_alive():
+                self.flush_thread.join(timeout=0.1)
+            return
+
         self.running = False
-        self.flush_thread.join(timeout=5)
+        # Wake queue.get() immediately instead of making shutdown wait for the
+        # normal flush interval. If the queue is full, the worker will drain it
+        # and its existing timeout remains the bounded fallback.
+        try:
+            self.queue.put(None, block=False)
+        except queue.Full:
+            pass
+
+        self.flush_thread.join(timeout=max(1.0, self.flush_interval))
+        if self.flush_thread.is_alive():
+            self.file_logger.error("Cost tracking flush worker did not stop before timeout")
 
 
 def cost_track_api_call(

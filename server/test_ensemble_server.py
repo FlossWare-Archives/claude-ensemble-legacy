@@ -4,6 +4,16 @@ from __future__ import annotations
 import json, os, tempfile, threading, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
+
+ROOT_REPO = Path(__file__).resolve().parents[1]
+for import_path in (
+    ROOT_REPO,
+    ROOT_REPO / "graph-service",
+    ROOT_REPO / "memory-service",
+    ROOT_REPO / "learning",
+):
+    sys.path.insert(0, str(import_path))
 
 def request(server, method, path, payload=None, headers=None):
 
@@ -72,10 +82,11 @@ def run():
     finally:
         ensemble_module.urllib.request.urlopen = original_urlopen
         ensemble_module._health_cache.clear()
-    root_repo=Path(__file__).parents[1]
-    sys.path.insert(0,str(root_repo))
-    sys.path.insert(0,str(root_repo/"graph-service"))
-    sys.path.insert(0,str(root_repo/"memory-service"))
+    root_repo=Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root_repo))
+    sys.path.insert(0, str(root_repo/"graph-service"))
+    sys.path.insert(0, str(root_repo/"memory-service"))
+    sys.path.insert(0, str(root_repo/"learning"))
     from graph_service import create_server as graph_server
     from memory_service import MemoryService
     from server.ensemble_server import create_server as gateway_server, _forward
@@ -150,7 +161,7 @@ def run():
         try:
             status,body=request(query_gateway,"GET","/api/v1/graph/capture?scope=remote&limit=2",headers={"Authorization":"Bearer secret","X-Request-ID":"req-169"})
             assert status==200 and body["ok"]
-            assert QueryCaptureHandler.seen_path=="/graph/capture?scope=remote&limit=2"
+            assert QueryCaptureHandler.seen_path=="/api/v1/graph/capture?scope=remote&limit=2"
             assert QueryCaptureHandler.seen_headers["x-request-id"]=="req-169"
             assert "authorization" not in QueryCaptureHandler.seen_headers
         finally:
@@ -173,14 +184,14 @@ def run():
 
             status,headers,body=request_with_headers(gateway,"POST","/api/v1/collaboration/run",{"task":"auth test"})
             assert status==401 and body["error_code"]=="unauthorized"
-            assert headers.get("Www-Authenticate")=="Bearer", headers
+            assert next((value for name, value in headers.items() if name.lower() == "www-authenticate"), None) == "Bearer", headers
 
             status,headers,body=request_with_headers(
                 gateway,"POST","/api/v1/collaboration/run",{"task":"auth test"},
                 {"Authorization":"Bearer incorrect-token"},
             )
             assert status==401 and body["error_code"]=="unauthorized"
-            assert headers.get("Www-Authenticate")=="Bearer", headers
+            assert next((value for name, value in headers.items() if name.lower() == "www-authenticate"), None) == "Bearer", headers
 
             os.environ["ENSEMBLE_COLLABORATION_SOLVERS"]="sonnet"
             status,body=request(
@@ -257,9 +268,12 @@ def run():
             original_collaboration = gateway_module.CollaborationOrchestrator
             original_memory_writer = gateway.application.memory_writer
             original_provenance_store = gateway.application.provenance
+            original_resolve = gateway.application.models.registry.resolve
             gateway_module.CollaborationOrchestrator = FakeCollaboration
             gateway.application.memory_writer = FakeMemoryWriter()
             gateway.application.provenance = FakeProvenanceStore()
+            gateway.application.models.registry.resolve = lambda *_args, **_kwargs: object()
+            os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"] = "test-collaboration-token"
             try:
                 status, body = request(
                     gateway,
@@ -332,6 +346,11 @@ def run():
                 gateway_module.CollaborationOrchestrator = original_collaboration
                 gateway.application.memory_writer = original_memory_writer
                 gateway.application.provenance = original_provenance_store
+                gateway.application.models.registry.resolve = original_resolve
+                if original_token is None:
+                    os.environ.pop("ENSEMBLE_COLLABORATION_AUTH_TOKEN", None)
+                else:
+                    os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"] = original_token
 
             # Memory is independently reachable through the same public boundary.
             assert request(gateway,"POST","/api/v1/memory/write",

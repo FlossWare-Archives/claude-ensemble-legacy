@@ -20,7 +20,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 from .schema import CANONICAL_LOG_PATH, CostRecord
 from collections import defaultdict
@@ -384,27 +384,36 @@ class CostAggregator:
         Args:
             entry_data: Dict containing cost entry fields.
         """
-        entry = CostEntry(
-            timestamp=entry_data.get('timestamp', datetime.now().isoformat()),
-            model=entry_data.get('model', 'unknown'),
-            provider=entry_data.get('provider', 'unknown'),
-            input_tokens=int(entry_data.get('input_tokens', 0)),
-            output_tokens=int(entry_data.get('output_tokens', 0)),
-            total_cost_usd=float(entry_data.get('total_cost_usd', 0)),
-            worker_id=entry_data.get('worker_id'),
-            workflow_id=entry_data.get('workflow_id'),
-            task_hash=entry_data.get('task_hash'),
-            cache_hit=entry_data.get('cache_hit', False),
-            compression_ratio=float(entry_data.get('compression_ratio', 1.0)),
-            uncompressed_tokens=int(entry_data.get('uncompressed_tokens', 0))
+        metadata = dict(entry_data.get("metadata") or {})
+        for field_name in (
+            "worker_id",
+            "workflow_id",
+            "task_hash",
+            "cache_hit",
+            "compression_ratio",
+            "uncompressed_tokens",
+        ):
+            if field_name in entry_data:
+                metadata[field_name] = entry_data[field_name]
+
+        entry = CostRecord(
+            timestamp=str(entry_data.get("timestamp", datetime.now().isoformat())),
+            model=str(entry_data.get("model", "unknown")),
+            provider=str(entry_data.get("provider", "unknown")),
+            input_tokens=int(entry_data.get("input_tokens", 0)),
+            output_tokens=int(entry_data.get("output_tokens", 0)),
+            cost_usd=float(entry_data.get("cost_usd", entry_data.get("total_cost_usd", 0))),
+            task_name=str(entry_data.get("task_name", entry_data.get("task", "unknown"))),
+            source=str(entry_data.get("source", "api")),
+            metadata=metadata,
         )
 
         self.entries.append(entry)
 
-        # Persist to log file
+        # Persist through the same canonical schema used by the logger and reader.
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_file, 'a') as f:
-            f.write(json.dumps(asdict(entry)) + '\n')
+        with self.log_file.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(entry.to_dict(), sort_keys=True) + "\n")
 
     def get_summary_stats(self) -> Dict[str, Any]:
         """Get overall summary statistics."""
