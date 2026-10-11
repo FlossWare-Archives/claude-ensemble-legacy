@@ -117,3 +117,33 @@ def test_nested_gateway_health_route_reaches_the_concrete_service(tmp_path, monk
         stop(outer, outer_thread)
         stop(inner, inner_thread)
         stop(graph, graph_thread)
+
+
+def test_gateway_liveness_is_distinct_from_downstream_readiness(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    graph_paths = []
+    graph = ThreadingHTTPServer(
+        ("127.0.0.1", 0), service_handler("graph", graph_paths)
+    )
+    graph_thread = start(graph)
+    gateway = create_server(
+        "127.0.0.1",
+        0,
+        graph_url=f"http://127.0.0.1:{graph.server_port}",
+        memory_url="http://127.0.0.1:1",
+    )
+    gateway_thread = start(gateway)
+    try:
+        live_status, live_body = get_json(gateway, "/api/v1/health")
+        ready_status, ready_body = get_json(gateway, "/api/v1/ready")
+
+        assert live_status == 200
+        assert live_body == {"ok": True, "service": "claude-ensemble"}
+        assert ready_status == 503
+        assert ready_body["ok"] is False
+        assert ready_body["ready"] is False
+        assert ready_body["dependencies"]["graph"]["ok"] is True
+        assert ready_body["dependencies"]["memory"]["ok"] is False
+    finally:
+        stop(gateway, gateway_thread)
+        stop(graph, graph_thread)
