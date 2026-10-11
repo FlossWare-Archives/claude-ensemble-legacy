@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from collaboration.orchestrator import CollaborationOrchestrator
 from collaboration.reviewer import ReviewerResult
 from providers import ModelProvider, ModelRequest, ModelResponse
@@ -257,6 +259,22 @@ def test_arbiter_rejects_unknown_selected_candidate():
         assert "unknown candidate" in str(exc)
     else:
         raise AssertionError("unknown candidate must fail closed")
+
+@pytest.mark.parametrize("response", ["", "not valid JSON"])
+def test_empty_or_malformed_arbiter_output_fails_closed(response):
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FakeProvider({"sonnet": "solution"})},
+        arbiter=FakeProvider({"arbiter": response}),
+        reviewers={},
+    )
+    try:
+        loop.run()
+    except ValueError as exc:
+        assert "arbiter response must contain a JSON object" in str(exc)
+    else:
+        raise AssertionError("empty or malformed arbiter output must fail closed")
+
 
 def test_reviewer_failure_isolated_and_recorded():
     class FailingReviewer(FakeReviewer):
