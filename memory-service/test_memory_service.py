@@ -504,24 +504,65 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
                 status, body = post("/memory/write", {"name": "../escape", "content": "no"})
                 self.assertEqual(status, 400)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "validation")
 
                 status, body = post("/memory/read", {"name": "missing"})
                 self.assertEqual(status, 404)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "not_found")
 
                 with patch.object(service.store, "write_file", return_value=False):
                     status, body = post("/memory/write", {"name": "write-failure", "content": "x"})
                 self.assertEqual(status, 500)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
 
                 with patch.object(service.store, "read_file", side_effect=OSError("disk failure")):
                     status, body = post("/memory/read", {"name": "read-failure"})
                 self.assertEqual(status, 500)
                 self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
 
                 status, body = post("/memory/write", {"name": "valid", "content": "stored"})
                 self.assertEqual(status, 200)
                 self.assertTrue(body["ok"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+
+    def test_semantic_search_enrichment_read_failure_returns_500(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with patch.object(
+                    service.store,
+                    "search_semantic",
+                    return_value=[{"file": "enrichment-failure", "section": "body", "score": 1.0}],
+                ), patch.object(
+                    service.store,
+                    "read_file",
+                    side_effect=OSError("disk failure during enrichment"),
+                ):
+                    request = urllib.request.Request(
+                        "http://127.0.0.1:%d/memory/search-semantic" % server.server_port,
+                        data=json.dumps({"query": "needle", "top_k": 5}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as raised:
+                        urllib.request.urlopen(request, timeout=2)
+                    self.assertEqual(raised.exception.code, 500)
+                    body = json.loads(raised.exception.read().decode("utf-8"))
+                    self.assertFalse(body["ok"])
+                    self.assertIn("disk failure during enrichment", body["error"])
             finally:
                 server.shutdown()
                 server.server_close()

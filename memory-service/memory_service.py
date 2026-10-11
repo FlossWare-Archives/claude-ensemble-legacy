@@ -771,10 +771,10 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
             if result.get("ok") is False:
                 if result.get("error_type") == "validation":
                     status = 400
+                elif result.get("error_type") == "not_found":
+                    status = 404
                 elif result.get("error_type") == "internal":
                     status = 500
-                elif operation == "read" and result.get("content") is None:
-                    status = 404
                 else:
                     status = 500
             else:
@@ -929,13 +929,26 @@ class MemoryService:
             if operation == "read":
                 name = req_data.get("name")
                 content = self.store.read_file(name)
-                return json.dumps({"ok": content is not None, "content": content})
+                if content is None:
+                    return json.dumps({
+                        "ok": False,
+                        "content": None,
+                        "error": "memory not found",
+                        "error_type": "not_found",
+                    })
+                return json.dumps({"ok": True, "content": content})
 
             if operation == "write":
                 name = req_data.get("name")
                 content = req_data.get("content")
                 success = self.store.write_file(name, content)
-                return json.dumps({"ok": success})
+                if not success:
+                    return json.dumps({
+                        "ok": False,
+                        "error": "memory write failed",
+                        "error_type": "internal",
+                    })
+                return json.dumps({"ok": True})
 
             if operation == "append":
                 name = req_data.get("name")
