@@ -62,6 +62,9 @@ jobs:
       - name: Run Learning Service tests
         run: python learning-service/test_learning_service.py
 
+      - name: Run service-unavailable client contract tests
+        run: python test/test_service_unavailable_behavior.py
+
       - name: Run service lifecycle ownership contract
         run: python test/test_service_lifecycle.py
 
