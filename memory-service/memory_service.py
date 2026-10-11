@@ -107,9 +107,9 @@ class MemoryStore:
         try:
             with open(path, "r") as f:
                 return f.read()
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error reading {name}: {e}")
-            return None
+            raise
 
     def write_file(self, name: str, content: str) -> bool:
         """Write a memory file."""
@@ -768,8 +768,20 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                     if content is not None: item["content"]=content
                     enriched.append(item)
                 result["results"]=enriched
-            self._send(200,result)
-        except (ValueError,json.JSONDecodeError) as exc: self._send(400,{"ok":False,"error":str(exc)})
+            if result.get("ok") is False:
+                if result.get("error_type") == "validation":
+                    status = 400
+                elif result.get("error_type") == "internal":
+                    status = 500
+                elif operation == "read" and result.get("content") is None:
+                    status = 404
+                else:
+                    status = 500
+            else:
+                status = 200
+            self._send(status, result)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send(400, {"ok": False, "error": str(exc)})
         except Exception as exc:
             logger.exception("Memory REST request failed")
             self._send(500,{"ok":False,"error":str(exc)})
@@ -1008,10 +1020,12 @@ class MemoryService:
 
             return json.dumps({"ok": False, "error": f"Unknown operation: {operation}"})
         except json.JSONDecodeError:
-            return json.dumps({"ok": False, "error": "Invalid JSON"})
+            return json.dumps({"ok": False, "error": "Invalid JSON", "error_type": "validation"})
+        except (ValueError, TypeError, KeyError) as e:
+            return json.dumps({"ok": False, "error": str(e), "error_type": "validation"})
         except Exception as e:
             logger.error(f"Request error: {e}")
-            return json.dumps({"ok": False, "error": str(e)})
+            return json.dumps({"ok": False, "error": str(e), "error_type": "internal"})
 
 
 if __name__ == "__main__":

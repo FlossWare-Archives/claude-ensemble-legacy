@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -473,6 +474,59 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+
+class MemoryServiceRestStatusTest(unittest.TestCase):
+    def test_generic_memory_routes_map_failure_to_non_2xx_status(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = MemoryService(Path(temp_dir) / "memory.sock", Path(temp_dir) / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+
+                def post(path, payload):
+                    request = urllib.request.Request(
+                        base + path,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=2) as response:
+                            return response.status, json.loads(response.read().decode("utf-8"))
+                    except urllib.error.HTTPError as response:
+                        return response.code, json.loads(response.read().decode("utf-8"))
+
+                status, body = post("/memory/write", {"name": "../escape", "content": "no"})
+                self.assertEqual(status, 400)
+                self.assertFalse(body["ok"])
+
+                status, body = post("/memory/read", {"name": "missing"})
+                self.assertEqual(status, 404)
+                self.assertFalse(body["ok"])
+
+                with patch.object(service.store, "write_file", return_value=False):
+                    status, body = post("/memory/write", {"name": "write-failure", "content": "x"})
+                self.assertEqual(status, 500)
+                self.assertFalse(body["ok"])
+
+                with patch.object(service.store, "read_file", side_effect=OSError("disk failure")):
+                    status, body = post("/memory/read", {"name": "read-failure"})
+                self.assertEqual(status, 500)
+                self.assertFalse(body["ok"])
+
+                status, body = post("/memory/write", {"name": "valid", "content": "stored"})
+                self.assertEqual(status, 200)
+                self.assertTrue(body["ok"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
 
 
 class MemoryServiceSecurityTest(unittest.TestCase):
