@@ -195,6 +195,13 @@ Services may run independently, but service integration uses REST/HTTP contracts
 
 ## Architecture
 
+### REST Gateway (Systemd Daemon)
+- **Path:** `server/ensemble_server.py`
+- **Status:** Installed and verified by the top-level installer as `claude-ensemble.service`
+- **Endpoint:** `127.0.0.1:8080` by default
+- **Dependencies:** Starts after the Graph and Memory services; communicates with them over loopback HTTP
+- **Diagnostics:** `tools/claude-config/bin/claude-config doctor` reports the systemd unit state separately from HTTP health at `/api/v1/health`
+
 ### Graph Service (Systemd Daemon)
 - **Path:** `graph-service/`
 - **Status:** Independently managed by the systemd user service `claude-graph.service`

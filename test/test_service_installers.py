@@ -16,6 +16,7 @@ SERVICES = (
     ("alert_service", "claude-alert.service"),
     ("session-messaging", "claude-messenger.service"),
     ("graph-service", "claude-graph.service"),
+    ("server", "claude-ensemble.service"),
 )
 
 
@@ -33,7 +34,10 @@ with tempfile.TemporaryDirectory() as tmp:
     fake_systemctl.write_text(
         '''#!/usr/bin/env bash
 echo "$*" >> "$SYSTEMCTL_LOG"
-if [[ "$*" == *"is-active"* ]]; then exit 0; fi
+if [[ "$*" == *"is-active"* ]]; then
+  if [[ -n "${FAIL_INACTIVE_UNIT:-}" && "$*" == *"$FAIL_INACTIVE_UNIT"* ]]; then exit 3; fi
+  exit 0
+fi
 exit 0
 ''',
         encoding="utf-8",
@@ -148,7 +152,23 @@ exit 0
             fail(f"top-level installer did not enable {service_name}")
         if f"start {service_name}" not in systemctl_log:
             fail(f"top-level installer did not start {service_name}")
-    
+
+    # The default installer must fail closed if the gateway unit is inactive.
+    inactive_env = env.copy()
+    inactive_env["FAIL_INACTIVE_UNIT"] = "claude-ensemble.service"
+    inactive = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), str(ROOT)],
+        cwd=ROOT,
+        env=inactive_env,
+        input="n\n",
+        text=True,
+        capture_output=True,
+    )
+    if inactive.returncode == 0:
+        fail("top-level installer succeeded while the REST gateway was inactive")
+    if "REST gateway failed to start" not in inactive.stderr:
+        fail(f"inactive gateway failure was not diagnosed: {inactive.stdout}\n{inactive.stderr}")
+
 if not (ROOT / "toolkit-models.yaml.default").is_file():
     fail("missing toolkit-models.yaml.default")
 

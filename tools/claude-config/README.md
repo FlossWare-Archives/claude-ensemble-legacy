@@ -31,3 +31,5 @@ The Memory REST service is a loopback-only service. The hook sends the extracted
 The `/memory/search` contract returns JSON with `ok: true` and a `results` array. Each result used by the hook provides a `content` string; the hook ignores other result shapes instead of guessing at service internals.
 
 Integration version: 0.2.
+
+The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports gateway deployment state (systemd unit active/inactive) separately from gateway HTTP health (`/api/v1/health` reachable/unreachable). Override the diagnostic URL with `ENSEMBLE_GATEWAY_URL`; these checks are informational and do not confuse hook verification with gateway availability.
