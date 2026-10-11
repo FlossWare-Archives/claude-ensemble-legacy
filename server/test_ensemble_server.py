@@ -210,6 +210,10 @@ def run():
                 os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"]=original_token
 
             assert request(gateway,"GET","/api/v1/health")[0]==200
+            graph_status, graph_health = request(gateway, "GET", "/api/v1/graph/health")
+            assert graph_status == 200 and graph_health.get("ok") is True, graph_health
+            memory_status, memory_health = request(gateway, "GET", "/api/v1/memory/health")
+            assert memory_status == 200 and memory_health.get("ok") is True, memory_health
             for node in [
                 {"id":"model:sonnet","type":"model","properties":{"name":"sonnet"}},
                 {"id":"task:code_review","type":"task_type","properties":{"name":"code_review"}},
