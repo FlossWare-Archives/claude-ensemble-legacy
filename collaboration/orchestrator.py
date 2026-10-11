@@ -99,6 +99,8 @@ class CollaborationOrchestrator:
         solvers: Mapping[str, ModelProvider],
         arbiter: ModelProvider,
         reviewers: Mapping[str, Reviewer],
+        solver_model_ids: Mapping[str, str] | None = None,
+        arbiter_model_id: str | None = None,
         constraints: list[str] | tuple[str, ...] = (),
         max_rounds: int = 3,
         max_solver_calls: int | None = None,
@@ -121,6 +123,8 @@ class CollaborationOrchestrator:
         self.solvers = dict(solvers)
         self.arbiter = arbiter
         self.reviewers = dict(reviewers)
+        self.solver_model_ids = dict(solver_model_ids or {})
+        self.arbiter_model_id = arbiter_model_id
         self.max_rounds = max_rounds
         self.max_solver_calls = max_solver_calls
         self.max_review_calls = max_review_calls
@@ -212,7 +216,7 @@ class CollaborationOrchestrator:
                 response = provider.generate(
                     ModelRequest(
                         prompt=prompt,
-                        model=model,
+                        model=self.solver_model_ids.get(model, model),
                         temperature=0.4,
                         metadata={"collaboration_round": self.state.round},
                     )
@@ -447,7 +451,7 @@ class CollaborationOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         response = self.arbiter.generate(
-            ModelRequest(prompt=prompt, temperature=0, max_tokens=4000)
+            ModelRequest(prompt=prompt, model=self.arbiter_model_id, temperature=0, max_tokens=4000)
         )
         adjudication = self._parse_adjudication(response.text)
         selected = adjudication["selected_candidate"]

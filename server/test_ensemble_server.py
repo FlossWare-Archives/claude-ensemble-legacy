@@ -228,9 +228,11 @@ def run():
             import server.ensemble_server as gateway_module
             from collaboration import Candidate, CollaborationResult, CollaborationState, ReviewRecord
 
+            captured_model_config = {}
+
             class FakeCollaboration:
                 def __init__(self, *args, **kwargs):
-                    pass
+                    captured_model_config.update(kwargs)
 
                 def run(self, *, context=""):
                     state = CollaborationState("test collaboration")
@@ -290,6 +292,15 @@ def run():
                     },
                 )
                 assert status == 200 and body["ok"]
+                assert captured_model_config["solver_model_ids"]["sonnet"] == (
+                    gateway.application.models.registry.resolve_model("sonnet")[1]
+                )
+                assert captured_model_config["solver_model_ids"]["haiku"] == (
+                    gateway.application.models.registry.resolve_model("haiku")[1]
+                )
+                assert captured_model_config["arbiter_model_id"] == (
+                    gateway.application.models.registry.resolve_model("opus")[1]
+                )
                 assert body["knowledge_persisted"] is True
                 assert body["execution_id"] == "collab-test-1"
                 assert len(memory_events) == 1

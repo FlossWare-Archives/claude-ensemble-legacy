@@ -535,13 +535,19 @@ class EnsembleApplication:
                     raise ValueError(f"{name} must be between 1 and {cap}")
 
             solver_providers = {model: self.models.registry.resolve(model) for model in solvers}
+            solver_model_ids = {
+                model: self.models.registry.resolve_model(model)[1] for model in solvers
+            }
             arbiter_provider = self.models.registry.resolve(arbiter)
+            arbiter_model_id = self.models.registry.resolve_model(arbiter)[1]
             reviewer_adapters = {name: MCPReviewer(name) for name in reviewers}
             loop = CollaborationOrchestrator(
                 task,
                 solvers=solver_providers,
                 arbiter=arbiter_provider,
                 reviewers=reviewer_adapters,
+                solver_model_ids=solver_model_ids,
+                arbiter_model_id=arbiter_model_id,
                 constraints=constraints,
                 max_rounds=max_rounds,
                 max_solver_calls=max_solver_calls,

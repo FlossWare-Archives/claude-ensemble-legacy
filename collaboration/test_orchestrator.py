@@ -338,3 +338,25 @@ def test_call_budgets_bound_arbiter_calls_and_escalate():
     assert result.adjudication["human_decision_required"] is True
     assert any(item["event"] == "arbiter_budget_exhausted" for item in loop.state.audit)
     assert len(arbiter.requests) == 1
+
+def test_collaboration_uses_canonical_model_ids_for_solver_and_arbiter():
+    solver = FakeProvider({"claude-sonnet-5": "solution A"})
+    arbiter = FakeProvider({"claude-opus-5": adjudication()})
+    loop = CollaborationOrchestrator(
+        "Design the feature.",
+        solvers={"sonnet": solver},
+        arbiter=arbiter,
+        reviewers={},
+        solver_model_ids={"sonnet": "claude-sonnet-5"},
+        arbiter_model_id="claude-opus-5",
+        max_rounds=1,
+    )
+
+    result = loop.run()
+
+    assert result.status == "accepted"
+    assert result.selected_candidate is not None
+    assert result.selected_candidate.model == "sonnet"
+    assert solver.requests[0].model == "claude-sonnet-5"
+    assert arbiter.requests[0].model == "claude-opus-5"
+
