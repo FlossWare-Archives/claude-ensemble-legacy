@@ -40,6 +40,33 @@ class StubServiceHandler(BaseHTTPRequestHandler):
         pass
 
 
+class HealthServiceHandler(BaseHTTPRequestHandler):
+    """Minimal concrete-service health endpoint with an unambiguous identity."""
+
+    service_name = "service"
+
+    def do_GET(self):
+        payload = json.dumps(
+            {"ok": True, "service": self.service_name, "path": self.path}
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *_args):
+        pass
+
+
+class GraphHealthHandler(HealthServiceHandler):
+    service_name = "graph"
+
+
+class MemoryHealthHandler(HealthServiceHandler):
+    service_name = "memory"
+
+
 def request(server, method, path, payload=None):
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -108,6 +135,61 @@ def test_gateway_forwards_method_path_query_body_and_health(tmp_path, monkeypatc
     finally:
         stop(gateway, gateway_thread)
         stop(downstream, downstream_thread)
+
+
+def test_gateway_health_routes_return_correct_service_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    graph = ThreadingHTTPServer(("127.0.0.1", 0), GraphHealthHandler)
+    memory = ThreadingHTTPServer(("127.0.0.1", 0), MemoryHealthHandler)
+    graph_thread = start(graph)
+    memory_thread = start(memory)
+    gateway = create_server(
+        "127.0.0.1",
+        0,
+        graph_url=f"http://127.0.0.1:{graph.server_port}",
+        memory_url=f"http://127.0.0.1:{memory.server_port}",
+    )
+    gateway_thread = start(gateway)
+    try:
+        status, graph_health = request(gateway, "GET", "/api/v1/graph/health")
+        assert status == 200
+        assert graph_health == {"ok": True, "service": "graph", "path": "/health"}
+
+        status, memory_health = request(gateway, "GET", "/api/v1/memory/health")
+        assert status == 200
+        assert memory_health == {"ok": True, "service": "memory", "path": "/health"}
+    finally:
+        stop(gateway, gateway_thread)
+        stop(graph, graph_thread)
+        stop(memory, memory_thread)
+
+
+def test_nested_gateways_preserve_graph_and_memory_health_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    graph = ThreadingHTTPServer(("127.0.0.1", 0), GraphHealthHandler)
+    memory = ThreadingHTTPServer(("127.0.0.1", 0), MemoryHealthHandler)
+    graph_thread = start(graph)
+    memory_thread = start(memory)
+    graph_url = f"http://127.0.0.1:{graph.server_port}"
+    memory_url = f"http://127.0.0.1:{memory.server_port}"
+    inner = create_server("127.0.0.1", 0, graph_url=graph_url, memory_url=memory_url)
+    inner_thread = start(inner)
+    inner_url = f"http://127.0.0.1:{inner.server_port}"
+    outer = create_server("127.0.0.1", 0, graph_url=inner_url, memory_url=inner_url)
+    outer_thread = start(outer)
+    try:
+        status, graph_health = request(outer, "GET", "/api/v1/graph/health")
+        assert status == 200
+        assert graph_health == {"ok": True, "service": "graph", "path": "/health"}
+
+        status, memory_health = request(outer, "GET", "/api/v1/memory/health")
+        assert status == 200
+        assert memory_health == {"ok": True, "service": "memory", "path": "/health"}
+    finally:
+        stop(outer, outer_thread)
+        stop(inner, inner_thread)
+        stop(graph, graph_thread)
+        stop(memory, memory_thread)
 
 
 def test_gateway_preserves_downstream_http_status_and_error_payload(tmp_path, monkeypatch):
