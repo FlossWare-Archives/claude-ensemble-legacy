@@ -53,5 +53,30 @@ class OperationalMemoryWriterTest(unittest.TestCase):
         self.assertFalse(writer.write_event("task-1", "learning.outcome", "learning-service", {}))
 
 
+    @patch("shared.operational_memory.urllib.request.urlopen")
+    def test_write_event_handles_http_error_as_non_durable_failure(self, urlopen):
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        urlopen.side_effect = HTTPError(
+            "http://127.0.0.1:8767/memory/write", 503, "unavailable", {}, BytesIO(b'{"ok": false}')
+        )
+        writer = OperationalMemoryWriter(timeout=0.1)
+        self.assertFalse(writer.write_event("task-503", "learning.outcome", "learning-service", {}))
+
+    @patch("shared.operational_memory.urllib.request.urlopen")
+    def test_required_thompson_state_http_error_raises(self, urlopen):
+        from io import BytesIO
+        from urllib.error import HTTPError
+        from shared.operational_memory import OperationalMemoryPersistenceError
+
+        urlopen.side_effect = HTTPError(
+            "http://127.0.0.1:8767/memory/write", 500, "storage failure", {}, BytesIO(b'{"ok": false}')
+        )
+        writer = OperationalMemoryWriter(timeout=0.1)
+        with self.assertRaises(OperationalMemoryPersistenceError):
+            writer.write_event("state-500", "thompson.state", "thompson-service", {})
+
+
 if __name__ == "__main__":
     unittest.main()
