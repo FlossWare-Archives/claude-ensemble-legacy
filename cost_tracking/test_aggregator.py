@@ -341,6 +341,51 @@ def test_add_entry(tmp_path):
     print(f"\n✓ Add entry test passed\n")
 
 
+
+def test_legacy_jsonl_record_loads_and_aggregates_exactly_once(tmp_path):
+    """Historical aggregator JSONL records remain readable without rewriting."""
+    legacy_record = {
+        "timestamp": "2026-01-02T03:04:05",
+        "model": "claude-sonnet-4.5",
+        "provider": "anthropic",
+        "input_tokens": 1200,
+        "output_tokens": 300,
+        "total_cost_usd": 0.125,
+        "worker_id": "legacy-worker",
+        "workflow_id": "legacy-workflow",
+        "task_hash": "legacy-task-hash",
+        "cache_hit": True,
+        "compression_ratio": 0.875,
+        "uncompressed_tokens": 1800,
+    }
+    log_file = tmp_path / "legacy.jsonl"
+    original_line = json.dumps(legacy_record)
+    log_file.write_text(original_line + "\n", encoding="utf-8")
+
+    aggregator = CostAggregator(str(log_file))
+    assert len(aggregator.entries) == 1
+    record = aggregator.entries[0]
+    assert record.cost_usd == 0.125
+    assert record.total_cost_usd == 0.125
+    assert record.worker_id == "legacy-worker"
+    assert record.workflow_id == "legacy-workflow"
+    assert record.task_hash == "legacy-task-hash"
+    assert record.cache_hit is True
+    assert record.compression_ratio == 0.875
+    assert record.uncompressed_tokens == 1800
+
+    daily = aggregator.daily_summary()["daily_summaries"]
+    assert daily["2026-01-02"]["total_calls"] == 1
+    assert daily["2026-01-02"]["total_cost"] == 0.125
+
+    # Reloading reads the original single event once; it does not rewrite or
+    # append a migrated duplicate to the append-only historical log.
+    reloaded = CostAggregator(str(log_file))
+    assert len(reloaded.entries) == 1
+    assert reloaded.get_summary_stats()["total_entries"] == 1
+    assert log_file.read_text(encoding="utf-8") == original_line + "\n"
+
+
 def generate_sample_report():
     """Generate a complete sample report and save as JSON."""
     print("\n" + "="*80)

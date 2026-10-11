@@ -466,7 +466,7 @@ class ArbitrationOrchestrator:
             self.add_phase(workers, arbiter, self._get_phase_instructions(i))
 
     def _get_phase_instructions(self, phase_idx: int) -> str:
-        base = f"Analyze this {self.task_type.value} carefully."
+        base = f"Analyze this {self.task_type.value} carefully.\n\n{self.task_description}"
         return (
             f"{base}\n\n"
             "Independently evaluate the current task and all supplied evidence. "
@@ -504,18 +504,7 @@ class ArbitrationOrchestrator:
         self.final_arbiter_output = self.results[-1][1].adjudicated_result
         return self.final_arbiter_output
 
-    def _context_for_phase(self, phase_config: PhaseConfig, context: str) -> str:
-        """Ensure manually configured phases receive the task description too."""
-        if (
-            self.task_description
-            and self.task_description not in phase_config.instructions
-            and self.task_description not in context
-        ):
-            return f"## Task Description\n\n{self.task_description}\n\n{context}"
-        return context
-
     def _worker_request(self, phase_config: PhaseConfig, model: str, context: str) -> ModelRequest:
-        context = self._context_for_phase(phase_config, context)
         prompt = (
             f"{phase_config.instructions}\n\n"
             f"## Original Task and Evidence\n\n{self.task_description}\n\n"
