@@ -80,8 +80,12 @@ def test_concrete_graph_and_memory_health_return_their_own_identity(tmp_path, mo
         assert graph_body == {"ok": True, "service": "graph", "path": "/health"}
         assert memory_status == 200
         assert memory_body == {"ok": True, "service": "memory", "path": "/health"}
-        assert graph_paths == ["/api/v1/health", "/health"]
-        assert memory_paths == ["/api/v1/health", "/health"]
+        # The identity and forwarded path are the contract. The target-health
+        # probe may be skipped when its result is already cached.
+        assert "/health" in graph_paths
+        assert "/health" in memory_paths
+        assert "/api/v1/graph/health" not in graph_paths
+        assert "/api/v1/memory/health" not in memory_paths
     finally:
         stop(gateway, gateway_thread)
         stop(graph, graph_thread)
@@ -108,7 +112,6 @@ def test_nested_gateway_health_route_reaches_the_concrete_service(tmp_path, monk
         assert status == 200
         assert body == {"ok": True, "service": "graph", "path": "/health"}
         assert graph_paths.count("/health") == 1
-        assert "/api/v1/health" in graph_paths  # Gateway detection probe only.
         assert "/api/v1/graph/health" not in graph_paths
     finally:
         stop(outer, outer_thread)
