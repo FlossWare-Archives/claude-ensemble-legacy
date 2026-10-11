@@ -19,7 +19,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -130,7 +130,7 @@ class MemoryStore:
         try:
             with self.lock:
                 with open(path, "a") as f:
-                    entry["timestamp"] = datetime.utcnow().isoformat()
+                    entry["timestamp"] = datetime.now(timezone.utc).isoformat()
                     f.write(json.dumps(entry) + "\n")
             logger.info(f"Appended to {name}")
             return True
@@ -201,7 +201,7 @@ class MemoryStore:
                         raise ValueError("event_id already exists with different payload")
 
             record["payload_sha256"] = payload_sha256
-            record["captured_at"] = datetime.utcnow().isoformat() + "Z"
+            record["captured_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             # Preserve a caller-supplied event timestamp. For legacy consumers,
             # provide timestamp only when the payload did not include one.
             record.setdefault("timestamp", record["captured_at"])

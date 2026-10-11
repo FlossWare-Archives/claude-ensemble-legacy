@@ -12,7 +12,7 @@ import socket
 import logging
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Dict, Optional, Any
@@ -78,18 +78,18 @@ class CircuitBreaker:
     def record_failure(self) -> None:
         """Record a failed request"""
         self.failure_count += 1
-        self.last_failure_time = datetime.utcnow()
+        self.last_failure_time = datetime.now(timezone.utc)
 
         if self.state == CircuitState.CLOSED and self.failure_count >= self.failure_threshold:
             # Too many consecutive failures, open the circuit
             logger.warning(f"Circuit breaker: CLOSED -> OPEN ({self.failure_count} consecutive failures)")
             self.state = CircuitState.OPEN
-            self.opened_at = datetime.utcnow()
+            self.opened_at = datetime.now(timezone.utc)
         elif self.state == CircuitState.HALF_OPEN:
             # Failed to recover, go back to OPEN
             logger.warning("Circuit breaker: HALF_OPEN -> OPEN (recovery failed)")
             self.state = CircuitState.OPEN
-            self.opened_at = datetime.utcnow()
+            self.opened_at = datetime.now(timezone.utc)
             self.failure_count = 1  # Reset for next recovery attempt
 
     def try_request(self) -> bool:
@@ -107,7 +107,7 @@ class CircuitBreaker:
             if self.opened_at is None:
                 return False
 
-            elapsed = (datetime.utcnow() - self.opened_at).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self.opened_at).total_seconds()
             if elapsed >= self.timeout_seconds:
                 # Timeout elapsed, try to recover
                 logger.info("Circuit breaker: OPEN -> HALF_OPEN (timeout elapsed, testing recovery)")

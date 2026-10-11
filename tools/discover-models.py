@@ -10,7 +10,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -159,7 +159,7 @@ class ModelDiscovery:
 
             # Store discovered best models
             settings['env']['RH_BEST_MODELS'] = json.dumps(best_models)
-            settings['env']['RH_MODELS_DISCOVERED_AT'] = datetime.utcnow().isoformat()
+            settings['env']['RH_MODELS_DISCOVERED_AT'] = datetime.now(timezone.utc).isoformat()
 
             with open(self.settings_path, 'w') as f:
                 json.dump(settings, f, indent=2)

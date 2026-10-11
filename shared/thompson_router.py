@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from scipy.stats import beta as beta_dist
 
 
@@ -178,7 +178,7 @@ class StateTracker:
             # Acquire WRITE lock to ensure exclusive access during entire save sequence
             with self._acquire_lock('write'):
                 data = {
-                    'last_updated': datetime.utcnow().isoformat(),
+                    'last_updated': datetime.now(timezone.utc).isoformat(),
                     'models': {
                         name: asdict(perf) for name, perf in self.models.items()
                     }
@@ -239,7 +239,7 @@ class StateTracker:
                 perf.calls += 1
                 perf.total_latency_ms += latency_ms
                 perf.total_cost += cost
-                perf.last_updated = datetime.utcnow().isoformat()
+                perf.last_updated = datetime.now(timezone.utc).isoformat()
 
                 # Binary outcome: quality meets threshold
                 if quality_score >= quality_threshold:
@@ -249,7 +249,7 @@ class StateTracker:
 
                 # Write atomically while holding lock
                 data = {
-                    'last_updated': datetime.utcnow().isoformat(),
+                    'last_updated': datetime.now(timezone.utc).isoformat(),
                     'models': {
                         name: asdict(perf_obj) for name, perf_obj in self.models.items()
                     }
@@ -841,7 +841,7 @@ def test_thompson_sampling():
             total_latency_ms=data['latency_ms'] * (data['successes'] + data['failures']),
             total_cost=data['cost'] * (data['successes'] + data['failures']),
             calls=data['successes'] + data['failures'],
-            last_updated=datetime.utcnow().isoformat()
+            last_updated=datetime.now(timezone.utc).isoformat()
         )
         state_tracker.models[model_name] = perf
     state_tracker.save()

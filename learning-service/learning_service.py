@@ -17,7 +17,7 @@ import tempfile
 import time
 import hashlib
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 import threading
 import traceback
@@ -72,7 +72,7 @@ class AutonomousLearningSystem:
                 'rating': rating,
                 'tokens': tokens,
                 'cost': cost,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
             outcome['payload_sha256'] = self._payload_digest(outcome)
 
@@ -155,7 +155,7 @@ class AutonomousLearningSystem:
             if self.checkpoint_path.exists():
                 with self.checkpoint_path.open('r', encoding='utf-8') as handle:
                     checkpoint = json.load(handle)
-            checkpoint[task_id] = datetime.utcnow().isoformat()
+            checkpoint[task_id] = datetime.now(timezone.utc).isoformat()
             with tempfile.NamedTemporaryFile(
                 mode='w', dir=self.learning_dir, delete=False, encoding='utf-8'
             ) as tmp:
@@ -168,7 +168,7 @@ class AutonomousLearningSystem:
         """Get outcomes from the last N days"""
         try:
             outcomes = []
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=days)
 
             for outcome_file in self.outcomes_dir.glob('*.json'):
                 try:
@@ -176,6 +176,8 @@ class AutonomousLearningSystem:
                         outcome = json.load(f)
 
                     outcome_time = datetime.fromisoformat(outcome.get('timestamp', ''))
+                    if outcome_time.tzinfo is None:
+                        outcome_time = outcome_time.replace(tzinfo=timezone.utc)
                     if outcome_time >= cutoff_time:
                         outcomes.append(outcome)
                 except Exception as e:

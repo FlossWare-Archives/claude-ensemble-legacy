@@ -23,7 +23,7 @@ import sys
 import os
 import time
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 import threading
 import uuid
@@ -109,7 +109,7 @@ class AlertStore:
         try:
             with self.lock:
                 with open(delivery_log, 'a') as f:
-                    entry['timestamp'] = datetime.utcnow().isoformat()
+                    entry['timestamp'] = datetime.now(timezone.utc).isoformat()
                     f.write(json.dumps(entry) + '\n')
             logger.info(f"Logged delivery: {entry.get('alert_type')}")
             return True
@@ -126,7 +126,7 @@ class AlertStore:
                 with open(ack_file, 'a') as f:
                     entry = {
                         'alert_id': alert_id,
-                        'timestamp': datetime.utcnow().isoformat(),
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
                     }
                     f.write(json.dumps(entry) + '\n')
             logger.info(f"Acknowledged alert: {alert_id}")
