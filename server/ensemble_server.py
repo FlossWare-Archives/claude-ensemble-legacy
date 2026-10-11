@@ -353,6 +353,7 @@ class EnsembleApplication:
                     status == HTTPStatus.OK
                     and isinstance(payload, dict)
                     and payload.get("ok") is True
+                    and payload.get("service") == service
                 )
                 dependencies[service] = {
                     "ok": healthy,

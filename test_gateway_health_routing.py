@@ -147,3 +147,30 @@ def test_gateway_liveness_is_distinct_from_downstream_readiness(tmp_path, monkey
     finally:
         stop(gateway, gateway_thread)
         stop(graph, graph_thread)
+
+
+def test_readiness_rejects_a_cross_wired_dependency_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    graph_paths = []
+    graph = ThreadingHTTPServer(
+        ("127.0.0.1", 0), service_handler("graph", graph_paths)
+    )
+    graph_thread = start(graph)
+    gateway = create_server(
+        "127.0.0.1",
+        0,
+        graph_url=f"http://127.0.0.1:{graph.server_port}",
+        # Deliberately point Memory at the healthy Graph endpoint.
+        memory_url=f"http://127.0.0.1:{graph.server_port}",
+    )
+    gateway_thread = start(gateway)
+    try:
+        status, body = get_json(gateway, "/api/v1/ready")
+        assert status == 503
+        assert body["ready"] is False
+        assert body["dependencies"]["graph"]["ok"] is True
+        assert body["dependencies"]["memory"]["ok"] is False
+        assert body["dependencies"]["memory"]["response"]["service"] == "graph"
+    finally:
+        stop(gateway, gateway_thread)
+        stop(graph, graph_thread)

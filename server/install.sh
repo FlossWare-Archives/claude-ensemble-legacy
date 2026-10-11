@@ -36,8 +36,9 @@ import time
 import urllib.error
 import urllib.request
 
-url = "http://127.0.0.1:8080/api/v1/ready"
-deadline = time.monotonic() + 20
+url = __import__("os").environ.get("ENSEMBLE_READINESS_URL", "http://127.0.0.1:8080/api/v1/ready")
+timeout = float(__import__("os").environ.get("ENSEMBLE_READINESS_TIMEOUT_SECONDS", "20"))
+deadline = time.monotonic() + timeout
 last_error = "readiness endpoint did not become ready"
 while time.monotonic() < deadline:
     try:
