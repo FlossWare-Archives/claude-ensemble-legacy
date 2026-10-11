@@ -82,6 +82,7 @@ jobs:
             learning-service/test_ga_artifact_contract.py \
             ga_tuning/test_learning_artifact.py \
             test/test_architecture_integration.py \
+            test/test_end_to_end_execution.py \
             shared/test_operational_memory_endpoint.py \
             -v
 
@@ -96,6 +97,9 @@ jobs:
 
       - name: Run Learning Service tests
         run: python learning-service/test_learning_service.py
+
+      - name: Run service-unavailable client contract tests
+        run: python test/test_service_unavailable_behavior.py
 
       - name: Run service lifecycle ownership contract
         run: python test/test_service_lifecycle.py

@@ -100,7 +100,9 @@ class MemoryClient:
             return json.loads(response.decode('utf-8').strip())
         except Exception as e:
             logger.warning(f"Request error: {e}")
-            return {'ok': False, 'error': str(e)}
+            # Keep transport/protocol failures distinct from a valid service
+            # response that rejects the requested operation.
+            return {'ok': False, 'error': str(e), '_transport_error': True}
 
     def read(self, name: str) -> Optional[str]:
         """Read a memory file"""
@@ -136,13 +138,28 @@ class MemoryClient:
         if response.get('ok', False):
             return True
 
-        # Error recovery: cache offline writes
+        if not response.get('_transport_error', False):
+            # The service answered and rejected the operation. Retrying an invalid
+            # request as though the daemon were down only hides a caller error.
+            logger.error(
+                "Memory service rejected append to %s: %s",
+                name,
+                response.get("error", "unspecified application error"),
+            )
+            return False
+
+        # Preserve the record for this client instance, but do not report durable
+        # success. This cache is process-local and has no automatic replay path.
         if name not in self.offline_cache:
             self.offline_cache[name] = []
 
         self.offline_cache[name].append(record)
-        logger.warning(f"Cached offline append to {name} (will sync when service available)")
-        return True  # Return success to prevent data loss
+        logger.warning(
+            "Memory service unavailable; append to %s is only in process-local "
+            "cache and is not durable. Retry after the service is restored.",
+            name,
+        )
+        return False
 
     def entries(self, name: str) -> List[Dict[str, Any]]:
         """Read raw JSONL records in append order without applying retrieval policy."""

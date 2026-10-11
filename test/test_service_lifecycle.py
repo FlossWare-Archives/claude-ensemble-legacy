@@ -60,9 +60,9 @@ graph = (ROOT / "graph-service/claude-graph.service.template").read_text(
 )
 if "EnvironmentFile=-%h/.config/claude-ensemble/environment" not in graph:
     fail("Graph must support the optional user environment file")
-if "Environment=\"ENSEMBLE_GRAPH_HOST=127.0.0.1\"" not in graph:
+if 'Environment="ENSEMBLE_GRAPH_HOST=127.0.0.1"' not in graph:
     fail("Graph must pin its bind address to loopback")
-if graph.index("EnvironmentFile=") > graph.index("Environment=\"ENSEMBLE_GRAPH_HOST=127.0.0.1\""):
+if graph.index("EnvironmentFile=") > graph.index('Environment="ENSEMBLE_GRAPH_HOST=127.0.0.1"'):
     fail("Graph loopback bind must be declared after the optional environment file")
 if "systemctl --user" in graph:
     fail("Graph template must not supervise sibling services")
@@ -73,3 +73,27 @@ for relative_path in EXPECTED_SERVICES:
         fail(f"{relative_path}: expected exactly one [Service] section")
 
 print("PASS: service lifecycle ownership contract")
+
+
+# The manual fallback is documented as explicit foreground commands, not a
+# hidden process supervisor. Keep this list aligned with the actual service entrypoints.
+lifecycle_docs = (ROOT / "SERVICE_LIFECYCLE.md").read_text(encoding="utf-8")
+manual_commands = {
+    "thompson-service/thompson_service.py",
+    "memory-service/memory_service.py",
+    "learning-service/learning_service.py",
+    "alert_service/alert_service.py",
+    "session-messaging/messenger_service.py",
+    "graph-service/graph_service.py",
+}
+for command in manual_commands:
+    if f"python3 {command}" not in lifecycle_docs:
+        fail(f"manual foreground instructions missing service entrypoint: {command}")
+if "use Ctrl-C to stop its service" not in lifecycle_docs:
+    fail("manual foreground instructions must document explicit shutdown")
+if "CE clients do not silently start a replacement daemon" not in lifecycle_docs:
+    fail("unavailable-service behavior must explicitly prohibit hidden startup")
+if "MemoryClient.append()` returns `False`" not in lifecycle_docs:
+    fail("offline Memory append must document a False return value")
+if "no automatic replay or flush" not in lifecycle_docs:
+    fail("offline Memory cache must document that callers need to retry")

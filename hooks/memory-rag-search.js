@@ -26,9 +26,31 @@ log('')
 const MEMORY_DIR = `${process.env.HOME}/.claude/memory`
 const CHROMA_COLLECTION = 'claude-memories'
 
-// TODO: Load multi-ai-config.json to make worker count configurable
-// For now: hardcoded to 3 workers (opus/sonnet/haiku) + arbiter
-// See MULTI_AI_CONFIG.md for implementation guide
+// This legacy hook has no repository-wide multi-ai-config.json contract. Allow
+// per-invocation configuration instead of silently depending on a nonexistent file.
+// Four workers remain the default; worker_count selects the first N configured workers.
+const DEFAULT_WORKER_COUNT = 4;
+const MAX_WORKER_COUNT = 4;
+
+function resolveWorkerCount(value) {
+  if (value === undefined || value === null || value === '') {
+    return DEFAULT_WORKER_COUNT;
+  }
+
+  const parsed = typeof value === 'number'
+    ? value
+    : (typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN);
+
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_WORKER_COUNT) {
+    log(`⚠️ Invalid worker_count "${String(value)}"; using safe default ${DEFAULT_WORKER_COUNT} (valid range: 1-${MAX_WORKER_COUNT}).`);
+    return DEFAULT_WORKER_COUNT;
+  }
+  return parsed;
+}
+
+const workerCount = resolveWorkerCount(
+  args && typeof args === 'object' ? args.worker_count : undefined
+);
 
 // PHASE 1: Semantic search
 phase('Semantic Search')
@@ -141,7 +163,7 @@ log(`✅ Retrieved ${fullMemories.filter(Boolean).length} full memories`)
 phase('Synthesize')
 
 log('')
-log('🤖 Multi-AI consensus on relevance (4 workers: opus/sonnet/haiku/gemini)...')
+log(`🤖 Multi-AI consensus on relevance (${workerCount} workers selected from opus/sonnet/haiku/gemini)...`)
 
 const memoriesContext = fullMemories.filter(Boolean).map((m, i) => `
 ${i + 1}. ${m.name} (${m.type})
@@ -295,7 +317,7 @@ Return structured analysis.`, {
       }
     }
   }),
-])
+].slice(0, workerCount))
 
 const validWorkers = workers.filter(Boolean)
 log(`✅ ${validWorkers.length} workers completed`)

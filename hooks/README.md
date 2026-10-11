@@ -453,3 +453,21 @@ WHERE execution_id NOT IN (SELECT id FROM monitoring.execution_summary);
 The supported prompt-time retrieval path is `memory-search-on-prompt.js`, which is read-only and calls Memory REST. Capture adapters must send stable event IDs through the Memory service; Learning-service operations own outcome deduplication and learner delegation; Knowledge promotion is separate and evidence-gated. See [the lifecycle contract](../docs/CLAUDE_CONTEXT_HOOK_LIFECYCLE.md) for responsibilities, retries, and known legacy limitations.
 
 The session-end shell scripts are legacy implementations and must not be registered alongside the canonical `hooks/session-end-memory-capture.js` adapter. The Claude Config installer registers the canonical adapter and unregisters only known legacy script copies matching allowlisted SHA-256 hashes; it preserves the script files and leaves modified or unrecognized registrations untouched.
+
+
+## RAG memory-search worker count
+
+The `memory-rag-search` hook runs four analysis workers by default (Opus,
+Sonnet, Haiku, and Gemini), followed by one arbiter. Set `worker_count` in the
+hook's input object to select the first 1-4 workers for that invocation:
+
+```javascript
+{ query: "find prior decisions about retries", worker_count: 2 }
+```
+
+The default is `4`. Values must be integers from `1` through `4`; missing
+values use the default, and invalid values are reported and fall back to `4`.
+This setting controls the number of worker analyses, not the arbiter call or
+the five parallel content-retrieval operations. Fewer workers generally reduce
+model calls and latency but also reduce independent perspectives; four is the
+existing behavior, not a claim that it is optimal for every workload.

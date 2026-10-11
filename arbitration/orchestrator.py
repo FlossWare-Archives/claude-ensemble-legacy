@@ -466,7 +466,7 @@ class ArbitrationOrchestrator:
             self.add_phase(workers, arbiter, self._get_phase_instructions(i))
 
     def _get_phase_instructions(self, phase_idx: int) -> str:
-        base = f"Analyze this {self.task_type.value} carefully.\n\n{self.task_description}"
+        base = f"Analyze this {self.task_type.value} carefully."
         return (
             f"{base}\n\n"
             "Independently evaluate the current task and all supplied evidence. "
@@ -518,7 +518,8 @@ class ArbitrationOrchestrator:
         context = self._context_for_phase(phase_config, context)
         prompt = (
             f"{phase_config.instructions}\n\n"
-            f"## Evidence\n\n{context}\n\n"
+            f"## Original Task and Evidence\n\n{self.task_description}\n\n"
+            f"## Current Phase Evidence\n\n{context}\n\n"
             "Return your actual analysis. Do not claim to have inspected evidence "
             "that is not present in the supplied context."
         )
