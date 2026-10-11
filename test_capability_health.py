@@ -91,6 +91,42 @@ def test_unknown_model_does_not_guess_provider() -> None:
     assert entry["credential_available"] is False
 
 
+def test_malformed_thompson_model_entry_does_not_break_other_health_results(tmp_path) -> None:
+    state = tmp_path / "thompson.json"
+    state.write_text(json.dumps({"models": {
+        "sonnet": "invalid",
+        "opus": {"calls": 4, "successes": 3, "failures": 1, "total_latency_ms": 400},
+    }}))
+
+    entries = {
+        entry["model"]: entry
+        for entry in CapabilityHealthView(
+            FakeRegistry(), thompson_path=state, models=("sonnet", "opus")
+        ).health()["models"]
+    }
+
+    assert entries["sonnet"]["state"] == "unknown"
+    assert entries["sonnet"]["calls"] == 0
+    assert entries["opus"]["state"] == "available"
+    assert entries["opus"]["calls"] == 4
+
+
+def test_malformed_thompson_counter_is_treated_as_unknown(tmp_path) -> None:
+    state = tmp_path / "thompson.json"
+    state.write_text(json.dumps({"models": {
+        "sonnet": {"calls": "not-a-number", "successes": 2, "failures": 0},
+    }}))
+
+    entry = CapabilityHealthView(
+        FakeRegistry(), thompson_path=state, models=("sonnet",)
+    ).health()["models"][0]
+
+    assert entry["state"] == "unknown"
+    assert entry["calls"] == 0
+    assert entry["successes"] == 0
+    assert entry["failures"] == 0
+
+
 def test_snapshot_is_json_safe() -> None:
     json.dumps(CapabilityHealthView(FakeRegistry(), models=("sonnet",)).snapshot())
 
