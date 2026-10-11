@@ -22,9 +22,40 @@ chmod 0644 "$SERVICE_FILE"
 "$SYSTEMCTL_BIN" --user enable "$SERVICE_NAME"
 "$SYSTEMCTL_BIN" --user start "$SERVICE_NAME"
 
-if "$SYSTEMCTL_BIN" --user is-active --quiet "$SERVICE_NAME"; then
-  echo "REST gateway installed and running: $SERVICE_NAME"
-else
+if ! "$SYSTEMCTL_BIN" --user is-active --quiet "$SERVICE_NAME"; then
   echo "REST gateway failed to start. Check: journalctl --user -u $SERVICE_NAME" >&2
   exit 1
 fi
+
+# A running unit only establishes process liveness. Do not report a successful
+# install until the gateway REST endpoint and required Graph/Memory dependencies
+# answer their health probes. Keep this bounded so an unavailable dependency
+# produces a useful failure instead of hanging installation indefinitely.
+if ! python3 - <<'PY'
+import time
+import urllib.error
+import urllib.request
+
+url = __import__("os").environ.get("ENSEMBLE_READINESS_URL", "http://127.0.0.1:8080/api/v1/ready")
+timeout = float(__import__("os").environ.get("ENSEMBLE_READINESS_TIMEOUT_SECONDS", "20"))
+deadline = time.monotonic() + timeout
+last_error = "readiness endpoint did not become ready"
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            if response.status == 200:
+                print("REST gateway and required dependencies are ready.")
+                raise SystemExit(0)
+            last_error = f"readiness endpoint returned HTTP {response.status}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        last_error = str(exc)
+    time.sleep(0.5)
+print(f"ERROR: REST gateway is active but not ready: {last_error}", file=__import__("sys").stderr)
+raise SystemExit(1)
+PY
+then
+  echo "REST gateway is active but dependencies are not ready. Check Graph, Memory, and: journalctl --user -u $SERVICE_NAME" >&2
+  exit 1
+fi
+
+echo "REST gateway installed and ready: $SERVICE_NAME"

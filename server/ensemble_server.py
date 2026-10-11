@@ -281,6 +281,9 @@ class EnsembleApplication:
         if service == "health":
             _send(handler, HTTPStatus.OK, {"ok": True, "service": "claude-ensemble"})
             return
+        if service == "ready":
+            self._handle_readiness(handler)
+            return
         if service == "models":
             self._handle_models(handler, remainder)
             return
@@ -325,6 +328,50 @@ class EnsembleApplication:
         except Exception:
             LOG.exception("REST request failed")
             _send(handler, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal server error"})
+
+    def _handle_readiness(self, handler: BaseHTTPRequestHandler) -> None:
+        """Report downstream readiness separately from gateway liveness."""
+        if handler.command != "GET":
+            _send(handler, HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "method not allowed"})
+            return
+
+        dependencies: dict[str, dict[str, Any]] = {}
+        for service in ("graph", "memory"):
+            try:
+                status, raw = _forward(
+                    self.service_urls.get(service),
+                    "GET",
+                    f"/{service}/health",
+                    None,
+                    handler,
+                )
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    payload = None
+                healthy = (
+                    status == HTTPStatus.OK
+                    and isinstance(payload, dict)
+                    and payload.get("ok") is True
+                    and payload.get("service") == service
+                )
+                dependencies[service] = {
+                    "ok": healthy,
+                    "status": status,
+                    **({"response": payload} if isinstance(payload, dict) else {}),
+                }
+            except ServiceUnavailable as exc:
+                dependencies[service] = {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                LOG.warning("Readiness probe failed for %s: %s", service, exc)
+                dependencies[service] = {"ok": False, "error": "health probe failed"}
+
+        ready = all(item.get("ok") is True for item in dependencies.values())
+        _send(
+            handler,
+            HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE,
+            {"ok": ready, "service": "claude-ensemble", "ready": ready, "dependencies": dependencies},
+        )
 
     def _handle_capabilities(self, handler: BaseHTTPRequestHandler, path: str) -> None:
         if handler.command == "GET" and path == "/":
