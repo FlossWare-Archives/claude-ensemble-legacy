@@ -212,3 +212,32 @@ def test_gateway_forwards_delete_method_path_query_and_response(tmp_path, monkey
     finally:
         stop(gateway, gateway_thread)
         stop(downstream, downstream_thread)
+
+
+def test_nested_gateway_preserves_downstream_http_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    downstream = ThreadingHTTPServer(("127.0.0.1", 0), StubServiceHandler)
+    downstream_thread = start(downstream)
+    concrete_url = f"http://127.0.0.1:{downstream.server_port}"
+    inner = create_server("127.0.0.1", 0, graph_url=concrete_url)
+    inner_thread = start(inner)
+    outer = create_server(
+        "127.0.0.1", 0, graph_url=f"http://127.0.0.1:{inner.server_port}"
+    )
+    outer_thread = start(outer)
+    try:
+        status, result = request(
+            outer, "GET", "/api/v1/graph/failure?detail=full"
+        )
+        assert status == 418
+        assert result == {
+            "ok": False,
+            "method": "GET",
+            "path": "/graph/failure?detail=full",
+            "body": "",
+            "error": "upstream teapot",
+        }
+    finally:
+        stop(outer, outer_thread)
+        stop(inner, inner_thread)
+        stop(downstream, downstream_thread)
