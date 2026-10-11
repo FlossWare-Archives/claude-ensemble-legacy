@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from shared.runtime_config import thompson_state_file
+
 DEFAULT_MODELS = ("haiku", "sonnet", "opus", "gemini-2.5-flash")
 DEFAULT_CAPABILITIES = {
     "haiku": ("text_generation", "reasoning", "code"),
@@ -24,7 +26,7 @@ def _finite_number(value: Any) -> float | None:
 
 
 def _state_path(path: str | Path | None = None) -> Path:
-    return Path(path) if path is not None else Path(__file__).resolve().parent / "learning" / "thompson-sampling-state.json"
+    return Path(path) if path is not None else thompson_state_file()
 
 
 def _cost_path(path: str | Path | None = None) -> Path:

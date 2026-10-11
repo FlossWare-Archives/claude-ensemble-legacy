@@ -93,3 +93,18 @@ def test_unknown_model_does_not_guess_provider() -> None:
 
 def test_snapshot_is_json_safe() -> None:
     json.dumps(CapabilityHealthView(FakeRegistry(), models=("sonnet",)).snapshot())
+
+
+def test_health_uses_shared_runtime_thompson_path(tmp_path, monkeypatch) -> None:
+    state = tmp_path / "configured-thompson.json"
+    state.write_text(json.dumps({"models": {"sonnet": {
+        "calls": 4, "successes": 3, "failures": 1,
+        "total_latency_ms": 800, "total_cost": 0.4,
+    }}}))
+    monkeypatch.setenv("ENSEMBLE_THOMPSON_STATE_FILE", str(state))
+    entry = CapabilityHealthView(FakeRegistry(), models=("sonnet",)).health()["models"][0]
+    assert entry["calls"] == 4
+    assert entry["successes"] == 3
+    assert entry["failures"] == 1
+    assert entry["success_rate"] == 0.75
+
