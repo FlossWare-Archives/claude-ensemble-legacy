@@ -70,6 +70,7 @@ jobs:
           python -m pytest \
             execution/test_execution.py \
             arbitration/test_orchestrator.py \
+            collaboration/test_orchestrator.py \
             providers/test_claude_code.py \
             providers/test_api_providers.py \
             providers/test_registry.py \
