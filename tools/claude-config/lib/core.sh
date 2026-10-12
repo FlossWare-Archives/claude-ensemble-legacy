@@ -83,6 +83,7 @@ PY
   [ -f "$CC_SETTINGS_PATH" ] && ok "User settings exist" || warn "User settings do not exist"
   [ -f "$CC_HOOK_PATH" ] && ok "Memory hook exists" || warn "Memory hook not installed"
   [ -f "$CC_SESSION_END_HOOK_PATH" ] && ok "SessionEnd capture hook exists" || warn "SessionEnd capture hook not installed"
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] && ok "Evidence-gated Learning outcome adapter exists in checkout" || warn "Learning outcome adapter missing from checkout"
   [ "$memory_status" = reachable ] && ok "Memory REST: $memory_url" || warn "Memory REST unavailable: $memory_url"
   [ "$gateway_unit_status" = active ] && ok "Gateway unit: claude-ensemble.service active" || warn "Gateway unit inactive: claude-ensemble.service"
   [ "$gateway_http_status" = reachable ] && ok "Gateway REST: $gateway_url/api/v1/health" || warn "Gateway REST unavailable: $gateway_url/api/v1/health"
@@ -95,6 +96,10 @@ verify(){
   [ -d "$HOME/.claude" ] || { err "~/.claude missing"; failed=1; }
   [ -f "$CC_HOOK_PATH" ] || { err "memory hook missing"; failed=1; }
   [ -f "$CC_SESSION_END_HOOK_PATH" ] || { err "SessionEnd capture hook missing"; failed=1; }
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] || { err "Learning outcome adapter missing from checkout"; failed=1; }
+  if [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ]; then
+    python3 -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), filename=sys.argv[1])' "$CC_REPO_ROOT/tools/record_workflow_outcome.py" || { err "Learning outcome adapter Python syntax invalid"; failed=1; }
+  fi
   [ -f "$CC_SETTINGS_PATH" ] || { err "settings.json missing"; failed=1; }
   if [ -f "$CC_SETTINGS_PATH" ]; then python3 "$CC_ROOT/lib/json_tool.py" validate-settings "$CC_SETTINGS_PATH" "$CC_HOOK_PATH" "$CC_SESSION_END_HOOK_PATH" || failed=1; fi
   if command -v node >/dev/null 2>&1; then
@@ -139,6 +144,7 @@ install(){
   CC_SETTINGS_BACKUP=""; CC_HOOK_BACKUP=""; CC_SESSION_END_HOOK_BACKUP=""; CC_MANIFEST_BACKUP=""
   [ -f "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" ] || die "source memory hook is missing"
   [ -f "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" ] || die "source SessionEnd capture hook is missing"
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] || die "source Learning outcome adapter is missing"
   command -v node >/dev/null 2>&1 || die "node executable not found; cannot install Memory hooks"
   node --check "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" >/dev/null 2>&1 || die "source memory hook JavaScript is invalid"
   node --check "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" >/dev/null 2>&1 || die "source SessionEnd hook JavaScript is invalid"
