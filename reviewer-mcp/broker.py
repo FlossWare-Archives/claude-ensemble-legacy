@@ -153,12 +153,18 @@ def _jules_session_db_path():
     return state_home / "claude-ensemble" / "reviewer-mcp-sessions.sqlite3"
 
 
-def _jules_session_db():
+def _jules_session_db(deadline=None):
     path = _jules_session_db_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if os.name != "nt":
         os.chmod(path.parent, 0o700)
-    connection = sqlite3.connect(str(path), timeout=10)
+    timeout = 10.0
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Jules overall deadline exceeded while opening session registry")
+        timeout = min(timeout, remaining)
+    connection = sqlite3.connect(str(path), timeout=timeout)
     connection.execute(
         """CREATE TABLE IF NOT EXISTS jules_sessions (
             request_key TEXT PRIMARY KEY,
@@ -192,8 +198,14 @@ def _jules_lock(request_key):
 
 
 def _get_or_create_jules_session(request_key, start_sha, create_session, deadline):
-    with _jules_lock(request_key):
-        connection = _jules_session_db()
+    lock = _jules_lock(request_key)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not lock.acquire(timeout=max(0.0, remaining)):
+        raise TimeoutError("Jules overall deadline exceeded waiting for session lock")
+    try:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Jules overall deadline exceeded waiting for session lock")
+        connection = _jules_session_db(deadline=deadline)
         try:
             row = connection.execute(
                 "SELECT session_id, state, result_json, start_sha, error "
@@ -241,6 +253,8 @@ def _get_or_create_jules_session(request_key, start_sha, create_session, deadlin
             return {"session_id": session_id, "start_sha": start_sha}
         finally:
             connection.close()
+    finally:
+        lock.release()
 
 
 def _save_jules_result(request_key, result, state):
