@@ -321,7 +321,7 @@ class BrokerTests(unittest.TestCase):
             state_calls = 2
             second = broker.jules(payload)
 
-        self.assertEqual(second["status"], "complete")
+        self.assertEqual(second["status"], "complete", second.get("error", ""))
         self.assertEqual(second["summary"], "resumed")
         self.assertEqual(create_count, 1)
 
@@ -484,7 +484,7 @@ class BrokerTests(unittest.TestCase):
         }
         with patch.dict(os.environ, {
             "JULES_API_KEY": "secret", "JULES_TIMEOUT_SECONDS": "30",
-            "JULES_POLL_SECONDS": "0",
+            "JULES_POLL_SECONDS": "0.01",
         }), patch("broker.json_call", side_effect=fake_json_call), patch(
             "broker.github_branch_sha", return_value="expected"
         ):
