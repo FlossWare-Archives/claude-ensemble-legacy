@@ -33,3 +33,12 @@ The `/memory/search` contract returns JSON with `ok: true` and a `results` array
 Integration version: 0.2.
 
 The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports gateway deployment state (systemd unit active/inactive) separately from gateway HTTP health (`/api/v1/health` reachable/unreachable). Override the diagnostic URL with `ENSEMBLE_GATEWAY_URL`; these checks are informational and do not confuse hook verification with gateway availability.
+
+
+## Workflow outcome integration
+
+The Claude Config installer deliberately registers only the supported prompt-context and SessionEnd capture hooks. Neither generic hook event proves task quality, so they must not be wired directly to Thompson.
+
+Workflow orchestrators that have a stable run ID and a real, evidence-backed 1-5 evaluation should invoke `python3 tools/record_workflow_outcome.py` from the repository root and provide the JSON contract documented in [the lifecycle guide](../../docs/CLAUDE_CONTEXT_HOOK_LIFECYCLE.md#evidence-gated-workflow-outcome-adapter). The adapter writes the evidence-backed learning artifact through Learning first, then requests idempotent outcome processing through Learning's Unix-socket client. It never talks to Thompson directly. A failed acknowledgement exits nonzero for retry with the same `run_id` and `task_id`.
+
+This command is not registered as a Claude Code hook because Claude Code's generic completion events do not contain an independently validated quality rating. Registering it without a real evaluator would manufacture learning signals.
