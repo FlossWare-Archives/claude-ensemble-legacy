@@ -49,7 +49,13 @@ def validate_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("tokens must be a non-negative integer")
 
     cost = payload.get("cost")
-    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost < 0:
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0:
+        raise ValueError("cost must be a finite non-negative number")
+    try:
+        cost = float(cost)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("cost must be a finite non-negative number") from exc
+    if not math.isfinite(cost):
         raise ValueError("cost must be a finite non-negative number")
 
     evidence = payload.get("evidence")
@@ -68,7 +74,7 @@ def validate_payload(payload: Any) -> dict[str, Any]:
         "model": model,
         "rating": rating,
         "tokens": tokens,
-        "cost": float(cost),
+        "cost": cost,
         "evidence": evidence,
     }
 
@@ -105,14 +111,14 @@ def submit_outcome(payload: Any, client: Any) -> dict[str, Any]:
         cost=outcome["cost"],
         request_id=outcome["run_id"],
     ):
-        raise RuntimeError("Learning service did not acknowledge Thompson outcome processing")
+        raise RuntimeError("Learning service did not acknowledge outcome processing")
 
     return {
         "ok": True,
         "run_id": outcome["run_id"],
         "task_id": outcome["task_id"],
         "artifact_status": artifact_result.get("artifact_status", "acknowledged"),
-        "thompson": "acknowledged",
+        "learning_outcome": "acknowledged",
     }
 
 
