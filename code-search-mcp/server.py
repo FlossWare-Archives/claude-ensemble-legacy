@@ -100,7 +100,8 @@ def search_code(arguments: dict[str, Any]) -> dict[str, Any]:
         command.append("--ignore-case")
     if isinstance(glob, str) and glob:
         command.extend(["--glob", glob])
-    command.extend([pattern, path])
+    # End option parsing before either caller-controlled positional argument.
+    command.extend(["--", pattern, path])
 
     completed = subprocess.run(
         command, cwd=root, text=True, capture_output=True, timeout=30,

@@ -42,7 +42,23 @@ class CodeSearchTest(unittest.TestCase):
             self.assertEqual(result["matches"][0]["line"], 12)
             command = run.call_args.args[0]
             self.assertIn("--json", command)
-            self.assertEqual(command[-2:], ["needle", "."])
+            self.assertEqual(command[-3:], ["--", "needle", "."])
+
+    def test_option_shaped_pattern_is_passed_after_option_terminator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            completed = type("Completed", (), {
+                "returncode": 1, "stdout": "", "stderr": ""
+            })()
+            with patch.object(server, "repo_root", return_value=root):
+                with patch.object(server.subprocess, "run", return_value=completed) as run:
+                    with patch.object(server, "cache_get", return_value=None), patch.object(server, "cache_put"):
+                        server.search_code({"pattern": "--pre", "path": "-directory"})
+            command = run.call_args.args[0]
+            terminator = command.index("--")
+            self.assertEqual(command[terminator + 1:], ["--pre", "-directory"])
+            self.assertNotIn("--pre", command[:terminator])
+            self.assertNotIn("-directory", command[:terminator])
 
     def test_cache_key_includes_repository_root(self):
         query = {"pattern": "needle", "path": ".", "max_results": 50}
