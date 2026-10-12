@@ -3,6 +3,7 @@ import copy
 
 import pytest
 
+from learning.learning_client import LearningClient
 from tools.record_workflow_outcome import submit_outcome, validate_payload
 
 
@@ -31,13 +32,16 @@ class FakeLearningClient:
         self.outcome_response = outcome_response
         self.artifacts = []
         self.outcomes = []
+        self.calls = []
 
     def record_artifact(self, artifact, request_id=None):
         self.artifacts.append((copy.deepcopy(artifact), request_id))
+        self.calls.append(("artifact", request_id))
         return self.artifact_response
 
     def process_outcome(self, **kwargs):
         self.outcomes.append(kwargs)
+        self.calls.append(("outcome", kwargs["request_id"]))
         return self.outcome_response
 
 
@@ -51,6 +55,7 @@ class FakeLearningClient:
         ("tokens", False),
         ("cost", float("nan")),
         ("cost", -0.1),
+        ("cost", 10**10000),
         ("evidence", None),
         ("run_id", " "),
     ],
@@ -68,7 +73,7 @@ def test_requires_evidence_fields():
         validate_payload(payload)
 
 
-def test_submits_evidence_artifact_before_thompson_outcome():
+def test_submits_evidence_artifact_before_learning_outcome():
     client = FakeLearningClient()
 
     result = submit_outcome(VALID, client)
@@ -78,8 +83,9 @@ def test_submits_evidence_artifact_before_thompson_outcome():
         "run_id": "run-123",
         "task_id": "task-123",
         "artifact_status": "stored",
-        "thompson": "acknowledged",
+        "learning_outcome": "acknowledged",
     }
+    assert client.calls == [("artifact", "run-123"), ("outcome", "run-123")]
     assert len(client.artifacts) == 1
     artifact, request_id = client.artifacts[0]
     assert request_id == "run-123"
@@ -111,7 +117,7 @@ def test_retry_uses_stable_artifact_content_and_identity():
     assert client.outcomes[0]["task_id"] == client.outcomes[1]["task_id"]
 
 
-def test_does_not_update_thompson_when_artifact_is_not_acknowledged():
+def test_does_not_process_outcome_when_artifact_is_not_acknowledged():
     client = FakeLearningClient({"ok": False, "error": "Memory unavailable"})
 
     with pytest.raises(RuntimeError, match="outcome artifact"):
@@ -119,13 +125,41 @@ def test_does_not_update_thompson_when_artifact_is_not_acknowledged():
 
     assert client.artifacts
     assert client.outcomes == []
+    assert client.calls == [("artifact", "run-123")]
 
 
-def test_reports_failed_thompson_delivery_for_retry():
+def test_reports_failed_learning_outcome_delivery_for_retry():
     client = FakeLearningClient(outcome_response=False)
 
-    with pytest.raises(RuntimeError, match="Thompson outcome"):
+    with pytest.raises(RuntimeError, match="outcome processing"):
         submit_outcome(VALID, client)
 
     assert client.artifacts
     assert len(client.outcomes) == 1
+
+
+def test_real_learning_client_contract_reports_only_learning_level_ack(monkeypatch):
+    client = LearningClient(socket_path="/unused.sock")
+    sent = []
+
+    def fake_send_request(request):
+        sent.append(request)
+        return {"ok": True, "duplicate": True}
+
+    monkeypatch.setattr(client, "_send_request", fake_send_request)
+
+    acknowledged = client.process_outcome(
+        task_id="task-123",
+        task_type="code-review",
+        model="sonnet",
+        rating=4,
+        tokens=123,
+        cost=0.01,
+        request_id="run-123",
+    )
+
+    assert acknowledged is True
+    assert sent[0]["op"] == "process_outcome"
+    # LearningClient exposes only a boolean; that is not proof of Thompson's
+    # downstream checkpoint/persistence status.
+    assert set(sent[0]) >= {"task_id", "request_id", "rating"}
