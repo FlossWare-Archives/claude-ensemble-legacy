@@ -247,7 +247,7 @@ class GeneticAlgorithm:
 
     def evolve(self, generation: int):
         """Evolve each evaluator population independently with detached elites."""
-        logger.info("\\n=== Generation %s/%s ===", generation + 1, self.config.generations)
+        logger.info("\n=== Generation %s/%s ===", generation + 1, self.config.generations)
         self.evaluate_population()
 
         by_system = {}
