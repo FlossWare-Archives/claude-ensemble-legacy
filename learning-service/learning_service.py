@@ -133,9 +133,16 @@ class AutonomousLearningSystem:
         }
         expected_digest = cls._payload_digest(incoming)
         stored_digest = outcome.get('payload_sha256')
-        if stored_digest:
-            return stored_digest == expected_digest
-        return cls._payload_digest(outcome) == expected_digest
+        computed_stored_digest = cls._payload_digest(outcome)
+        if 'payload_sha256' in outcome and stored_digest != computed_stored_digest:
+            return False
+        return computed_stored_digest == expected_digest
+
+    @classmethod
+    def payload_integrity_valid(cls, outcome: Dict[str, Any]) -> bool:
+        """Validate a persisted digest when present; allow verifiable legacy records."""
+        stored_digest = outcome.get('payload_sha256')
+        return 'payload_sha256' not in outcome or stored_digest == cls._payload_digest(outcome)
 
     @property
     def checkpoint_path(self) -> Path:
@@ -466,26 +473,20 @@ class LearningService:
 
                 logger.info(f"{ctx} Processing outcome: {task_id} ({model}, rating={rating}, cost=${cost:.4f})")
                 with self._task_ingestion_lock(task_id):
-                    if self.system.is_processed(task_id):
-                        return json.dumps({'ok': True, 'duplicate': True, 'request_id': ctx.request_id})
-
-                    # The outcome file is the durable payload; the checkpoint means
-                    # downstream learning completed. They intentionally remain
-                    # separate so a Thompson failure can be retried.
+                    # Verify the durable payload before trusting the checkpoint.
+                    # Otherwise a reused task ID or corrupted record could be
+                    # acknowledged as an idempotent retry without validation.
+                    processed = self.system.is_processed(task_id)
                     persisted = self.system.get_outcome(task_id)
-                    if persisted is not None:
-                        if not self.system.payload_matches(
-                            persisted, task_id, task_type, model, rating, tokens, cost
-                        ):
+                    if persisted is None:
+                        if processed:
                             return json.dumps({
                                 'ok': False,
-                                'error': 'task_id already exists with a different outcome payload',
-                                'conflict': True,
+                                'error': 'processed task has no readable persisted outcome',
+                                'integrity_error': True,
                                 'checkpoint_advanced': False,
                                 'request_id': ctx.request_id
                             })
-                        effective = persisted
-                    else:
                         success = self.system.record_outcome(
                             task_id, task_type, model, rating, tokens, cost
                         )
@@ -504,6 +505,30 @@ class LearningService:
                                 'checkpoint_advanced': False,
                                 'request_id': ctx.request_id
                             })
+                    else:
+                        if not self.system.payload_integrity_valid(persisted):
+                            return json.dumps({
+                                'ok': False,
+                                'error': 'stored outcome failed integrity validation',
+                                'integrity_error': True,
+                                'checkpoint_advanced': False,
+                                'request_id': ctx.request_id
+                            })
+                        if not self.system.payload_matches(
+                            persisted, task_id, task_type, model, rating, tokens, cost
+                        ):
+                            return json.dumps({
+                                'ok': False,
+                                'error': 'task_id already exists with a different outcome payload',
+                                'conflict': True,
+                                'checkpoint_advanced': False,
+                                'request_id': ctx.request_id
+                            })
+                        if processed:
+                            return json.dumps({
+                                'ok': True, 'duplicate': True, 'request_id': ctx.request_id
+                            })
+                        effective = persisted
 
                     effective_task_type = effective['task_type']
                     effective_model = effective['model']

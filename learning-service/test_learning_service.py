@@ -5,6 +5,7 @@ Test suite for RH Learning Service and Client
 
 import sys
 import json
+import hashlib
 import time
 import socket
 import subprocess
@@ -476,6 +477,48 @@ service.start()
         assert not service.system.is_processed('conflict_001')
         print("✓ Same task ID with different payload is rejected")
 
+    def test_processed_task_conflict_and_corrupt_digest_are_rejected(self):
+        from learning_service import LearningService
+
+        service = LearningService(
+            self.socket_path,
+            Path(self.temp_dir.name) / 'processed-integrity-learning'
+        )
+        service.thompson_client = None
+        payload = {
+            'op': 'process_outcome',
+            'task_id': 'processed_integrity_001',
+            'task_type': 'testing',
+            'model': 'haiku',
+            'rating': 4,
+            'tokens': 1000,
+            'cost': 0.005,
+        }
+
+        first = json.loads(service._process_request(json.dumps(payload)))
+        assert first['ok'] is True, first
+        assert first['checkpoint_advanced'] is True, first
+        checkpoint_before = service.system.checkpoint_path.read_text(encoding='utf-8')
+
+        conflicting = dict(payload, rating=1)
+        conflict = json.loads(service._process_request(json.dumps(conflicting)))
+        assert conflict['ok'] is False, conflict
+        assert conflict['conflict'] is True, conflict
+        assert service.system.checkpoint_path.read_text(encoding='utf-8') == checkpoint_before
+
+        outcome_path = service.system.outcomes_dir / (
+            hashlib.sha256(payload['task_id'].encode('utf-8')).hexdigest() + '.json'
+        )
+        stored = json.loads(outcome_path.read_text(encoding='utf-8'))
+        stored['payload_sha256'] = '0' * 64
+        outcome_path.write_text(json.dumps(stored), encoding='utf-8')
+
+        corrupt = json.loads(service._process_request(json.dumps(payload)))
+        assert corrupt['ok'] is False, corrupt
+        assert corrupt['integrity_error'] is True, corrupt
+        assert service.system.checkpoint_path.read_text(encoding='utf-8') == checkpoint_before
+        print("✓ Processed task conflicts and corrupted outcome digests are rejected")
+
     def test_retry_uses_persisted_payload_for_thompson(self):
         from learning_service import LearningService
 
@@ -672,6 +715,7 @@ service.start()
             self.test_same_task_concurrent_ingestion_updates_thompson_once()
             self.test_different_tasks_concurrent_ingestion_preserves_checkpoint()
             self.test_same_task_different_payload_is_rejected()
+            self.test_processed_task_conflict_and_corrupt_digest_are_rejected()
             self.test_retry_uses_persisted_payload_for_thompson()
             self.test_operational_outcome_is_written_to_memory()
             self.test_operational_memory_failure_blocks_checkpoint()
