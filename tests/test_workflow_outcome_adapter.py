@@ -55,7 +55,7 @@ class FakeLearningClient:
         ("tokens", False),
         ("cost", float("nan")),
         ("cost", -0.1),
-        ("cost", 10**10000),
+        pytest.param("cost", 10**10000, id="overflow-cost"),
         ("evidence", None),
         ("run_id", " "),
     ],
