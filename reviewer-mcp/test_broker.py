@@ -454,6 +454,49 @@ class BrokerTests(unittest.TestCase):
                 )
             self.assertLess(time.monotonic() - started, 0.5)
 
+    def test_jules_source_lookup_failure_can_retry_without_unknown_session(self):
+        review = {"verdict": "approve", "summary": "retried", "findings": []}
+        source_calls = 0
+        post_calls = 0
+
+        def fake_json_call(url, method="GET", headers=None, body=None, timeout=120, deadline=None):
+            nonlocal source_calls, post_calls
+            if url.endswith("/sources"):
+                source_calls += 1
+                if source_calls == 1:
+                    raise RuntimeError("temporary source lookup failure")
+                return {"sources": [{"name": "sources/github/1", "githubRepo": {
+                    "owner": "FlossWare", "repo": "claude-ensemble"
+                }}]}
+            if url.endswith("/sessions") and method == "POST":
+                post_calls += 1
+                return {"name": "sessions/retry-safe"}
+            if url.endswith("/sessions/retry-safe"):
+                return {"state": "COMPLETED"}
+            if url.endswith("/activities?pageSize=100"):
+                return {"activities": [{"agentMessaged": {"agentMessage": json.dumps(review)}}]}
+            raise AssertionError(url)
+
+        payload = {
+            "repository": "FlossWare/claude-ensemble", "pr_number": 704,
+            "base_sha": "base", "head_sha": "expected", "head_ref": "feature/retry-safe",
+            "diff": "diff",
+        }
+        with patch.dict(os.environ, {
+            "JULES_API_KEY": "secret", "JULES_TIMEOUT_SECONDS": "30",
+            "JULES_POLL_SECONDS": "0",
+        }), patch("broker.json_call", side_effect=fake_json_call), patch(
+            "broker.github_branch_sha", return_value="expected"
+        ):
+            first = broker.jules(payload)
+            second = broker.jules(payload)
+
+        self.assertEqual(first["status"], "failed")
+        self.assertEqual(second["status"], "complete")
+        self.assertEqual(second["summary"], "retried")
+        self.assertEqual(source_calls, 2)
+        self.assertEqual(post_calls, 1)
+
     def test_mcp_notifications_produce_no_stdio_output(self):
         process = subprocess.run(
             [sys.executable, str(Path(__file__).with_name("broker.py"))],
