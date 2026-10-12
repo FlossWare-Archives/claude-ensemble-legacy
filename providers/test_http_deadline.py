@@ -76,6 +76,18 @@ def test_normal_response_within_deadline_is_decoded(local_server):
         _SlowProgressHandler.body_delay = 0.07
 
 
+def test_nonserializable_payload_is_rejected_before_transport():
+    from unittest.mock import patch
+
+    with patch("providers.http.subprocess.Popen") as launch:
+        with pytest.raises(ProviderHTTPError, match="not JSON serializable"):
+            post_json(
+                provider="test", url="http://127.0.0.1:1/",
+                payload={"invalid": object()}, headers={}, timeout=1.0,
+            )
+    launch.assert_not_called()
+
+
 def test_invalid_timeout_is_rejected_before_transport():
     for timeout in (True, 0, -1, float("nan"), float("inf"), "1"):
         with pytest.raises(ValueError, match="finite number greater than zero"):
