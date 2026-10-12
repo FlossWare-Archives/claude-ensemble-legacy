@@ -440,6 +440,19 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(sum(1 for url, method in calls if url.endswith("/sessions") and method == "POST"), 1)
 
 
+    def test_jules_session_lock_wait_respects_deadline(self):
+        lock = broker.threading.Lock()
+        lock.acquire()
+        self.addCleanup(lock.release)
+        with patch("broker._jules_lock", return_value=lock):
+            started = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, "waiting for session lock"):
+                broker._get_or_create_jules_session(
+                    "contended-request", "sha", lambda: self.fail("must not create"),
+                    deadline=started + 0.05,
+                )
+            self.assertLess(time.monotonic() - started, 0.5)
+
     def test_mcp_notifications_produce_no_stdio_output(self):
         process = subprocess.run(
             [sys.executable, str(Path(__file__).with_name("broker.py"))],
