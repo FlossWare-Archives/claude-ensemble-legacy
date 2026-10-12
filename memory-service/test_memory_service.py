@@ -476,6 +476,65 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                 thread.join(timeout=2)
 
 
+
+    def test_installed_session_end_hook_round_trips_to_durable_memory_once(self):
+        """Exercise the installed Node hook through HTTP and durable Memory storage."""
+        from memory_service import MemoryService, create_http_server
+
+        repo_root = Path(__file__).resolve().parents[1]
+        hook_source = repo_root / "hooks" / "session-end-memory-capture.js"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            # A copied hook under a path containing spaces mirrors ~/.claude/hooks
+            # and verifies the deployed .js file works outside the repository's
+            # package scope.
+            hook_deploy = root / "installed hooks with spaces" / hook_source.name
+            hook_deploy.parent.mkdir(parents=True)
+            hook_deploy.write_bytes(hook_source.read_bytes())
+
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                env = {
+                    **os.environ,
+                    "FLOSSWARE_MEMORY_URL": f"http://127.0.0.1:{server.server_port}",
+                }
+                event = json.dumps({"session_id": "round-trip-session-001"})
+                results = [
+                    subprocess.run(
+                        ["node", str(hook_deploy)],
+                        input=event,
+                        text=True,
+                        capture_output=True,
+                        timeout=5,
+                        env=env,
+                        check=False,
+                    )
+                    for _ in range(2)
+                ]
+
+                for result in results:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn("Memory capture unavailable:", result.stderr)
+
+                # The second execution must be acknowledged as a duplicate,
+                # not persisted as a second session event.
+                entries = service.store.read_entries("session_events")
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["event_type"], "claude_code.session_end")
+                self.assertEqual(entries[0]["hook_event_name"], "SessionEnd")
+                self.assertEqual(entries[0]["session_id"], "round-trip-session-001")
+                self.assertEqual(entries[0]["source"], "claude-code")
+                self.assertTrue(entries[0]["event_id"].startswith("claude-code:session-end:"))
+                self.assertTrue(entries[0].get("payload_sha256"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+
 class MemoryServiceRestStatusTest(unittest.TestCase):
     def test_generic_memory_routes_map_failure_to_non_2xx_status(self):
         from memory_service import MemoryService, create_http_server
