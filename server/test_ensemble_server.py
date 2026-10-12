@@ -172,6 +172,45 @@ def run():
                                memory_url=f"http://127.0.0.1:{memory.http_port}")
         kt=threading.Thread(target=gateway.serve_forever,daemon=True); kt.start()
         try:
+            # A failure after a forwarded response starts must not send a second status line.
+            import server.ensemble_server as boundary_module
+            class BrokenWriter:
+                def write(self, _body):
+                    raise ValueError("simulated response write failure")
+            class FakeServer:
+                server_port = 8080
+            class FakeHeaders(dict):
+                def get(self, key, default=None):
+                    return super().get(key, default)
+            class FakeHandler:
+                path = "/api/v1/graph/test"
+                command = "GET"
+                headers = FakeHeaders()
+                server = FakeServer()
+                wfile = BrokenWriter()
+                def __init__(self):
+                    self.statuses = []
+                def send_response(self, status):
+                    self.statuses.append(status)
+                def send_header(self, *_args):
+                    pass
+                def end_headers(self):
+                    pass
+            fake_handler = FakeHandler()
+            original_forward = boundary_module._forward
+            boundary_module._forward = lambda *_args, **_kwargs: (200, b"{}")
+            try:
+                gateway.application.handle(fake_handler)
+                assert fake_handler.statuses == [200], fake_handler.statuses
+            finally:
+                boundary_module._forward = original_forward
+
+            # Local route validation catches must not retry a response after
+            # a successful status line and a failing body write.
+            local_handler = FakeHandler()
+            gateway.application._handle_metrics(local_handler, "/", "limit=1")
+            assert local_handler.statuses == [200], local_handler.statuses
+
             # Collaboration authentication follows RFC 6750 semantics.
             original_token = os.environ.get("ENSEMBLE_COLLABORATION_AUTH_TOKEN")
             original_solvers = os.environ.get("ENSEMBLE_COLLABORATION_SOLVERS")
