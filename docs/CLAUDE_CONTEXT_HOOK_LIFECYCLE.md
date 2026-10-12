@@ -84,7 +84,7 @@ The disabled source files do not automatically disable copies already installed 
 
 ## Implemented SessionEnd capture
 
-The canonical `hooks/session-end-memory-capture.js` adapter is registered for Claude Code's `SessionEnd` event by the Claude Config installer. It sends a deterministic event to `POST /memory/append-once` in the `session_events` stream. The idempotency key is derived from the stable Claude Code `session_id`; the payload contains only the event type, session ID, event name, and source. It deliberately does not read or upload the transcript, transcript path, working directory, or conversation contents.
+The canonical `hooks/session-end-memory-capture.js` adapter is registered for Claude Code's `SessionEnd` event by both the top-level `install.sh` installer and the Claude Config installer. Both use the ownership-aware JSON settings tool and preserve unrelated user hooks. It sends a deterministic event to `POST /memory/append-once` in the `session_events` stream. The idempotency key is derived from the stable Claude Code `session_id`; the payload contains only the event type, session ID, event name, and source. It deliberately does not read or upload the transcript, transcript path, working directory, or conversation contents.
 
 The adapter accepts only a confirmed `stored` or `duplicate` acknowledgement as success. Missing session IDs and service failures produce stderr diagnostics and exit successfully so session shutdown remains fail-open. It does not trigger Learning, mutate learner state, or promote Knowledge.
 

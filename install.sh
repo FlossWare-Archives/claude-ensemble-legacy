@@ -144,6 +144,17 @@ if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME
     echo "   ✓ Normalized CE UserPromptSubmit memory hook"
 fi
 
+# Register the canonical idempotent SessionEnd capture alongside prompt retrieval.
+# The JSON tool preserves unrelated user hooks and normalizes only the CE-owned
+# session-end registration.
+if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME/hooks/session-end-memory-capture.js" ]; then
+    python3 "$CLAUDE_CONFIG_TOOL" install-session-end-hook \
+        "$SETTINGS_FILE" \
+        "$CLAUDE_HOME/hooks/session-end-memory-capture.js" \
+        "$REPO_PATH/hooks/session-end-memory-capture.js"
+    echo "   ✓ Normalized CE SessionEnd memory capture hook"
+fi
+
 # Step 4: Symlink toolkit initialization script
 echo ""
 echo "4. Installing toolkit init script..."

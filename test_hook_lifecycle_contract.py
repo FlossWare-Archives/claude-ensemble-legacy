@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import subprocess
+import tempfile
 import unittest
 
 
@@ -119,6 +120,56 @@ class HookLifecycleContractTests(unittest.TestCase):
         for requirement in required_contracts:
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, contract)
+
+    def test_top_level_installer_registers_session_end_capture(self):
+        installer = self.read("install.sh")
+        self.assertIn('install-session-end-hook', installer)
+        self.assertIn('$CLAUDE_HOME/hooks/session-end-memory-capture.js', installer)
+        self.assertIn('$REPO_PATH/hooks/session-end-memory-capture.js', installer)
+
+    def test_session_end_registration_preserves_unrelated_user_hooks(self):
+        settings = {
+            "permissions": {"allow": ["Bash(git status:*)"]},
+            "hooks": {
+                "PreToolUse": [{"hooks": [{"type": "command", "command": "/custom/pre-tool"}]}],
+                "SessionEnd": [
+                    {"matcher": "manual", "hooks": [{"type": "command", "command": "/custom/session-hook"}]}
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings_path = root / "settings.json"
+            hook_source = ROOT / "hooks/session-end-memory-capture.js"
+            hook_deploy = root / ".claude/hooks/session-end-memory-capture.js"
+            hook_deploy.parent.mkdir(parents=True)
+            hook_deploy.write_bytes(hook_source.read_bytes())
+            settings_path.write_text(json.dumps(settings), encoding="utf-8")
+            subprocess.run(
+                [
+                    "python3", str(ROOT / "tools/claude-config/lib/json_tool.py"),
+                    "install-session-end-hook", str(settings_path),
+                    str(hook_deploy), str(hook_source),
+                ],
+                cwd=ROOT, check=True, capture_output=True, text=True, timeout=5,
+            )
+            result = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["permissions"], settings["permissions"])
+            self.assertEqual(result["hooks"]["PreToolUse"], settings["hooks"]["PreToolUse"])
+            session_groups = result["hooks"]["SessionEnd"]
+            commands = [
+                handler.get("command")
+                for group in session_groups
+                for handler in group.get("hooks", [])
+            ]
+            self.assertIn(str(hook_deploy), commands)
+            self.assertIn("/custom/session-hook", commands)
+            managed_groups = [
+                group for group in session_groups
+                if any(handler.get("command") == str(hook_deploy) for handler in group.get("hooks", []))
+            ]
+            self.assertEqual(len(managed_groups), 1)
+            self.assertNotIn("matcher", managed_groups[0])
 
     def test_session_end_scripts_are_not_claimed_as_exactly_once(self):
         contract = self.read("docs/CLAUDE_CONTEXT_HOOK_LIFECYCLE.md")
