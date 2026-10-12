@@ -93,7 +93,7 @@ def test_store_skips_non_object_jsonl_records(tmp_path, bad_record):
     result = evaluate(sample())
     store.record(result)
     with store.path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(bad_record) + "\\n")
+        handle.write(json.dumps(bad_record) + "\n")
     assert store.get("exp-1") == result
 
 
@@ -122,8 +122,8 @@ def test_store_skips_semantically_invalid_matching_record(tmp_path):
     valid = evaluate(sample()).to_dict()
     store.path.parent.mkdir(parents=True, exist_ok=True)
     store.path.write_text(
-        json.dumps(valid) + "\\n" +
-        json.dumps(dict(valid, winner="not-a-winner")) + "\\n",
+        json.dumps(valid) + "\n" +
+        json.dumps(dict(valid, winner="not-a-winner")) + "\n",
         encoding="utf-8",
     )
     assert store.get("exp-1") == evaluate(sample())
