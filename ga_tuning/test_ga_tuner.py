@@ -4,7 +4,11 @@ from ga_tuner import GAConfig, GeneticAlgorithm, Individual
 
 
 class FakeEvaluator:
+    def __init__(self):
+        self.calls = 0
+
     def evaluate(self, parameters):
+        self.calls += 1
         return parameters["x"]
 
 
@@ -38,6 +42,23 @@ def test_tournament_selection_is_system_scoped(tmp_path):
     selected = ga.tournament_selection("alpha", k=2)
 
     assert selected.system_name == "alpha"
+
+
+def test_crossover_rejects_different_systems(tmp_path):
+    ga = make_ga(
+        tmp_path,
+        [
+            Individual("alpha", {"x": 2.0}, fitness=2.0),
+            Individual("beta", {"x": 1.0}, fitness=1.0),
+        ],
+    )
+
+    try:
+        ga.crossover(*ga.population)
+    except ValueError as exc:
+        assert "Cannot crossover different systems" in str(exc)
+    else:
+        raise AssertionError("Expected cross-system crossover to be rejected")
 
 
 def test_crossover_without_crossover_clones_parents(tmp_path):
@@ -126,6 +147,12 @@ def test_best_candidates_are_tracked_per_system(tmp_path):
     assert ga.best_by_system["beta"].fitness == 100.0
     assert ga.best_by_system["alpha"] is not ga.population[0]
 
+    # Historical best must remain detached if the live population later changes.
+    ga.population[0].parameters["x"] = 0.0
+    ga.population[0].fitness = 0.0
+    assert ga.best_by_system["alpha"].parameters["x"] == 2.0
+    assert ga.best_by_system["alpha"].fitness == 2.0
+
 
 def test_population_validation_requires_tournament_capacity(tmp_path):
     ga = GeneticAlgorithm(
@@ -184,9 +211,20 @@ def test_run_evaluates_final_offspring_before_saving(tmp_path):
     )
     ga.get_parameter_bounds = lambda system: {"x": (0.0, 10.0)}
 
+    # Make every mutated offspring a known winner; elites remain untouched.
+    def force_superior_offspring(individual):
+        individual.parameters["x"] = 10.0
+        individual.fitness = None
+
+    ga.mutate = force_superior_offspring
     summary = ga.run()
 
-    assert summary["total_evaluations"] > 15
+    assert summary["total_evaluations"] == 25
+    assert sum(evaluator.calls for evaluator in ga.evaluators.values()) == 25
+    assert all(
+        any(candidate["parameters"]["x"] == 10.0 for candidate in candidates)
+        for candidates in summary["best_by_system"].values()
+    )
     assert set(summary["best_by_system"]) == {
         "compression", "thompson", "caching", "matrix", "dashboard"
     }
