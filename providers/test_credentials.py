@@ -46,9 +46,9 @@ def test_duplicate_default_identity_across_environment_and_yaml_is_rejected(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "environment-secret-sentinel")
     path = tmp_path / "credentials.yaml"
     path.write_text(
-        "anthropic:\\n"
-        "  default:\\n"
-        "    api_key: yaml-secret-sentinel\\n",
+        "anthropic:\n"
+        "  default:\n"
+        "    api_key: yaml-secret-sentinel\n",
         encoding="utf-8",
     )
     try:
@@ -67,9 +67,9 @@ def test_duplicate_named_identity_across_environment_and_yaml_is_rejected(
     monkeypatch.setenv("ANTHROPIC_API_KEY_PERSONAL_1", "environment-secret-sentinel")
     path = tmp_path / "credentials.yaml"
     path.write_text(
-        "anthropic:\\n"
-        "  personal-1:\\n"
-        "    api_key: yaml-secret-sentinel\\n",
+        "anthropic:\n"
+        "  personal-1:\n"
+        "    api_key: yaml-secret-sentinel\n",
         encoding="utf-8",
     )
     try:
