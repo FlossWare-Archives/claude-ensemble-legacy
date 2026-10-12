@@ -99,6 +99,13 @@ def post_json(
         "headers": headers,
         "timeout": float(timeout),
     }
+    # Serialize before starting the worker. If the payload is not JSON-safe,
+    # no child exists that could be left blocked on stdin.
+    try:
+        request_json = json.dumps(request)
+    except (TypeError, ValueError) as exc:
+        raise ProviderHTTPError(provider, None, f"request payload is not JSON serializable: {exc}") from exc
+
     try:
         process = subprocess.Popen(
             [sys.executable, "-c", _WORKER_SCRIPT],
@@ -117,11 +124,18 @@ def post_json(
         process.communicate()
         raise ProviderHTTPError(provider, None, "overall request deadline exceeded")
     try:
-        stdout, stderr = process.communicate(input=json.dumps(request), timeout=remaining)
+        stdout, stderr = process.communicate(input=request_json, timeout=remaining)
     except subprocess.TimeoutExpired as exc:
         process.kill()
         process.communicate()
         raise ProviderHTTPError(provider, None, "overall request deadline exceeded") from exc
+    except BaseException:
+        # Any exceptional exit after launch must close the child's stdin and
+        # reap it, not just the normal timeout path.
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        raise
 
     if time.monotonic() > deadline:
         raise ProviderHTTPError(provider, None, "overall request deadline exceeded")
