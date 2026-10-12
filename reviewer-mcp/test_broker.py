@@ -21,17 +21,72 @@ class BrokerTests(unittest.TestCase):
         value = broker.complete(
             "grok", "xai", "grok-4.7", broker.time.monotonic(),
             {
-                "verdict": "nonsense",
+                "verdict": "comment",
                 "summary": "clean",
-                "findings": [
-                    {"message": "keep", "path": "a.py", "line": 3},
-                    {"path": "missing-message.py"},
-                ],
+                "findings": [{"message": "keep", "path": "a.py", "line": 3}],
             },
         )
         self.assertEqual(value["reviewer"], "grok")
         self.assertEqual(value["verdict"], "comment")
         self.assertEqual(value["findings"], [{"message": "keep", "path": "a.py", "line": 3}])
+
+    def test_review_schema_rejects_missing_or_malformed_fields(self):
+        invalid_reviews = [
+            {},
+            {"status": "done"},
+            {"verdict": "invalid", "summary": "clean", "findings": []},
+            {"verdict": "approve", "summary": 42, "findings": []},
+            {"verdict": "approve", "summary": "clean"},
+            {"verdict": "approve", "summary": "clean", "findings": {}},
+            {"verdict": "approve", "summary": "clean", "findings": [{}]},
+            {"verdict": "approve", "summary": "clean", "findings": [{"message": "x", "line": True}]},
+        ]
+        for review in invalid_reviews:
+            with self.subTest(review=review):
+                with self.assertRaises(RuntimeError):
+                    broker.normalize_review(review)
+
+    def test_valid_verdicts_allow_empty_findings(self):
+        for verdict in ("approve", "comment", "request_changes"):
+            with self.subTest(verdict=verdict):
+                review = broker.normalize_review({
+                    "verdict": verdict, "summary": "review completed", "findings": []
+                })
+                self.assertEqual(review, {
+                    "verdict": verdict, "summary": "review completed", "findings": []
+                })
+
+    def test_jules_skips_unrelated_status_json_after_valid_review(self):
+        review = {"verdict": "approve", "summary": "clean", "findings": []}
+
+        def fake_json_call(url, method="GET", headers=None, body=None, timeout=120):
+            if url.endswith("/sources"):
+                return {"sources": [{"name": "sources/github/1", "githubRepo": {
+                    "owner": "FlossWare", "repo": "claude-ensemble"
+                }}]}
+            if url.endswith("/sessions") and method == "POST":
+                return {"name": "sessions/123"}
+            if url.endswith("/sessions/123"):
+                return {"state": "COMPLETED"}
+            if url.endswith("/activities?pageSize=100"):
+                return {"activities": [
+                    {"agentMessaged": {"agentMessage": json.dumps(review)}},
+                    {"agentMessaged": {"agentMessage": json.dumps({"status": "done"})}},
+                ]}
+            raise AssertionError(url)
+
+        payload = {
+            "repository": "FlossWare/claude-ensemble", "pr_number": 1,
+            "base_sha": "a", "head_sha": "b", "head_ref": "main", "diff": "diff",
+        }
+        with patch.dict(os.environ, {"JULES_API_KEY": "secret"}), \
+             patch("broker.json_call", side_effect=fake_json_call), \
+             patch("broker.github_branch_sha", return_value="b"), \
+             patch("broker.time.sleep"):
+            result = broker.jules(payload)
+
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["verdict"], "approve")
 
     def test_repository_allowlist_rejects_before_external_call(self):
         with patch.dict(os.environ, {}, clear=False):

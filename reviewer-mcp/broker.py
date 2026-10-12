@@ -67,14 +67,29 @@ def parse(text):
 
 def normalize_findings(findings):
     if not isinstance(findings, list):
-        return []
+        raise RuntimeError("reviewer findings must be an array")
     normalized = []
-    for finding in findings:
-        if not isinstance(finding, dict) or not isinstance(finding.get("message"), str):
-            continue
+    for index, finding in enumerate(findings):
+        if not isinstance(finding, dict):
+            raise RuntimeError("reviewer finding {} must be an object".format(index))
+        if not isinstance(finding.get("message"), str) or not finding["message"].strip():
+            raise RuntimeError(
+                "reviewer finding {} must include a non-empty message".format(index)
+            )
+        for field in ("path", "severity", "evidence"):
+            if field in finding and not isinstance(finding[field], str):
+                raise RuntimeError(
+                    "reviewer finding {} field {} must be a string".format(index, field)
+                )
+        if "line" in finding and (
+            isinstance(finding["line"], bool)
+            or not isinstance(finding["line"], int)
+            or finding["line"] < 1
+        ):
+            raise RuntimeError(
+                "reviewer finding {} line must be a positive integer".format(index)
+            )
         item = {key: finding[key] for key in FINDING_FIELDS if key in finding}
-        if "line" in item and not isinstance(item["line"], int):
-            item.pop("line")
         normalized.append(item)
     return normalized
 
@@ -82,15 +97,18 @@ def normalize_findings(findings):
 def normalize_review(value):
     if not isinstance(value, dict):
         raise RuntimeError("reviewer returned non-object review")
-    verdict = value.get("verdict", "comment")
-    if verdict not in VERDICTS:
-        verdict = "comment"
+    verdict = value.get("verdict")
+    if not isinstance(verdict, str) or verdict not in VERDICTS:
+        raise RuntimeError("reviewer verdict must be one of: " + ", ".join(sorted(VERDICTS)))
+    if not isinstance(value.get("summary"), str):
+        raise RuntimeError("reviewer summary must be a string")
+    if "findings" not in value:
+        raise RuntimeError("reviewer findings array is required")
     return {
         "verdict": verdict,
-        "summary": str(value.get("summary", "")),
-        "findings": normalize_findings(value.get("findings", [])),
+        "summary": value["summary"],
+        "findings": normalize_findings(value["findings"]),
     }
-
 
 def fail(name, provider, start, exc):
     return {
