@@ -168,6 +168,19 @@ class MemoryStore:
 
         with self.lock:
             if path.exists():
+                # JSONL framing is part of the persisted data contract. A valid
+                # JSON object at EOF without a newline is still an unterminated
+                # record; appending directly would concatenate two objects and
+                # acknowledge a write that makes the log unreadable. Fail closed
+                # without changing existing bytes.
+                with path.open("rb") as framing_handle:
+                    framing_handle.seek(0, os.SEEK_END)
+                    if framing_handle.tell() > 0:
+                        framing_handle.seek(-1, os.SEEK_END)
+                        if framing_handle.read(1) != b"\n":
+                            raise RuntimeError(
+                                "cannot append: JSONL file has an unterminated final record"
+                            )
                 with path.open("r", encoding="utf-8") as handle:
                     for line_number, line in enumerate(handle, start=1):
                         if not line.strip():
