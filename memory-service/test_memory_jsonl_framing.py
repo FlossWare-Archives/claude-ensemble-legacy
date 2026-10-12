@@ -45,7 +45,11 @@ class MemoryJsonlFramingTest(unittest.TestCase):
             records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["event_id"], "first-event")
-            self.assertEqual(store.append_entry_once("events", "first-event", {"event": "first"})["status"], "duplicate")
+            duplicate = store.append_entry_once(
+                "events", "first-event", {"event": "first"}
+            )
+            self.assertEqual(duplicate["status"], "duplicate")
+
     def test_append_once_appends_after_a_properly_terminated_record(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
