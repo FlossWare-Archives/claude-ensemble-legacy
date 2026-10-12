@@ -517,6 +517,23 @@ service.start()
         assert corrupt['ok'] is False, corrupt
         assert corrupt['integrity_error'] is True, corrupt
         assert service.system.checkpoint_path.read_text(encoding='utf-8') == checkpoint_before
+        # An explicitly present but empty digest is corruption, not a legacy record.
+        stored = json.loads(outcome_path.read_text(encoding='utf-8'))
+        stored['payload_sha256'] = ''
+        outcome_path.write_text(json.dumps(stored), encoding='utf-8')
+        empty_digest = json.loads(service._process_request(json.dumps(payload)))
+        assert empty_digest['ok'] is False, empty_digest
+        assert empty_digest['integrity_error'] is True, empty_digest
+        assert service.system.checkpoint_path.read_text(encoding='utf-8') == checkpoint_before
+
+        # A checkpoint without its durable outcome must not be acknowledged as
+        # a duplicate, because the service cannot verify what was processed.
+        outcome_path.unlink()
+        missing = json.loads(service._process_request(json.dumps(payload)))
+        assert missing['ok'] is False, missing
+        assert missing['integrity_error'] is True, missing
+        assert 'no readable persisted outcome' in missing['error']
+        assert service.system.checkpoint_path.read_text(encoding='utf-8') == checkpoint_before
         print("✓ Processed task conflicts and corrupted outcome digests are rejected")
 
     def test_retry_uses_persisted_payload_for_thompson(self):
