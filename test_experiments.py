@@ -127,3 +127,28 @@ def test_store_skips_semantically_invalid_matching_record(tmp_path):
         encoding="utf-8",
     )
     assert store.get("exp-1") == evaluate(sample())
+
+def test_result_measurements_are_recursively_immutable_and_exports_are_detached():
+    from experiments import ExperimentResult
+
+    evaluated = evaluate(sample())
+    source_measurements = evaluated.to_dict()["measurements"]
+    result = ExperimentResult(
+        evaluated.experiment_id,
+        evaluated.hypothesis,
+        evaluated.winner,
+        source_measurements,
+        evaluated.input_digest,
+        evaluated.experiment_digest,
+    )
+
+    source_measurements["quality"]["variant"] = 0.1
+    assert result.measurements["quality"]["variant"] == 0.9
+
+    with pytest.raises(TypeError):
+        result.measurements["quality"]["variant"] = 0.1
+
+    exported = result.to_dict()
+    exported["measurements"]["quality"]["variant"] = 0.2
+    assert result.measurements["quality"]["variant"] == 0.9
+    assert json.dumps(result.to_dict(), allow_nan=False)
