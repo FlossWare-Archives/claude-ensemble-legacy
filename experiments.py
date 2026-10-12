@@ -147,10 +147,13 @@ class ExperimentResult:
         for name, value in (("input_digest", self.input_digest), ("experiment_digest", self.experiment_digest)):
             if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
                 raise ValueError(f"{name} must be a lowercase SHA-256 hex digest")
+        # The top-level dataclass is frozen, so freeze nested evidence as well.
+        # Keep an owned recursive snapshot and expose mutable data only via to_dict().
+        object.__setattr__(self, "measurements", _freeze(self.measurements))
 
     def to_dict(self) -> dict[str, Any]:
         return {"schema": self.schema, "version": self.version, "experiment_id": self.experiment_id,
-                "hypothesis": self.hypothesis, "winner": self.winner, "measurements": self.measurements,
+                "hypothesis": self.hypothesis, "winner": self.winner, "measurements": _thaw(self.measurements),
                 "input_digest": self.input_digest, "experiment_digest": self.experiment_digest}
 
     @classmethod
