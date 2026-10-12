@@ -89,3 +89,34 @@ The canonical `hooks/session-end-memory-capture.js` adapter is registered for Cl
 The adapter accepts only a confirmed `stored` or `duplicate` acknowledgement as success. Missing session IDs and service failures produce stderr diagnostics and exit successfully so session shutdown remains fail-open. It does not trigger Learning, mutate learner state, or promote Knowledge.
 
 Installer migration unregisters only known legacy SessionEnd scripts whose deployed file content matches an allowlisted SHA-256. It leaves the script files in place and preserves modified or unrecognized hooks. Both managed hooks are checksum-tracked, backed up, and rolled back with the settings file as one installation transaction.
+
+
+## Evidence-gated workflow outcome adapter
+
+`tools/record_workflow_outcome.py` is the canonical handoff from a workflow orchestrator to Learning. The orchestrator must call it only after it has an evaluated outcome and evidence; Claude Code's generic `Stop` and `SessionEnd` events are not quality judgments and are not registered as outcome producers.
+
+The adapter accepts one JSON object on stdin with `run_id`, optional `task_id` (defaults to `run_id`), `task_type`, `model`, integer `rating` (1-5), non-negative `tokens`, non-negative finite `cost`, and an `evidence` object containing non-empty `kind`, `reference`, and `summary` fields. The evidence should point to a real evaluation artifact such as a test report or reviewer decision. Do not send prompts, transcripts, credentials, or private chain-of-thought in the evidence fields.
+
+Example invocation from the repository root:
+
+```bash
+python3 tools/record_workflow_outcome.py <<'JSON'
+{
+  "run_id": "workflow-run-123",
+  "task_type": "code-review",
+  "model": "sonnet",
+  "rating": 4,
+  "tokens": 1200,
+  "cost": 0.02,
+  "evidence": {
+    "kind": "test-report",
+    "reference": "ci://run/123",
+    "summary": "Regression suite passed and the targeted defect is covered."
+  }
+}
+JSON
+```
+
+The adapter first submits a deterministic `workflow-outcome` learning artifact with evidence provenance, then submits the same stable task identity to `process_outcome`. It returns success only after both service operations acknowledge the request. Artifact retries reuse the same payload and `run_id`; Learning owns outcome deduplication and Thompson updates. If artifact persistence/Memory acknowledgement fails, Thompson is not called. If Thompson delivery fails, the adapter exits nonzero so the orchestrator can retry with the same identifiers. Knowledge promotion remains a separate operation.
+
+This adapter is an explicit workflow integration point, not a new automatic Claude Code hook. Until an upstream workflow producer can supply a stable run ID and a defensible quality assessment, the installer must not fabricate ratings or wire session completion directly into Thompson.
