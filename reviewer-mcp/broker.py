@@ -378,7 +378,7 @@ def _poll_jules_session(
                 )
             ),
         )
-        _save_jules_result(request_key, result, "failed")
+        _save_jules_result(request_key, result, "failed", deadline)
         return result
     for message in reversed(messages):
         try:
@@ -388,7 +388,7 @@ def _poll_jules_session(
         except (RuntimeError, ValueError, TypeError, KeyError):
             continue
     result = fail(reviewer_name, "google-jules", start, RuntimeError("Jules returned no review JSON"))
-    _save_jules_result(request_key, result, "failed")
+    _save_jules_result(request_key, result, "failed", deadline)
     return result
 
 
