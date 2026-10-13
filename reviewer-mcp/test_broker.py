@@ -447,6 +447,34 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(sum(1 for url, method in calls if url.endswith("/sessions") and method == "POST"), 1)
 
 
+    def test_jules_result_persistence_respects_overall_deadline(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"REVIEWER_MCP_SESSION_DB": str(Path(directory) / "sessions.sqlite3")}
+        ):
+            setup = broker._jules_session_db()
+            setup.execute(
+                "INSERT INTO jules_sessions "
+                "(request_key, session_id, state, result_json, start_sha, error, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("contended", "session-1", "running", None, "sha", "", time.time()),
+            )
+            setup.commit()
+            setup.close()
+
+            blocker = broker._jules_session_db()
+            blocker.execute("BEGIN EXCLUSIVE")
+            self.addCleanup(blocker.close)
+            started = time.monotonic()
+            with self.assertRaises(Exception):
+                broker._save_jules_result(
+                    "contended",
+                    {"status": "complete", "verdict": "approve", "summary": "done", "findings": []},
+                    "completed",
+                    deadline=started + 0.05,
+                )
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 0.5, "result persistence exceeded its remaining deadline")
+
     def test_jules_session_lock_wait_respects_deadline(self):
         lock = broker.threading.Lock()
         lock.acquire()
