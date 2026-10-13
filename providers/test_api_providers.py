@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from providers.anthropic import AnthropicProvider
+from providers.credentials import Credential
 from providers.google import GoogleProvider
 from providers.http import ProviderHTTPError
 from providers.model_provider import ModelRequest
@@ -110,6 +111,7 @@ def test_google_preserves_prior_messages_and_appends_prompt() -> None:
         model="gemini-test",
         messages=(
             {"role": "user", "content": "Compute 2 + 2."},
+            {"role": "model", "content": "alternate model role"},
             {"role": "assistant", "content": "4"},
         ),
     )
@@ -118,6 +120,7 @@ def test_google_preserves_prior_messages_and_appends_prompt() -> None:
 
     assert post.call_args.kwargs["payload"]["contents"] == [
         {"role": "user", "parts": [{"text": "Compute 2 + 2."}]},
+        {"role": "model", "parts": [{"text": "alternate model role"}]},
         {"role": "model", "parts": [{"text": "4"}]},
         {"role": "user", "parts": [{"text": "What is 2 + 2 + 0?"}]},
     ]
@@ -145,8 +148,48 @@ def test_registry_resolves_without_api_knowledge() -> None:
         registry.resolve("unknown-model")
 
 
-def test_temperature_must_be_between_zero_and_two() -> None:
-    with pytest.raises(ValueError, match="between 0 and 2"):
-        ModelRequest("hello", temperature=-0.1)
-    with pytest.raises(ValueError, match="between 0 and 2"):
-        ModelRequest("hello", temperature=2.1)
+def test_request_rejects_non_finite_values_and_invalid_token_limits() -> None:
+    for value in (float("nan"), float("inf"), float("-inf"), True, "5"):
+        with pytest.raises(ValueError):
+            ModelRequest("hello", timeout=value)
+        with pytest.raises(ValueError):
+            ModelRequest("hello", temperature=value)
+    for value in (True, 1.5, "10", 0, -1):
+        with pytest.raises(ValueError, match="positive integer"):
+            ModelRequest("hello", max_tokens=value)
+    for value in (True, "10", 0, -1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="finite number greater than zero"):
+            ModelRequest("hello", timeout=value)
+    for messages in ("not messages", ("not a mapping",), ({} ,)):
+        with pytest.raises(ValueError):
+            ModelRequest("hello", messages=messages)
+
+
+def test_anthropic_only_cools_down_credential_auth_failures() -> None:
+    credential = Credential("default", "anthropic", "key", "test")
+    pool = Mock()
+    pool.select.return_value = credential
+    provider = AnthropicProvider(credentials=pool)
+    with patch("providers.anthropic.post_json", side_effect=ProviderHTTPError("anthropic", 400, "invalid request")):
+        with pytest.raises(ProviderHTTPError):
+            provider.generate(ModelRequest("hello"))
+    pool.mark_failed.assert_not_called()
+    with patch("providers.anthropic.post_json", side_effect=ProviderHTTPError("anthropic", 401, "unauthorized")):
+        with pytest.raises(ProviderHTTPError):
+            provider.generate(ModelRequest("hello"))
+    pool.mark_failed.assert_called_once_with("anthropic", "default")
+
+
+def test_google_only_cools_down_credential_auth_failures() -> None:
+    credential = Credential("default", "google", "key", "test")
+    pool = Mock()
+    pool.select.return_value = credential
+    provider = GoogleProvider(credentials=pool)
+    with patch("providers.google.post_json", side_effect=ProviderHTTPError("google", 400, "invalid request")):
+        with pytest.raises(ProviderHTTPError):
+            provider.generate(ModelRequest("hello"))
+    pool.mark_failed.assert_not_called()
+    with patch("providers.google.post_json", side_effect=ProviderHTTPError("google", 403, "forbidden")):
+        with pytest.raises(ProviderHTTPError):
+            provider.generate(ModelRequest("hello"))
+    pool.mark_failed.assert_called_once_with("google", "default")

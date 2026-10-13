@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from .credentials import CredentialPool
-from .http import post_json
+from .http import ProviderHTTPError, post_json
 from .model_provider import ModelProvider, ModelRequest, ModelResponse
 
 
@@ -43,7 +43,7 @@ class GoogleProvider(ModelProvider):
         conversation = request.conversation()
         contents = [
             {
-                "role": "model" if message["role"] == "assistant" else "user",
+                "role": "user" if message["role"] == "user" else "model",
                 "parts": [{"text": message["content"]}],
             }
             for message in conversation
@@ -67,8 +67,13 @@ class GoogleProvider(ModelProvider):
                 headers={"x-goog-api-key": api_key},
                 timeout=request.timeout,
             )
-        except Exception:
-            if self.credentials is not None and requested is None and credential is not None:
+        except ProviderHTTPError as exc:
+            if (
+                exc.status in {401, 403}
+                and self.credentials is not None
+                and requested is None
+                and credential is not None
+            ):
                 self.credentials.mark_failed(self.name, credential_name)
             raise
         latency_ms = (time.monotonic() - started) * 1000

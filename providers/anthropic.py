@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from .credentials import CredentialPool
-from .http import post_json
+from .http import ProviderHTTPError, post_json
 from .model_provider import ModelProvider, ModelRequest, ModelResponse
 
 
@@ -63,8 +63,13 @@ class AnthropicProvider(ModelProvider):
                 },
                 timeout=request.timeout,
             )
-        except Exception:
-            if self.credentials is not None and requested is None and credential is not None:
+        except ProviderHTTPError as exc:
+            if (
+                exc.status in {401, 403}
+                and self.credentials is not None
+                and requested is None
+                and credential is not None
+            ):
                 self.credentials.mark_failed(self.name, credential_name)
             raise
         latency_ms = (time.monotonic() - started) * 1000
