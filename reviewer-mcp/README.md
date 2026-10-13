@@ -62,3 +62,13 @@ No browser automation is used.
 This broker owns reviewer transport and normalization. It does not duplicate CE arbitration, learning, metrics, or GitHub mutation behavior.
 
 The reviewer MCP test suite is intentionally dependency-free and runs independently of the broader CE test suite.
+
+### Jules deadlines and retry behavior
+
+Jules review requests use one monotonic end-to-end deadline from branch validation through source lookup, session creation, polling, and final branch validation. Each HTTP operation receives only the remaining budget and runs in a cancellable child process; the broker terminates and reaps that process when the deadline expires. The default `JULES_TIMEOUT_SECONDS` is 900 seconds.
+
+The MCP client timeout defaults to at least 60 seconds beyond the configured Jules deadline (960 seconds with defaults). Configure `REVIEWER_MCP_TIMEOUT_SECONDS` if needed, but it must exceed `JULES_TIMEOUT_SECONDS` by at least 30 seconds.
+
+Jules session IDs and normalized terminal results are stored in a SQLite registry under `$XDG_STATE_HOME/claude-ensemble/reviewer-mcp-sessions.sqlite3` (or `REVIEWER_MCP_SESSION_DB` for an alternate path). A retry with the same review input resumes the existing session or returns its stored result; it does not create another Jules session. If session creation times out before an ID can be recorded, the registry marks the outcome unknown and refuses to start a duplicate automatically. Resolve that record deliberately rather than assuming the external job was cancelled.
+
+A client disconnect does **not** cancel the external Jules job. The broker continues until completion or the configured deadline, persists the session/result state, and treats a later identical request as a retry. A transport timeout is not evidence that the external job stopped.
