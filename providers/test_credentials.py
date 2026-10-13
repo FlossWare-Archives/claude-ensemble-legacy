@@ -92,11 +92,11 @@ def test_yaml_only_normalized_identity_collision_is_rejected(
             monkeypatch.delenv(name, raising=False)
     path = tmp_path / "credentials.yaml"
     path.write_text(
-        "anthropic:\\n"
-        "  account_a:\\n"
-        "    api_key: first-secret-sentinel\\n"
-        "  account-a:\\n"
-        "    api_key: second-secret-sentinel\\n",
+        "anthropic:\n"
+        "  account_a:\n"
+        "    api_key: first-secret-sentinel\n"
+        "  account-a:\n"
+        "    api_key: second-secret-sentinel\n",
         encoding="utf-8",
     )
     try:
@@ -118,18 +118,18 @@ def test_failed_reload_keeps_previous_credentials_active(
     monkeypatch.setenv("ANTHROPIC_API_KEY_ACCOUNT_A", "environment-secret-sentinel")
     path = tmp_path / "credentials.yaml"
     path.write_text(
-        "anthropic:\\n"
-        "  personal-2:\\n"
-        "    api_key: yaml-secret-sentinel\\n",
+        "anthropic:\n"
+        "  personal-2:\n"
+        "    api_key: yaml-secret-sentinel\n",
         encoding="utf-8",
     )
     pool = CredentialPool(credentials_file=str(path))
     assert pool.select("anthropic", "account-a").api_key == "environment-secret-sentinel"
 
     path.write_text(
-        "anthropic:\\n"
-        "  account-a:\\n"
-        "    api_key: colliding-secret-sentinel\\n",
+        "anthropic:\n"
+        "  account-a:\n"
+        "    api_key: colliding-secret-sentinel\n",
         encoding="utf-8",
     )
     try:
