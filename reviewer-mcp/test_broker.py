@@ -376,6 +376,15 @@ class BrokerTests(unittest.TestCase):
 
 
 
+    def test_deadline_transport_rejects_nonserializable_body_before_launch(self):
+        with patch("broker.subprocess.Popen") as launch:
+            with self.assertRaises(TypeError):
+                broker._deadline_json_call(
+                    "https://example.invalid/", "POST", {}, {"bad": object()},
+                    deadline=broker.time.monotonic() + 5.0,
+                )
+        launch.assert_not_called()
+
     def test_deadline_transport_kills_and_reaps_over_budget_http_process(self):
         class FakeProcess:
             returncode = None
