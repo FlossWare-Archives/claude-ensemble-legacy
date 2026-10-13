@@ -159,8 +159,8 @@ def test_collaboration_preserves_unresolved_state_after_max_rounds():
     arbiter = FakeProvider(
         {
             "arbiter": [
-                adjudication(complete=False, blocking_concerns=["still open"]),
-                adjudication(complete=False, blocking_concerns=["still open"]),
+                adjudication(selected_candidate=None, complete=False, blocking_concerns=["still open"]),
+                adjudication(selected_candidate=None, complete=False, blocking_concerns=["still open"]),
             ]
         }
     )
