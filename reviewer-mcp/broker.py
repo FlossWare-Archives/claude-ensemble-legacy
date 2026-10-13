@@ -395,15 +395,18 @@ def normalize_findings(findings):
 def normalize_review(value):
     if not isinstance(value, dict):
         raise RuntimeError("reviewer returned non-object review")
-    verdict = value.get("verdict", "comment")
-    if verdict not in VERDICTS:
-        verdict = "comment"
+    verdict = value.get("verdict")
+    if not isinstance(verdict, str) or verdict not in VERDICTS:
+        raise RuntimeError("reviewer verdict must be one of: " + ", ".join(sorted(VERDICTS)))
+    if not isinstance(value.get("summary"), str):
+        raise RuntimeError("reviewer summary must be a string")
+    if "findings" not in value:
+        raise RuntimeError("reviewer findings array is required")
     return {
         "verdict": verdict,
-        "summary": str(value.get("summary", "")),
-        "findings": normalize_findings(value.get("findings", [])),
+        "summary": value["summary"],
+        "findings": normalize_findings(value["findings"]),
     }
-
 
 def fail(name, provider, start, exc):
     return {
