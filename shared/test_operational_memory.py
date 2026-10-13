@@ -10,7 +10,7 @@ from shared.operational_memory import OperationalMemoryWriter
 
 class OperationalMemoryWriterTest(unittest.TestCase):
     def test_event_name_is_deterministic_and_safe(self):
-        writer = OperationalMemoryWriter(base_url="http://127.0.0.1:8080/api/v1/memory")
+        writer = OperationalMemoryWriter()
         first = writer._memory_name("learning.outcome", "task/one")
         second = writer._memory_name("learning.outcome", "task/one")
         self.assertEqual(first, second)
@@ -29,6 +29,7 @@ class OperationalMemoryWriterTest(unittest.TestCase):
         self.assertIn('"model": "haiku"', document)
         self.assertIn('"tokens": 1000', document)
 
+    @patch.dict("os.environ", {"ENSEMBLE_MEMORY_GATEWAY_URL": ""})
     @patch("shared.operational_memory.urllib.request.urlopen")
     def test_write_event_posts_to_canonical_memory_endpoint(self, urlopen):
         class Response:
@@ -37,11 +38,11 @@ class OperationalMemoryWriterTest(unittest.TestCase):
             def read(self): return b'{"ok": true}'
 
         urlopen.return_value = Response()
-        writer = OperationalMemoryWriter(base_url="http://127.0.0.1:8080/api/v1/memory")
+        writer = OperationalMemoryWriter()
 
         self.assertTrue(writer.write_event("task-1", "learning.outcome", "learning-service", {"ok": True}))
         request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8080/api/v1/memory/write")
+        self.assertEqual(request.full_url, "http://127.0.0.1:8767/memory/write")
         self.assertEqual(request.method, "POST")
         payload = json.loads(request.data.decode("utf-8"))
         self.assertIn("operational-learning.outcome-", payload["name"])
