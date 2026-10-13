@@ -61,7 +61,7 @@ def _post_json_once(
 _WORKER_SCRIPT = r"""
 import json
 import sys
-from providers.http import ProviderHTTPError, _post_json_once
+from providers.http_client import ProviderHTTPError, _post_json_once
 
 request = json.load(sys.stdin)
 try:
