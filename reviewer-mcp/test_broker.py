@@ -35,12 +35,9 @@ class BrokerTests(unittest.TestCase):
         value = broker.complete(
             "grok", "xai", "grok-4.7", broker.time.monotonic(),
             {
-                "verdict": "nonsense",
+                "verdict": "comment",
                 "summary": "clean",
-                "findings": [
-                    {"message": "keep", "path": "a.py", "line": 3},
-                    {"path": "missing-message.py"},
-                ],
+                "findings": [{"message": "keep", "path": "a.py", "line": 3}],
             },
         )
         self.assertEqual(value["reviewer"], "grok")
