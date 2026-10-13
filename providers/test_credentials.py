@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import os
 
 from providers.credentials import CredentialPool
 
@@ -40,10 +39,51 @@ def test_yaml_credentials_can_be_selected(tmp_path: Path, monkeypatch) -> None:
     assert pool.select("anthropic", "personal-2").api_key == "secret-two"
 
 
+
+def test_duplicate_default_identity_across_environment_and_yaml_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "environment-secret-sentinel")
+    path = tmp_path / "credentials.yaml"
+    path.write_text(
+        "anthropic:\n"
+        "  default:\n"
+        "    api_key: yaml-secret-sentinel\n",
+        encoding="utf-8",
+    )
+    try:
+        CredentialPool(credentials_file=str(path))
+    except ValueError as exc:
+        assert "anthropic/default" in str(exc)
+        assert "environment-secret-sentinel" not in str(exc)
+        assert "yaml-secret-sentinel" not in str(exc)
+    else:
+        raise AssertionError("duplicate default identity should be rejected")
+
+
+def test_duplicate_named_identity_across_environment_and_yaml_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY_PERSONAL_1", "environment-secret-sentinel")
+    path = tmp_path / "credentials.yaml"
+    path.write_text(
+        "anthropic:\n"
+        "  personal-1:\n"
+        "    api_key: yaml-secret-sentinel\n",
+        encoding="utf-8",
+    )
+    try:
+        CredentialPool(credentials_file=str(path))
+    except ValueError as exc:
+        assert "anthropic/personal-1" in str(exc)
+        assert "environment-secret-sentinel" not in str(exc)
+        assert "yaml-secret-sentinel" not in str(exc)
+    else:
+        raise AssertionError("duplicate named identity should be rejected")
+
+
+
 def test_failed_credential_enters_cooldown(monkeypatch) -> None:
-    for name in tuple(os.environ):
-        if name == "ANTHROPIC_API_KEY" or name.startswith("ANTHROPIC_API_KEY_"):
-            monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY_ACCOUNT_A", "secret-a")
     monkeypatch.setenv("ANTHROPIC_API_KEY_ACCOUNT_B", "secret-b")
     pool = CredentialPool()
