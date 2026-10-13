@@ -22,7 +22,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import asdict, dataclass
 
-from .schema import CANONICAL_LOG_PATH, CostRecord
+try:
+    from .schema import CANONICAL_LOG_PATH, CostRecord
+except ImportError:
+    from schema import CANONICAL_LOG_PATH, CostRecord
 from collections import defaultdict
 import statistics
 
