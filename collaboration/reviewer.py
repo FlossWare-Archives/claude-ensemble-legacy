@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import urllib.request
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class MCPReviewer:
         auth_token: str | None = None,
         repository: str | None = None,
         branch: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         if name not in {"grok", "perplexity", "jules"}:
             raise ValueError("unsupported MCP reviewer: " + name)
@@ -60,6 +62,28 @@ class MCPReviewer:
         )
         self.repository = repository or os.environ.get("REVIEWER_MCP_REPOSITORY", "")
         self.branch = branch or os.environ.get("REVIEWER_MCP_BRANCH", "main")
+        try:
+            jules_timeout = float(os.environ.get("JULES_TIMEOUT_SECONDS", "900"))
+            if not math.isfinite(jules_timeout) or jules_timeout <= 0:
+                raise ValueError("JULES_TIMEOUT_SECONDS must be finite and positive")
+            default_timeout = max(960.0, jules_timeout + 60.0)
+            if isinstance(timeout, bool):
+                raise ValueError("reviewer MCP timeout must not be boolean")
+            configured_timeout = float(timeout) if timeout is not None else float(
+                os.environ.get("REVIEWER_MCP_TIMEOUT_SECONDS", str(default_timeout))
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("reviewer MCP timeout must be a positive number") from exc
+        if (
+            not math.isfinite(configured_timeout)
+            or configured_timeout <= 0
+        ):
+            raise ValueError("reviewer MCP timeout must be a finite positive number")
+        if configured_timeout < jules_timeout + 30.0:
+            raise ValueError(
+                "REVIEWER_MCP_TIMEOUT_SECONDS must exceed JULES_TIMEOUT_SECONDS by at least 30 seconds"
+            )
+        self.timeout = float(configured_timeout)
 
     def review(
         self,
@@ -76,6 +100,7 @@ class MCPReviewer:
             "params": {
                 "name": "review_candidate",
                 "arguments": {
+                    "candidate_id": candidate_id,
                     "candidate": candidate,
                     "context": context,
                     "focus": focus,
@@ -93,7 +118,7 @@ class MCPReviewer:
         )
         if self.auth_token:
             request.add_header("Authorization", "Bearer " + self.auth_token)
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
             body = json.loads(response.read().decode())
 
         if "error" in body:
