@@ -94,6 +94,9 @@ def _deadline_json_call(url, method, headers, body, deadline):
         "body": body,
         "timeout": remaining,
     }
+    # Validate the complete payload before starting a child that could otherwise
+    # remain blocked waiting for stdin when JSON serialization fails.
+    json.dumps(request_data)
     try:
         process = subprocess.Popen(
             [sys.executable, "-c", _DEADLINE_HTTP_SCRIPT],
@@ -112,11 +115,18 @@ def _deadline_json_call(url, method, headers, body, deadline):
         raise TimeoutError("Jules overall deadline exceeded")
     request_data["timeout"] = remaining
     try:
-        stdout, stderr = process.communicate(input=json.dumps(request_data), timeout=remaining)
+        serialized_request = json.dumps(request_data)
+        stdout, stderr = process.communicate(input=serialized_request, timeout=remaining)
     except subprocess.TimeoutExpired as exc:
         process.kill()
         process.communicate()
         raise TimeoutError("Jules overall deadline exceeded") from exc
+    except BaseException:
+        # Any exceptional exit after launch must not strand a transport child.
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        raise
     if time.monotonic() > deadline:
         raise TimeoutError("Jules overall deadline exceeded")
     if process.returncode != 0:
