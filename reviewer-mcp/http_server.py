@@ -42,7 +42,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.wfile.write(payload)
+            except (BrokenPipeError, ConnectionResetError):
+                # Disconnect does not cancel a Jules job; the durable session
+                # registry lets an identical retry resume/retrieve its result.
+                return
+        except (BrokenPipeError, ConnectionResetError):
+            return
         except Exception as exc:
             payload = json.dumps({
                 "jsonrpc": "2.0", "id": None,
