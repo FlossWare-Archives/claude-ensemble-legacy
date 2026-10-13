@@ -9,7 +9,7 @@ import pytest
 from providers.anthropic import AnthropicProvider
 from providers.credentials import Credential
 from providers.google import GoogleProvider
-from providers.http import ProviderHTTPError
+from providers.http_client import ProviderHTTPError
 from providers.model_provider import ModelRequest
 from providers.registry import ProviderRegistry
 

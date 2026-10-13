@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from providers.http import ProviderHTTPError, post_json
+from providers.http_client import ProviderHTTPError, post_json
 
 
 class _SlowProgressHandler(BaseHTTPRequestHandler):
@@ -79,7 +79,7 @@ def test_normal_response_within_deadline_is_decoded(local_server):
 def test_nonserializable_payload_is_rejected_before_transport():
     from unittest.mock import patch
 
-    with patch("providers.http.subprocess.Popen") as launch:
+    with patch("providers.http_client.subprocess.Popen") as launch:
         with pytest.raises(ProviderHTTPError, match="not JSON serializable"):
             post_json(
                 provider="test", url="http://127.0.0.1:1/",
