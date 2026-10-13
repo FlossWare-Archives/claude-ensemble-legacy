@@ -164,10 +164,16 @@ def _jules_session_db_path():
 
 
 def _jules_session_db(deadline=None):
+    def check_deadline():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("Jules overall deadline exceeded while accessing session registry")
+
+    check_deadline()
     path = _jules_session_db_path()
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if os.name != "nt":
         os.chmod(path.parent, 0o700)
+    check_deadline()
     timeout = 10.0
     if deadline is not None:
         remaining = deadline - time.monotonic()
@@ -175,21 +181,29 @@ def _jules_session_db(deadline=None):
             raise TimeoutError("Jules overall deadline exceeded while opening session registry")
         timeout = min(timeout, remaining)
     connection = sqlite3.connect(str(path), timeout=timeout)
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS jules_sessions (
-            request_key TEXT PRIMARY KEY,
-            session_id TEXT,
-            state TEXT NOT NULL,
-            result_json TEXT,
-            start_sha TEXT,
-            error TEXT NOT NULL DEFAULT '',
-            updated_at REAL NOT NULL
-        )"""
-    )
-    connection.commit()
-    if os.name != "nt" and path.exists():
-        os.chmod(path, 0o600)
-    return connection
+    try:
+        check_deadline()
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS jules_sessions (
+                request_key TEXT PRIMARY KEY,
+                session_id TEXT,
+                state TEXT NOT NULL,
+                result_json TEXT,
+                start_sha TEXT,
+                error TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL
+            )"""
+        )
+        check_deadline()
+        connection.commit()
+        check_deadline()
+        if os.name != "nt" and path.exists():
+            os.chmod(path, 0o600)
+        check_deadline()
+        return connection
+    except BaseException:
+        connection.close()
+        raise
 
 
 def _jules_request_key(kind, payload):
@@ -282,14 +296,25 @@ def _get_or_create_jules_session(request_key, start_sha, create_session, deadlin
         lock.release()
 
 
-def _save_jules_result(request_key, result, state):
-    connection = _jules_session_db()
+def _save_jules_result(request_key, result, state, deadline):
+    serialized_result = json.dumps(result)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Jules overall deadline exceeded before result persistence")
+    connection = _jules_session_db(deadline=deadline)
     try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Jules overall deadline exceeded before result persistence")
         connection.execute(
             "UPDATE jules_sessions SET state=?, result_json=?, error='', updated_at=? WHERE request_key=?",
-            (state, json.dumps(result), time.time(), request_key),
+            (state, serialized_result, time.time(), request_key),
         )
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Jules overall deadline exceeded during result persistence")
         connection.commit()
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Jules overall deadline exceeded during result persistence")
     finally:
         connection.close()
 
@@ -334,7 +359,7 @@ def _poll_jules_session(
             break
         if state.get("state") == "FAILED":
             result = fail(reviewer_name, "google-jules", start, RuntimeError(failure_message))
-            _save_jules_result(request_key, result, "failed")
+            _save_jules_result(request_key, result, "failed", deadline)
             return result
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -358,7 +383,7 @@ def _poll_jules_session(
     for message in reversed(messages):
         try:
             result = complete(reviewer_name, "google-jules", "jules", start, parse(message))
-            _save_jules_result(request_key, result, "completed")
+            _save_jules_result(request_key, result, "completed", deadline)
             return result
         except (RuntimeError, ValueError, TypeError, KeyError):
             continue
