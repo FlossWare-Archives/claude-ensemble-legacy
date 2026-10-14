@@ -19,6 +19,7 @@ SCRIPT_TESTS = {
     "shared/test_circuit_breaker.py",
     "test/test_service_installers.py",
     "test/test_service_lifecycle.py",
+    "test/test_top_level_install.py",
 }
 LIVE_SCRIPT_TESTS = {"caching/test_anthropic_api.py"}
 LIVE_REVIEWER_SCRIPT = "reviewer-mcp/smoke_live_reviewers.py"
