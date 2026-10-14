@@ -77,7 +77,9 @@ def http_request(base: str, path: str, correlation_id: str, method: str = "GET",
     if accept_no_data and status_code == 422 and payload.get("error_code") == "no_data":
         return "pass", "decision endpoint responded; no historical data is available", payload, elapsed
     if status_code < 200 or status_code >= 300:
-        return "fail", f"HTTP {status_code}; {payload.get('error_code', payload.get('error', 'request failed'))}", payload, elapsed
+        code = payload.get("error_code")
+        safe_reason = code if isinstance(code, str) and code else "request failed"
+        return "fail", f"HTTP {status_code}; {safe_reason}", payload, elapsed
     if payload.get("ok") is not True:
         return "fail", f"HTTP {status_code}; response did not acknowledge ok=true", payload, elapsed
     return "pass", f"HTTP {status_code}; ok=true", payload, elapsed
