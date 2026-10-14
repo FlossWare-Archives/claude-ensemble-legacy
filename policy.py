@@ -99,16 +99,55 @@ class PolicyResult:
 
 
 def evaluate(request: dict[str, Any], policy: Policy) -> PolicyResult:
-    """Evaluate a proposed execution against a policy."""
+    """Evaluate an execution proposal against policy.
+
+    Every supplied cost, latency, and confidence estimate is validated even if
+    its threshold is disabled. Missing values are required only by active
+    thresholds. Invalid supplied telemetry produces a structured denial.
+    """
     reasons: list[str] = []
     actions: list[str] = []
 
     model = request.get("model")
     provider = request.get("provider")
     capabilities = request.get("capabilities", [])
-    cost = request.get("estimated_cost_usd")
-    latency = request.get("estimated_latency_ms")
-    confidence = request.get("confidence")
+    raw_cost = request.get("estimated_cost_usd")
+    raw_latency = request.get("estimated_latency_ms")
+    raw_confidence = request.get("confidence")
+
+    # Validate every supplied estimate even when its corresponding policy
+    # threshold is disabled. Missing values are only required by active limits.
+    def telemetry_number(
+        name: str,
+        value: Any,
+        *,
+        minimum: float | None = None,
+        maximum: float | None = None,
+    ) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            reasons.append(f"{name} must be a number")
+            return None
+        try:
+            number = float(value)
+        except (OverflowError, ValueError):
+            reasons.append(f"{name} must be finite")
+            return None
+        if not math.isfinite(number):
+            reasons.append(f"{name} must be finite")
+            return None
+        if minimum is not None and number < minimum:
+            reasons.append(f"{name} must be >= {minimum}")
+            return None
+        if maximum is not None and number > maximum:
+            reasons.append(f"{name} must be <= {maximum}")
+            return None
+        return number
+
+    cost = telemetry_number("estimated_cost_usd", raw_cost, minimum=0)
+    latency = telemetry_number("estimated_latency_ms", raw_latency, minimum=0)
+    confidence = telemetry_number("confidence", raw_confidence, minimum=0, maximum=1)
 
     if policy.allowed_models and model not in policy.allowed_models:
         reasons.append("model is not allowed")
@@ -123,33 +162,21 @@ def evaluate(request: dict[str, Any], policy: Policy) -> PolicyResult:
             reasons.append(f"required capabilities missing: {', '.join(missing)}")
 
     if policy.max_cost_usd is not None:
-        if cost is None:
+        if raw_cost is None:
             reasons.append("estimated cost is required by policy")
-        elif isinstance(cost, bool) or not isinstance(cost, (int, float)):
-            reasons.append("estimated_cost_usd must be a number")
-        elif not math.isfinite(float(cost)):
-            reasons.append("estimated_cost_usd must be finite")
-        elif cost > policy.max_cost_usd:
+        elif cost is not None and cost > policy.max_cost_usd:
             reasons.append("estimated cost exceeds policy limit")
 
     if policy.max_latency_ms is not None:
-        if latency is None:
+        if raw_latency is None:
             reasons.append("estimated latency is required by policy")
-        elif isinstance(latency, bool) or not isinstance(latency, (int, float)):
-            reasons.append("estimated_latency_ms must be a number")
-        elif not math.isfinite(float(latency)):
-            reasons.append("estimated_latency_ms must be finite")
-        elif latency > policy.max_latency_ms:
+        elif latency is not None and latency > policy.max_latency_ms:
             reasons.append("estimated latency exceeds policy limit")
 
     if policy.min_confidence is not None:
-        if confidence is None:
+        if raw_confidence is None:
             reasons.append("confidence is required by policy")
-        elif isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-            reasons.append("confidence must be a number")
-        elif not math.isfinite(float(confidence)):
-            reasons.append("confidence must be finite")
-        elif confidence < policy.min_confidence:
+        elif confidence is not None and confidence < policy.min_confidence:
             reasons.append("confidence is below policy threshold")
 
     if reasons:

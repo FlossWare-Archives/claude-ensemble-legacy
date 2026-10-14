@@ -30,7 +30,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, asdict, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
 from scipy.stats import beta as scipy_beta
 from enum import Enum
@@ -157,7 +157,7 @@ class OutcomeLogger:
         outcome = TaskOutcome(
             task_id=task_id,
             task_type=task_type,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             thompson_selected=thompson_selected,
             thompson_candidates=thompson_candidates,
             actual_model_used=thompson_selected,
@@ -200,11 +200,15 @@ class OutcomeLogger:
 
     def get_recent_outcomes(self, hours: int = 24) -> List[TaskOutcome]:
         """Get outcomes from last N hours"""
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
-        return [
-            o for o in self.outcomes.values()
-            if datetime.fromisoformat(o.timestamp) >= cutoff
-        ]
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        results = []
+        for o in self.outcomes.values():
+            dt = datetime.fromisoformat(o.timestamp)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt >= cutoff:
+                results.append(o)
+        return results
 
 
 # ============================================================================
@@ -287,7 +291,7 @@ class FeedbackScorer:
 
         feedback = RoutingFeedback(
             task_id=outcome.task_id,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             thompson_correct=was_correct,
             thompson_ranking=ranking,
             opportunity_cost=opportunity_cost,
@@ -423,7 +427,7 @@ class PriorUpdater:
             prior.beta += 1.0
 
         prior.updates += 1
-        prior.last_updated = datetime.utcnow().isoformat()
+        prior.last_updated = datetime.now(timezone.utc).isoformat()
 
         # Persist
         self._save_prior(prior)
@@ -553,7 +557,7 @@ class AutoTuner:
         # Confidence increases with number of samples (up to 1.0)
         score.confidence = min(1.0, score.samples / 20.0)
 
-        score.last_updated = datetime.utcnow().isoformat()
+        score.last_updated = datetime.now(timezone.utc).isoformat()
 
         # Persist
         self._save_scores()
@@ -569,7 +573,7 @@ class AutoTuner:
         """Persist all scores"""
         try:
             data = {
-                'last_updated': datetime.utcnow().isoformat(),
+                'last_updated': datetime.now(timezone.utc).isoformat(),
                 'scores': {
                     key: asdict(score) for key, score in self.scores.items()
                 }
@@ -698,7 +702,7 @@ class AutonomousLearningSystem:
         # Compile learning report
         report = {
             'task_id': task_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'worker_1_outcome': asdict(outcome),
             'worker_2_feedback': asdict(feedback),
             'worker_3_prior': asdict(prior) if prior else None,
@@ -718,7 +722,7 @@ class AutonomousLearningSystem:
         accuracy_stats = self.feedback_scorer.get_accuracy_stats()
 
         report = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'total_outcomes': len(self.outcome_logger.outcomes),
             'recent_outcomes_24h': len(outcomes_recent),
             'accuracy_stats': accuracy_stats,

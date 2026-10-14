@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -473,6 +474,159 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+
+
+    def test_installed_session_end_hook_round_trips_to_durable_memory_once(self):
+        """Exercise the installed Node hook through HTTP and durable Memory storage."""
+        from memory_service import MemoryService, create_http_server
+
+        repo_root = Path(__file__).resolve().parents[1]
+        hook_source = repo_root / "hooks" / "session-end-memory-capture.js"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            # A copied hook under a path containing spaces mirrors ~/.claude/hooks
+            # and verifies the deployed .js file works outside the repository's
+            # package scope.
+            hook_deploy = root / "installed hooks with spaces" / hook_source.name
+            hook_deploy.parent.mkdir(parents=True)
+            hook_deploy.write_bytes(hook_source.read_bytes())
+
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                env = {
+                    **os.environ,
+                    "FLOSSWARE_MEMORY_URL": f"http://127.0.0.1:{server.server_port}",
+                }
+                event = json.dumps({"session_id": "round-trip-session-001"})
+                results = [
+                    subprocess.run(
+                        ["node", str(hook_deploy)],
+                        input=event,
+                        text=True,
+                        capture_output=True,
+                        timeout=5,
+                        env=env,
+                        check=False,
+                    )
+                    for _ in range(2)
+                ]
+
+                for result in results:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn("Memory capture unavailable:", result.stderr)
+
+                # The second execution must be acknowledged as a duplicate,
+                # not persisted as a second session event.
+                entries = service.store.read_entries("session_events")
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["event_type"], "claude_code.session_end")
+                self.assertEqual(entries[0]["hook_event_name"], "SessionEnd")
+                self.assertEqual(entries[0]["session_id"], "round-trip-session-001")
+                self.assertEqual(entries[0]["source"], "claude-code")
+                self.assertTrue(entries[0]["event_id"].startswith("claude-code:session-end:"))
+                self.assertTrue(entries[0].get("payload_sha256"))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+
+class MemoryServiceRestStatusTest(unittest.TestCase):
+    def test_generic_memory_routes_map_failure_to_non_2xx_status(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = MemoryService(Path(temp_dir) / "memory.sock", Path(temp_dir) / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+
+                def post(path, payload):
+                    request = urllib.request.Request(
+                        base + path,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    try:
+                        with urllib.request.urlopen(request, timeout=2) as response:
+                            return response.status, json.loads(response.read().decode("utf-8"))
+                    except urllib.error.HTTPError as response:
+                        return response.code, json.loads(response.read().decode("utf-8"))
+
+                status, body = post("/memory/write", {"name": "../escape", "content": "no"})
+                self.assertEqual(status, 400)
+                self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "validation")
+
+                status, body = post("/memory/read", {"name": "missing"})
+                self.assertEqual(status, 404)
+                self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "not_found")
+
+                with patch.object(service.store, "write_file", return_value=False):
+                    status, body = post("/memory/write", {"name": "write-failure", "content": "x"})
+                self.assertEqual(status, 500)
+                self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
+
+                with patch.object(service.store, "read_file", side_effect=OSError("disk failure")):
+                    status, body = post("/memory/read", {"name": "read-failure"})
+                self.assertEqual(status, 500)
+                self.assertFalse(body["ok"])
+                self.assertEqual(body["error_type"], "internal")
+
+                status, body = post("/memory/write", {"name": "valid", "content": "stored"})
+                self.assertEqual(status, 200)
+                self.assertTrue(body["ok"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+
+    def test_semantic_search_enrichment_read_failure_returns_500(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with patch.object(
+                    service.store,
+                    "search_semantic",
+                    return_value=[{"file": "enrichment-failure", "section": "body", "score": 1.0}],
+                ), patch.object(
+                    service.store,
+                    "read_file",
+                    side_effect=OSError("disk failure during enrichment"),
+                ):
+                    request = urllib.request.Request(
+                        "http://127.0.0.1:%d/memory/search-semantic" % server.server_port,
+                        data=json.dumps({"query": "needle", "top_k": 5}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as raised:
+                        urllib.request.urlopen(request, timeout=2)
+                    self.assertEqual(raised.exception.code, 500)
+                    body = json.loads(raised.exception.read().decode("utf-8"))
+                    self.assertFalse(body["ok"])
+                    self.assertIn("disk failure during enrichment", body["error"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
 
 
 class MemoryServiceSecurityTest(unittest.TestCase):

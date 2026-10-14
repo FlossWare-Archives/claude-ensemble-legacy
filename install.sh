@@ -60,6 +60,8 @@ for required_path in \
     "$REPO_PATH/alert_service/install.sh" \
     "$REPO_PATH/session-messaging/install.sh" \
     "$REPO_PATH/graph-service/install.sh" \
+    "$REPO_PATH/server/install.sh" \
+    "$REPO_PATH/server/claude-ensemble.service.template" \
     "$REPO_PATH/tools/claude-config/lib/json_tool.py"; do
     if [ ! -f "$required_path" ]; then
         echo "ERROR: Required CE installation file is missing: $required_path" >&2
@@ -142,59 +144,62 @@ if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME
     echo "   ✓ Normalized CE UserPromptSubmit memory hook"
 fi
 
-# Step 4: Symlink toolkit initialization script
+# Register the canonical idempotent SessionEnd capture alongside prompt retrieval.
+# The JSON tool preserves unrelated user hooks and normalizes only the CE-owned
+# session-end registration.
+if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME/hooks/session-end-memory-capture.js" ]; then
+    python3 "$CLAUDE_CONFIG_TOOL" install-session-end-hook \
+        "$SETTINGS_FILE" \
+        "$CLAUDE_HOME/hooks/session-end-memory-capture.js" \
+        "$REPO_PATH/hooks/session-end-memory-capture.js"
+    echo "   ✓ Normalized CE SessionEnd memory capture hook"
+fi
+
+# Managed repository links are defaults, not permission to delete user data.
+# Existing paths are left untouched unless they already point to the intended
+# source. This makes repeated installs idempotent and avoids replacing custom
+# files or symlinks to user-managed locations.
+install_managed_link() {
+    local destination="$1" source="$2" label="$3"
+    [ -f "$source" ] || return 0
+    if [ -L "$destination" ] && [ "$(readlink -f "$destination" 2>/dev/null || true)" = "$(readlink -f "$source")" ]; then
+        echo "   ✓ $label already points to repository source"
+    elif [ -e "$destination" ] || [ -L "$destination" ]; then
+        echo "   ! Preserved existing $destination; it is not the repository-managed link."
+    else
+        ln -s "$source" "$destination"
+        echo "   ✓ Installed $label"
+    fi
+}
+
+# Step 4: Install toolkit initialization and configuration links
 echo ""
-echo "4. Installing toolkit init script..."
-INIT_LINK="$CLAUDE_HOME/ensemble-init.sh"
+echo "4. Installing toolkit scripts..."
 INIT_SOURCE="$REPO_PATH/scripts/ensemble-init.sh"
-if [ -f "$INIT_SOURCE" ]; then
-    rm -f "$INIT_LINK" 2>/dev/null || true
-    ln -s "$INIT_SOURCE" "$INIT_LINK"
-    echo "   ✓ Installed ensemble-init.sh"
-fi
-
-# Step 4b: Symlink config script
-CONFIG_LINK="$CLAUDE_HOME/config.sh"
 CONFIG_SOURCE="$REPO_PATH/scripts/config.sh"
-if [ -f "$CONFIG_SOURCE" ]; then
-    rm -f "$CONFIG_LINK" 2>/dev/null || true
-    ln -s "$CONFIG_SOURCE" "$CONFIG_LINK"
-    echo "   ✓ Installed config.sh"
-fi
+install_managed_link "$CLAUDE_HOME/ensemble-init.sh" "$INIT_SOURCE" "ensemble-init.sh"
+install_managed_link "$CLAUDE_HOME/config.sh" "$CONFIG_SOURCE" "config.sh"
 
-# Step 4c: Symlink CLAUDE.ENSEMBLE.md (ensemble practices guide)
+# Step 4c: Install ensemble practices guide
 echo ""
 echo "4c. Installing ensemble practices guide..."
-CLAUDE_ENSEMBLE_LINK="$CLAUDE_HOME/CLAUDE.ENSEMBLE.md"
 CLAUDE_ENSEMBLE_SOURCE="$REPO_PATH/CLAUDE.ENSEMBLE.md"
+install_managed_link "$CLAUDE_HOME/CLAUDE.ENSEMBLE.md" "$CLAUDE_ENSEMBLE_SOURCE" "CLAUDE.ENSEMBLE.md"
 if [ -f "$CLAUDE_ENSEMBLE_SOURCE" ]; then
-    rm -f "$CLAUDE_ENSEMBLE_LINK" 2>/dev/null || true
-    ln -s "$CLAUDE_ENSEMBLE_SOURCE" "$CLAUDE_ENSEMBLE_LINK"
-    echo "   ✓ Installed CLAUDE.ENSEMBLE.md (ensemble practices)"
     echo "   ℹ Users can create their own ~/.claude/CLAUDE.md with additional practices"
 fi
 
-# Step 5: Symlink GA parameter evolution
+# Step 5: Install GA parameter evolution link
 echo ""
 echo "5. Installing GA parameter evolution..."
-GA_LINK="$CLAUDE_HOME/ga_parameter_evolution.md"
 GA_SOURCE="$REPO_PATH/ga_tuning/parameter_evolution.md"
-if [ -f "$GA_SOURCE" ]; then
-    rm -f "$GA_LINK" 2>/dev/null || true
-    ln -s "$GA_SOURCE" "$GA_LINK"
-    echo "   ✓ Installed ga_parameter_evolution.md"
-fi
+install_managed_link "$CLAUDE_HOME/ga_parameter_evolution.md" "$GA_SOURCE" "ga_parameter_evolution.md"
 
-# Step 6: Symlink memory service client
+# Step 6: Install memory service client link
 echo ""
 echo "6. Installing memory service client..."
-MEMORY_CLIENT="$CLAUDE_HOME/memory-client.py"
 MEMORY_SOURCE="$MEMORY_SERVICE_DIR/memory_client.py"
-if [ -f "$MEMORY_SOURCE" ]; then
-    rm -f "$MEMORY_CLIENT" 2>/dev/null || true
-    ln -s "$MEMORY_SOURCE" "$MEMORY_CLIENT"
-    echo "   ✓ Installed memory-client.py"
-fi
+install_managed_link "$CLAUDE_HOME/memory-client.py" "$MEMORY_SOURCE" "memory-client.py"
 
 # Step 7: Install and start systemd user services
 # Each service owns its own unit installation and lifecycle. Calling the
@@ -210,6 +215,7 @@ SERVICE_INSTALLERS=(
     "alert_service/install.sh"
     "session-messaging/install.sh"
     "graph-service/install.sh"
+    "server/install.sh"
 )
 
 for SERVICE_INSTALLER in "${SERVICE_INSTALLERS[@]}"; do
@@ -229,7 +235,8 @@ for unit in \
     claude-learning.service \
     claude-alert.service \
     claude-messenger.service \
-    claude-graph.service; do
+    claude-graph.service \
+    claude-ensemble.service; do
     if ! systemctl --user is-active --quiet "$unit"; then
         echo "ERROR: Required CE service is not active: $unit" >&2
         echo "       Inspect with: journalctl --user -u $unit -n 80 --no-pager" >&2

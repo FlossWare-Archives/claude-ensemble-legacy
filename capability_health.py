@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from shared.runtime_config import thompson_state_file
+
 DEFAULT_MODELS = ("haiku", "sonnet", "opus", "gemini-2.5-flash")
 DEFAULT_CAPABILITIES = {
     "haiku": ("text_generation", "reasoning", "code"),
@@ -23,8 +25,15 @@ def _finite_number(value: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _nonnegative_int(value: Any) -> int | None:
+    """Return a valid persisted counter, or None when its shape is invalid."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 def _state_path(path: str | Path | None = None) -> Path:
-    return Path(path) if path is not None else Path(__file__).resolve().parent / "learning" / "thompson-sampling-state.json"
+    return Path(path) if path is not None else thompson_state_file()
 
 
 def _cost_path(path: str | Path | None = None) -> Path:
@@ -134,14 +143,25 @@ class CapabilityHealthView:
             provider, canonical = _provider_for(self.registry, model)
             credentials = self.registry.credential_status(provider) if provider != "unknown" else []
             credential_available = any(item.get("state") == "available" for item in credentials)
-            perf = thompson.get(model) or thompson.get(canonical) or {}
-            calls = int(perf.get("calls", 0) or 0)
-            successes = int(perf.get("successes", 0) or 0)
-            failures = int(perf.get("failures", 0) or 0)
+            raw_perf = thompson.get(model) or thompson.get(canonical) or {}
+            perf: dict[str, Any] = raw_perf if isinstance(raw_perf, dict) else {}
+            counters = {
+                name: _nonnegative_int(perf.get(name, 0))
+                for name in ("calls", "successes", "failures")
+            }
+            # A malformed observation must not break the entire health response
+            # or accidentally make a model appear healthy.
+            if any(value is None for value in counters.values()):
+                perf = {}
+                counters = {"calls": 0, "successes": 0, "failures": 0}
+            calls = counters["calls"]
+            successes = counters["successes"]
+            failures = counters["failures"]
             latency = _finite_number(perf.get("total_latency_ms"))
             total_cost = _finite_number(perf.get("total_cost"))
-            recent = costs.get(model) or costs.get(canonical) or {}
-            recent_calls = int(recent.get("calls", 0) or 0)
+            raw_recent = costs.get(model) or costs.get(canonical) or {}
+            recent = raw_recent if isinstance(raw_recent, dict) else {}
+            recent_calls = _nonnegative_int(recent.get("calls", 0)) or 0
             avg_latency = (latency / calls) if calls > 0 and latency is not None else None
             avg_cost = (total_cost / calls) if calls > 0 and total_cost is not None else None
             success_rate = (successes / calls) if calls > 0 else None

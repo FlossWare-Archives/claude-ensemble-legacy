@@ -109,6 +109,104 @@ def test_read_limit_returns_latest_records(tmp_path):
         store.read(limit=0)
 
 
+def test_limited_read_retains_only_the_latest_bounded_records(tmp_path):
+    store = MetricsStore(tmp_path / "large.jsonl")
+    for index in range(2500):
+        store.record(MetricsRecord(
+            execution_id=f"exec-{index}", timestamp="now", service="metrics"
+        ))
+    page = store.read(limit=10)
+    assert len(page) == 10
+    assert [record.execution_id for record in page] == [
+        f"exec-{index}" for index in range(2490, 2500)
+    ]
+
+
+def test_aggregate_streams_all_records_without_calling_read(tmp_path, monkeypatch):
+    store = MetricsStore(tmp_path / "metrics.jsonl")
+    for index in range(5):
+        store.record(MetricsRecord(
+            execution_id=f"exec-{index}", timestamp="now", service="metrics",
+            estimated_cost=0.25, latency_ms=10,
+        ))
+    def fail_read(*args, **kwargs):
+        raise AssertionError("aggregate must stream instead of materializing read()")
+    monkeypatch.setattr(store, "read", fail_read)
+    result = store.aggregate()
+    assert result["records"] == 5
+    assert result["total_estimated_cost"] == 1.25
+    assert result["average_latency_ms"] == 10
+
+
+def test_read_page_is_bounded_and_chronological(tmp_path):
+    store = MetricsStore(tmp_path / "metrics.jsonl")
+    for index in range(12):
+        store.record(MetricsRecord(
+            execution_id=f"exec-{index}", timestamp="now", service="metrics"
+        ))
+    assert [r.execution_id for r in store.read_page(5, 5)] == [
+        "exec-5", "exec-6", "exec-7", "exec-8", "exec-9"
+    ]
+    with pytest.raises(ValueError, match="non-negative"):
+        store.read_page(5, -1)
+
+
+def test_spreadsheet_safe_csv_neutralizes_formula_like_text_only_at_export(tmp_path):
+    import csv
+
+    store = MetricsStore(tmp_path / "metrics.jsonl")
+    record = MetricsRecord(
+        execution_id="=1+1",
+        timestamp="now",
+        service="model",
+        model=" +1+1",
+        route="-1+1",
+        task_type="@SUM(1,1)",
+        status="success",
+        input_tokens=3,
+        output_tokens=2,
+        total_tokens=5,
+    )
+    store.record(record)
+    canonical_before = store.path.read_text(encoding="utf-8")
+
+    safe_path = store.export_csv(tmp_path / "safe.csv")
+    with safe_path.open(encoding="utf-8", newline="") as stream:
+        safe_row = next(csv.DictReader(stream))
+    assert safe_row["execution_id"] == "'=1+1"
+    assert safe_row["model"] == "' +1+1"
+    assert safe_row["route"] == "'-1+1"
+    assert safe_row["task_type"] == "'@SUM(1,1)"
+    assert safe_row["input_tokens"] == "3"
+    assert safe_row["output_tokens"] == "2"
+
+    raw_path = store.export_csv(tmp_path / "raw.csv", spreadsheet_safe=False)
+    with raw_path.open(encoding="utf-8", newline="") as stream:
+        raw_row = next(csv.DictReader(stream))
+    assert raw_row["execution_id"] == "=1+1"
+    assert raw_row["task_type"] == "@SUM(1,1)"
+    assert store.path.read_text(encoding="utf-8") == canonical_before
+
+
+def test_spreadsheet_safe_csv_neutralizes_leading_tab_and_carriage_return(tmp_path):
+    assert MetricsStore._spreadsheet_safe_cell("\tplain text") == "'\tplain text"
+    assert MetricsStore._spreadsheet_safe_cell("\rplain text") == "'\rplain text"
+
+
+def test_spreadsheet_safe_csv_preserves_csv_delimiters_and_newlines(tmp_path):
+    import csv
+
+    store = MetricsStore(tmp_path / "metrics.jsonl")
+    value = 'normal, "quoted" text\nsecond line'
+    store.record(MetricsRecord(
+        execution_id="exec-safe", timestamp="now", service="model", task_type=value
+    ))
+    path = store.export_csv(tmp_path / "safe.csv")
+    with path.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream))
+    assert row["task_type"] == value
+
+
 def test_model_client_emits_success_metric(tmp_path):
     store = MetricsStore(tmp_path / "metrics.jsonl")
     client = MultiModelClient(

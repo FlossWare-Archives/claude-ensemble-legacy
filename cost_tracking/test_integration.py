@@ -333,6 +333,14 @@ class TestCostTracking(unittest.TestCase):
         total_expected = num_workers * iterations_per_worker
         self.assertEqual(summary['total_calls'], total_expected)
 
+    def test_stop_is_idempotent_and_wakes_worker(self):
+        """Shutdown should wake the worker instead of waiting for its flush interval."""
+        started = time.monotonic()
+        self.logger.stop()
+        self.logger.stop()
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertFalse(self.logger.flush_thread.is_alive())
+
     def test_metrics_file_output(self):
         """Test metrics are written to disk"""
         routing = ThompsonDecision(

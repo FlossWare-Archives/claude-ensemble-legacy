@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from collaboration.orchestrator import CollaborationOrchestrator
 from collaboration.reviewer import ReviewerResult
 from providers import ModelProvider, ModelRequest, ModelResponse
@@ -157,8 +159,8 @@ def test_collaboration_preserves_unresolved_state_after_max_rounds():
     arbiter = FakeProvider(
         {
             "arbiter": [
-                adjudication(complete=False, blocking_concerns=["still open"]),
-                adjudication(complete=False, blocking_concerns=["still open"]),
+                adjudication(selected_candidate=None, complete=False, blocking_concerns=["still open"]),
+                adjudication(selected_candidate=None, complete=False, blocking_concerns=["still open"]),
             ]
         }
     )
@@ -258,6 +260,82 @@ def test_arbiter_rejects_unknown_selected_candidate():
     else:
         raise AssertionError("unknown candidate must fail closed")
 
+@pytest.mark.parametrize("response", ["", "not valid JSON"])
+def test_empty_or_malformed_arbiter_output_fails_closed(response):
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FakeProvider({"sonnet": "solution"})},
+        arbiter=FakeProvider({"arbiter": response}),
+        reviewers={},
+    )
+    try:
+        loop.run()
+    except ValueError as exc:
+        assert "arbiter response must contain a JSON object" in str(exc)
+    else:
+        raise AssertionError("empty or malformed arbiter output must fail closed")
+
+
+def test_complete_adjudication_with_null_selection_cannot_be_accepted():
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FakeProvider({"sonnet": "valid solution"})},
+        arbiter=FakeProvider({"arbiter": adjudication(selected_candidate=None)}),
+        reviewers={},
+    )
+    result = loop.run()
+    assert result.status == "needs_human"
+    assert result.selected_candidate is None
+    assert result.adjudication["complete"] is False
+    assert any("without selecting" in item for item in result.adjudication["blocking_concerns"])
+
+def test_failed_solver_candidate_cannot_be_accepted():
+    class FailingProvider(FakeProvider):
+        def generate(self, request):
+            raise RuntimeError("solver unavailable")
+
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FailingProvider({"sonnet": ""})},
+        arbiter=FakeProvider({"arbiter": adjudication()}),
+        reviewers={},
+    )
+    result = loop.run()
+    assert result.status == "needs_human"
+    assert result.selected_candidate is None
+    assert loop.state.candidates[0].status == "failed"
+    assert any("failed candidate" in item for item in result.adjudication["blocking_concerns"])
+
+def test_empty_solver_output_is_failed_and_cannot_be_accepted():
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FakeProvider({"sonnet": "   "})},
+        arbiter=FakeProvider({"arbiter": adjudication()}),
+        reviewers={},
+    )
+    result = loop.run()
+    assert result.status == "needs_human"
+    assert result.selected_candidate is None
+    assert loop.state.candidates[0].status == "failed"
+    assert loop.state.candidates[0].error == "solver returned an empty proposal"
+
+def test_historical_candidate_cannot_be_selected_in_a_later_round():
+    loop = CollaborationOrchestrator(
+        "Solve it.",
+        solvers={"sonnet": FakeProvider({"sonnet": ["solution one", "solution two"]})},
+        arbiter=FakeProvider({"arbiter": [
+            adjudication(complete=False, selected_candidate=None),
+            adjudication(selected_candidate="r1-sonnet"),
+        ]}),
+        reviewers={},
+        max_rounds=2,
+    )
+    result = loop.run()
+    assert result.status == "needs_human"
+    assert result.selected_candidate is None
+    assert result.adjudication["complete"] is False
+    assert any("outside the current round" in item for item in result.adjudication["blocking_concerns"])
+
 def test_reviewer_failure_isolated_and_recorded():
     class FailingReviewer(FakeReviewer):
         def review(self, **kwargs):
@@ -320,3 +398,25 @@ def test_call_budgets_bound_arbiter_calls_and_escalate():
     assert result.adjudication["human_decision_required"] is True
     assert any(item["event"] == "arbiter_budget_exhausted" for item in loop.state.audit)
     assert len(arbiter.requests) == 1
+
+def test_collaboration_uses_canonical_model_ids_for_solver_and_arbiter():
+    solver = FakeProvider({"claude-sonnet-5": "solution A"})
+    arbiter = FakeProvider({"claude-opus-5": adjudication()})
+    loop = CollaborationOrchestrator(
+        "Design the feature.",
+        solvers={"sonnet": solver},
+        arbiter=arbiter,
+        reviewers={},
+        solver_model_ids={"sonnet": "claude-sonnet-5"},
+        arbiter_model_id="claude-opus-5",
+        max_rounds=1,
+    )
+
+    result = loop.run()
+
+    assert result.status == "accepted"
+    assert result.selected_candidate is not None
+    assert result.selected_candidate.model == "sonnet"
+    assert solver.requests[0].model == "claude-sonnet-5"
+    assert arbiter.requests[0].model == "claude-opus-5"
+

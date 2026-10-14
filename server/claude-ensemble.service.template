@@ -1,0 +1,32 @@
+[Unit]
+Description=Claude Ensemble Canonical REST Gateway
+After=network.target claude-graph.service claude-memory.service
+Wants=claude-graph.service claude-memory.service
+
+[Service]
+Type=simple
+WorkingDirectory=%REPO_PATH%
+ExecStart=/usr/bin/env python3 %REPO_PATH%/server/ensemble_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-ensemble-gateway
+
+# Optional per-user portable configuration.
+EnvironmentFile=-%h/.config/claude-ensemble/environment
+
+# Keep the gateway on loopback; it is the single client-facing REST boundary.
+Environment="PATH=%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=%REPO_PATH%"
+Environment="PYTHONUNBUFFERED=1"
+Environment="ENSEMBLE_HTTP_HOST=127.0.0.1"
+Environment="ENSEMBLE_HTTP_PORT=8080"
+Environment="ENSEMBLE_GRAPH_URL=http://127.0.0.1:8766"
+Environment="ENSEMBLE_MEMORY_URL=http://127.0.0.1:8767"
+
+MemoryLimit=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=default.target

@@ -326,6 +326,9 @@ class AnthropicCacheValidator:
 
 
 def main():
+    if os.environ.get("ENSEMBLE_LIVE_CACHE_TESTS") != "1":
+        print("Live Anthropic prompt-cache validation is opt-in; set ENSEMBLE_LIVE_CACHE_TESTS=1 to run.")
+        return 0
     """Run all Anthropic API validation tests."""
     print("\n" + "=" * 80)
     print("ANTHROPIC API CACHE CONTROL VALIDATION")

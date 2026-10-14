@@ -13,8 +13,12 @@ Credentials are read from:
 - ANTHROPIC_API_KEY
 - GOOGLE_API_KEY
 
-Requests are bounded by ModelRequest.timeout. Provider-specific HTTP failures
-are surfaced as actionable exceptions and are not silently converted into fake
+Requests are bounded by ModelRequest.timeout as an overall wall-clock deadline.
+The blocking standard-library transport runs in a short-lived child process; if
+the deadline expires, the parent terminates and reaps that process so network
+I/O does not continue in an abandoned worker thread. Process startup and OS-level
+termination cleanup can add a small scheduling tolerance. Provider-specific HTTP
+failures are surfaced as actionable exceptions and are not converted into fake
 successful responses.
 
 ModelRequest keeps \`messages\` as prior conversation turns and always appends

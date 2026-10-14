@@ -10,7 +10,7 @@ import sys
 import json
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 MEMORY_DIR = Path.home() / '.claude/projects/memory'
 
@@ -140,7 +140,7 @@ def main():
                 'file': args.file,
                 'method': args.method,
                 'chunk_count': len(chunks),
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'chunks': chunks
             }
 

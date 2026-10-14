@@ -82,7 +82,7 @@ class GroundTruthTests(unittest.TestCase):
                 updater.update_prior(
                     model_name="model-a",
                     task_type="code_review",
-                    quality_score=1.0,
+                    learning_signal=None,
                 )
 
     def test_negative_ground_truth_updates_prior_as_failure(self):

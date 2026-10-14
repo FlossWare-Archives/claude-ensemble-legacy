@@ -19,7 +19,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -107,9 +107,9 @@ class MemoryStore:
         try:
             with open(path, "r") as f:
                 return f.read()
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error reading {name}: {e}")
-            return None
+            raise
 
     def write_file(self, name: str, content: str) -> bool:
         """Write a memory file."""
@@ -130,7 +130,7 @@ class MemoryStore:
         try:
             with self.lock:
                 with open(path, "a") as f:
-                    entry["timestamp"] = datetime.utcnow().isoformat()
+                    entry["timestamp"] = datetime.now(timezone.utc).isoformat()
                     f.write(json.dumps(entry) + "\n")
             logger.info(f"Appended to {name}")
             return True
@@ -168,6 +168,19 @@ class MemoryStore:
 
         with self.lock:
             if path.exists():
+                # JSONL framing is part of the persisted data contract. A valid
+                # JSON object at EOF without a newline is still an unterminated
+                # record; appending directly would concatenate two objects and
+                # acknowledge a write that makes the log unreadable. Fail closed
+                # without changing existing bytes.
+                with path.open("rb") as framing_handle:
+                    framing_handle.seek(0, os.SEEK_END)
+                    if framing_handle.tell() > 0:
+                        framing_handle.seek(-1, os.SEEK_END)
+                        if framing_handle.read(1) != b"\n":
+                            raise RuntimeError(
+                                "cannot append: JSONL file has an unterminated final record"
+                            )
                 with path.open("r", encoding="utf-8") as handle:
                     for line_number, line in enumerate(handle, start=1):
                         if not line.strip():
@@ -201,7 +214,7 @@ class MemoryStore:
                         raise ValueError("event_id already exists with different payload")
 
             record["payload_sha256"] = payload_sha256
-            record["captured_at"] = datetime.utcnow().isoformat() + "Z"
+            record["captured_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             # Preserve a caller-supplied event timestamp. For legacy consumers,
             # provide timestamp only when the payload did not include one.
             record.setdefault("timestamp", record["captured_at"])
@@ -768,8 +781,20 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                     if content is not None: item["content"]=content
                     enriched.append(item)
                 result["results"]=enriched
-            self._send(200,result)
-        except (ValueError,json.JSONDecodeError) as exc: self._send(400,{"ok":False,"error":str(exc)})
+            if result.get("ok") is False:
+                if result.get("error_type") == "validation":
+                    status = 400
+                elif result.get("error_type") == "not_found":
+                    status = 404
+                elif result.get("error_type") == "internal":
+                    status = 500
+                else:
+                    status = 500
+            else:
+                status = 200
+            self._send(status, result)
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send(400, {"ok": False, "error": str(exc)})
         except Exception as exc:
             logger.exception("Memory REST request failed")
             self._send(500,{"ok":False,"error":str(exc)})
@@ -917,13 +942,26 @@ class MemoryService:
             if operation == "read":
                 name = req_data.get("name")
                 content = self.store.read_file(name)
-                return json.dumps({"ok": content is not None, "content": content})
+                if content is None:
+                    return json.dumps({
+                        "ok": False,
+                        "content": None,
+                        "error": "memory not found",
+                        "error_type": "not_found",
+                    })
+                return json.dumps({"ok": True, "content": content})
 
             if operation == "write":
                 name = req_data.get("name")
                 content = req_data.get("content")
                 success = self.store.write_file(name, content)
-                return json.dumps({"ok": success})
+                if not success:
+                    return json.dumps({
+                        "ok": False,
+                        "error": "memory write failed",
+                        "error_type": "internal",
+                    })
+                return json.dumps({"ok": True})
 
             if operation == "append":
                 name = req_data.get("name")
@@ -1008,10 +1046,12 @@ class MemoryService:
 
             return json.dumps({"ok": False, "error": f"Unknown operation: {operation}"})
         except json.JSONDecodeError:
-            return json.dumps({"ok": False, "error": "Invalid JSON"})
+            return json.dumps({"ok": False, "error": "Invalid JSON", "error_type": "validation"})
+        except (ValueError, TypeError, KeyError) as e:
+            return json.dumps({"ok": False, "error": str(e), "error_type": "validation"})
         except Exception as e:
             logger.error(f"Request error: {e}")
-            return json.dumps({"ok": False, "error": str(e)})
+            return json.dumps({"ok": False, "error": str(e), "error_type": "internal"})
 
 
 if __name__ == "__main__":

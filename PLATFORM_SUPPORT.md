@@ -29,3 +29,13 @@ explicit Windows service implementation rather than pretending systemd is availa
 WSL distributions that provide a working Linux userspace and systemd user manager
 may use the Linux installers when systemd user services are enabled. Native Windows
 service management remains outside this repository's Linux installer path.
+
+
+## Linux without systemd
+
+The installers require `systemctl --user` and will not install units on a host
+without a working systemd user manager. For explicit foreground/manual operation
+on Linux, see [Service Lifecycle Ownership](SERVICE_LIFECYCLE.md#running-without-systemd).
+The manual path is operator-managed only: no automatic daemon startup, restart
+policy, or login integration is provided. Do not use these Linux installers from
+native Windows shells.

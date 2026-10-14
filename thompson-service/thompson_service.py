@@ -16,7 +16,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 import uuid
 import numpy as np
@@ -58,7 +58,7 @@ class ModelStats:
         self.total_cost = 0.0
         self.total_tokens = 0
         self.calls = 0
-        self.last_updated = datetime.utcnow().isoformat()
+        self.last_updated = datetime.now(timezone.utc).isoformat()
 
     @property
     def success_rate(self) -> float:
@@ -95,7 +95,7 @@ class ModelStats:
         model.total_cost = data.get('total_cost', 0.0)
         model.total_tokens = data.get('total_tokens', 0)
         model.calls = data.get('calls', 0)
-        model.last_updated = data.get('last_updated', datetime.utcnow().isoformat())
+        model.last_updated = data.get('last_updated', datetime.now(timezone.utc).isoformat())
         return model
 
 
@@ -106,7 +106,7 @@ class ThompsonState:
         self.state_file = Path(state_file)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.models: Dict[str, ModelStats] = {}
-        self.last_updated = datetime.utcnow().isoformat()
+        self.last_updated = datetime.now(timezone.utc).isoformat()
         self._load()
 
     def _load(self):
@@ -116,7 +116,7 @@ class ThompsonState:
                 with open(self.state_file, 'r') as f:
                     data = json.load(f)
 
-                self.last_updated = data.get('last_updated', datetime.utcnow().isoformat())
+                self.last_updated = data.get('last_updated', datetime.now(timezone.utc).isoformat())
 
                 # Load model stats
                 for model_data in data.get('models', {}).values():
@@ -133,7 +133,7 @@ class ThompsonState:
     def save(self):
         """Save state to file with atomic write"""
         try:
-            self.last_updated = datetime.utcnow().isoformat()
+            self.last_updated = datetime.now(timezone.utc).isoformat()
 
             data = {
                 'last_updated': self.last_updated,
@@ -232,7 +232,7 @@ class ThompsonState:
             stats.total_cost += cost
             stats.total_tokens += tokens
             stats.calls += 1
-            stats.last_updated = datetime.utcnow().isoformat()
+            stats.last_updated = datetime.now(timezone.utc).isoformat()
 
             self.save()
             logger.info(f"Recorded outcome for {model_name}: success={success}, cost={cost:.4f}")

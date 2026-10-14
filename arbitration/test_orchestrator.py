@@ -251,3 +251,16 @@ def test_builtin_claude_models_use_the_explicit_default_provider() -> None:
     )
 
     assert type(orchestrator._provider_for("sonnet")).__name__ == "ClaudeCodeProvider"
+
+def test_worker_prompt_includes_original_task_and_current_phase_evidence() -> None:
+    orchestrator = ArbitrationOrchestrator(
+        TaskType.DESIGN_VALIDATION,
+        "Execution output: worker-a verified objective.",
+        providers={"worker-a": FakeProvider({"worker-a": "worker evidence"})},
+    )
+    orchestrator.add_phase(["worker-a"], "arbiter", "Evaluate the result.")
+    request = orchestrator._worker_request(
+        orchestrator.phases[0], "worker-a", "Current context: prior-stage state."
+    )
+    assert "Execution output: worker-a verified objective." in request.prompt
+    assert "Current context: prior-stage state." in request.prompt

@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -141,43 +142,97 @@ class MetricsStore:
             stream.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
         return entry
 
-    def read(self, limit: int | None = None) -> list[MetricsRecord]:
-        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
-            raise ValueError("limit must be a positive integer")
+    def _iter_records(self) -> Iterable[MetricsRecord]:
+        """Yield valid records in chronological order without retaining the ledger."""
         if not self.path.exists():
-            return []
-        records: list[MetricsRecord] = []
+            return
         with self.path.open(encoding="utf-8") as stream:
             for line in stream:
                 if not line.strip():
                     continue
                 try:
-                    records.append(MetricsRecord.from_dict(json.loads(line)))
+                    yield MetricsRecord.from_dict(json.loads(line))
                 except (json.JSONDecodeError, TypeError, ValueError):
                     continue
-        return records[-limit:] if limit is not None else records
 
-    def export_csv(self, destination: str | Path) -> Path:
-        """Export canonical records to a flat CSV suitable for spreadsheets/pandas."""
+    @staticmethod
+    def _validate_limit(limit: int) -> None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+
+    @staticmethod
+    def _validate_offset(offset: int) -> None:
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+
+    def read(self, limit: int | None = None) -> list[MetricsRecord]:
+        """Read records in chronological order; limited reads retain only the newest N."""
+        if limit is not None:
+            self._validate_limit(limit)
+            return list(deque(self._iter_records(), maxlen=limit))
+        return list(self._iter_records())
+
+    def read_page(self, limit: int, offset: int = 0) -> list[MetricsRecord]:
+        """Read one bounded chronological page, skipping prior valid records."""
+        self._validate_limit(limit)
+        self._validate_offset(offset)
+        page: list[MetricsRecord] = []
+        valid_index = 0
+        for record in self._iter_records():
+            if valid_index >= offset:
+                page.append(record)
+                if len(page) >= limit:
+                    break
+            valid_index += 1
+        return page
+
+    @staticmethod
+    def _spreadsheet_safe_cell(value: Any) -> Any:
+        """Neutralize formula-like string cells without changing numeric values."""
+        if not isinstance(value, str):
+            return value
+        first = value.lstrip(" \t\r\n")[:1]
+        if value.startswith(("\t", "\r")) or first in {"=", "+", "-", "@"}:
+            return "'" + value
+        return value
+
+    def export_csv(
+        self, destination: str | Path, *, spreadsheet_safe: bool = True
+    ) -> Path:
+        """Export CSV; safe for spreadsheets by default, with explicit raw opt-out.
+
+        Set spreadsheet_safe=False only for trusted machine consumers that
+        require exact text values. Canonical JSONL records are never modified.
+        """
+        if not isinstance(spreadsheet_safe, bool):
+            raise ValueError("spreadsheet_safe must be a boolean")
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=_FIELDS)
             writer.writeheader()
-            for metric in self.read():
-                writer.writerow({field: getattr(metric, field) for field in _FIELDS})
+            for metric in self._iter_records():
+                row = {field: getattr(metric, field) for field in _FIELDS}
+                if spreadsheet_safe:
+                    row = {
+                        field: self._spreadsheet_safe_cell(value)
+                        if isinstance(value, str) else value
+                        for field, value in row.items()
+                    }
+                writer.writerow(row)
         return destination
 
     def aggregate(self) -> dict[str, Any]:
         """Return deliberately small operational aggregates for service analysis."""
-        records = self.read()
+        record_count = 0
         by_service: dict[str, int] = {}
         by_model: dict[str, int] = {}
         by_status: dict[str, int] = {}
         total_cost = 0.0
         total_latency = 0.0
         latency_count = 0
-        for record in records:
+        for record in self._iter_records():
+            record_count += 1
             by_service[record.service] = by_service.get(record.service, 0) + 1
             if record.model:
                 by_model[record.model] = by_model.get(record.model, 0) + 1
@@ -188,7 +243,7 @@ class MetricsStore:
                 total_latency += record.latency_ms
                 latency_count += 1
         return {
-            "records": len(records),
+            "records": record_count,
             "by_service": by_service,
             "by_model": by_model,
             "by_status": by_status,

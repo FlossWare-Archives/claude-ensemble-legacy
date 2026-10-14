@@ -99,6 +99,8 @@ class CollaborationOrchestrator:
         solvers: Mapping[str, ModelProvider],
         arbiter: ModelProvider,
         reviewers: Mapping[str, Reviewer],
+        solver_model_ids: Mapping[str, str] | None = None,
+        arbiter_model_id: str | None = None,
         constraints: list[str] | tuple[str, ...] = (),
         max_rounds: int = 3,
         max_solver_calls: int | None = None,
@@ -121,6 +123,8 @@ class CollaborationOrchestrator:
         self.solvers = dict(solvers)
         self.arbiter = arbiter
         self.reviewers = dict(reviewers)
+        self.solver_model_ids = dict(solver_model_ids or {})
+        self.arbiter_model_id = arbiter_model_id
         self.max_rounds = max_rounds
         self.max_solver_calls = max_solver_calls
         self.max_review_calls = max_review_calls
@@ -212,12 +216,22 @@ class CollaborationOrchestrator:
                 response = provider.generate(
                     ModelRequest(
                         prompt=prompt,
-                        model=model,
+                        model=self.solver_model_ids.get(model, model),
                         temperature=0.4,
                         metadata={"collaboration_round": self.state.round},
                     )
                 )
-                return Candidate(candidate_id, model, self.state.round, response.text)
+                proposal = response.text
+                if not isinstance(proposal, str) or not proposal.strip():
+                    return Candidate(
+                        candidate_id,
+                        model,
+                        self.state.round,
+                        "",
+                        status="failed",
+                        error="solver returned an empty proposal",
+                    )
+                return Candidate(candidate_id, model, self.state.round, proposal)
             except Exception as exc:
                 return Candidate(
                     candidate_id,
@@ -447,7 +461,7 @@ class CollaborationOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         response = self.arbiter.generate(
-            ModelRequest(prompt=prompt, temperature=0, max_tokens=4000)
+            ModelRequest(prompt=prompt, model=self.arbiter_model_id, temperature=0, max_tokens=4000)
         )
         adjudication = self._parse_adjudication(response.text)
         selected = adjudication["selected_candidate"]
@@ -455,6 +469,46 @@ class CollaborationOrchestrator:
             candidate.candidate_id == selected for candidate in self.state.candidates
         ):
             raise ValueError(f"arbiter selected unknown candidate: {selected}")
+
+        # Candidates from earlier rounds remain auditable but are not eligible
+        # for acceptance in the round currently being adjudicated.
+        current_round = [
+            candidate for candidate in self.state.candidates
+            if candidate.round == self.state.round
+        ]
+        selected_candidate = next(
+            (candidate for candidate in current_round if candidate.candidate_id == selected),
+            None,
+        )
+        invalid_reason = ""
+        if adjudication["complete"] and selected_candidate is None:
+            invalid_reason = (
+                "arbiter marked the round complete without selecting a current-round candidate"
+                if selected is None
+                else "arbiter selected a candidate outside the current round"
+            )
+        elif selected is not None and selected_candidate is None:
+            invalid_reason = "arbiter selected a candidate outside the current round"
+        elif selected_candidate is not None and selected_candidate.status != "complete":
+            invalid_reason = "arbiter selected a failed candidate"
+        elif selected_candidate is not None and not selected_candidate.proposal.strip():
+            invalid_reason = "arbiter selected an empty proposal"
+
+        if invalid_reason:
+            concerns = list(adjudication["blocking_concerns"])
+            if invalid_reason not in concerns:
+                concerns.append(invalid_reason)
+            prior_rationale = adjudication["rationale"].strip()
+            rationale = "\n".join(part for part in (prior_rationale, invalid_reason) if part)
+            adjudication = {
+                **adjudication,
+                "complete": False,
+                "human_decision_required": True,
+                "decision": "Acceptance blocked by candidate integrity validation.",
+                "selected_candidate": None,
+                "blocking_concerns": concerns,
+                "rationale": rationale,
+            }
         return adjudication
 
     @staticmethod

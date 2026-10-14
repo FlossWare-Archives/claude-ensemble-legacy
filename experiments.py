@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -60,9 +61,9 @@ class Experiment:
             raise ValueError("experiment_id must be a non-empty string")
         if not isinstance(self.hypothesis, str) or not self.hypothesis.strip():
             raise ValueError("hypothesis must be a non-empty string")
-        _jsonable(self.baseline)
-        _jsonable(self.variant)
-        _jsonable(self.inputs)
+        _jsonable(_thaw(self.baseline))
+        _jsonable(_thaw(self.variant))
+        _jsonable(_thaw(self.inputs))
         if not isinstance(self.measurements, dict) or not self.measurements:
             raise ValueError("measurements must be a non-empty object")
         for name, measurement in self.measurements.items():
@@ -107,9 +108,52 @@ class ExperimentResult:
     schema: str = SCHEMA
     version: str = VERSION
 
+    def __post_init__(self) -> None:
+        if self.schema != SCHEMA or self.version != VERSION:
+            raise ValueError("unsupported experiment result schema")
+        if not isinstance(self.experiment_id, str) or not self.experiment_id.strip():
+            raise ValueError("experiment_id must be a non-empty string")
+        if not isinstance(self.hypothesis, str) or not self.hypothesis.strip():
+            raise ValueError("hypothesis must be a non-empty string")
+        if self.winner not in {"baseline", "variant", "tie"}:
+            raise ValueError("winner must be baseline, variant, or tie")
+        if not isinstance(self.measurements, dict) or not self.measurements:
+            raise ValueError("measurements must be a non-empty object")
+        scores = {"baseline": 0, "variant": 0}
+        for name, measurement in self.measurements.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(measurement, dict):
+                raise ValueError("each result measurement must be a named object")
+            baseline = _number(measurement.get("baseline"), f"{name}.baseline")
+            variant = _number(measurement.get("variant"), f"{name}.variant")
+            direction = measurement.get("direction")
+            if direction not in DIRECTIONS:
+                raise ValueError(f"measurement {name!r} has invalid direction")
+            expected = (
+                "variant" if (variant > baseline if direction == "higher" else variant < baseline)
+                else "baseline" if (baseline > variant if direction == "higher" else baseline < variant)
+                else "tie"
+            )
+            if measurement.get("winner") != expected:
+                raise ValueError(f"measurement {name!r} winner does not match its values")
+            if expected != "tie":
+                scores[expected] += 1
+        expected_overall = (
+            "variant" if scores["variant"] > scores["baseline"]
+            else "baseline" if scores["baseline"] > scores["variant"]
+            else "tie"
+        )
+        if self.winner != expected_overall:
+            raise ValueError("overall winner does not match the measurement results")
+        for name, value in (("input_digest", self.input_digest), ("experiment_digest", self.experiment_digest)):
+            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                raise ValueError(f"{name} must be a lowercase SHA-256 hex digest")
+        # The top-level dataclass is frozen, so freeze nested evidence as well.
+        # Keep an owned recursive snapshot and expose mutable data only via to_dict().
+        object.__setattr__(self, "measurements", _freeze(self.measurements))
+
     def to_dict(self) -> dict[str, Any]:
         return {"schema": self.schema, "version": self.version, "experiment_id": self.experiment_id,
-                "hypothesis": self.hypothesis, "winner": self.winner, "measurements": self.measurements,
+                "hypothesis": self.hypothesis, "winner": self.winner, "measurements": _thaw(self.measurements),
                 "input_digest": self.input_digest, "experiment_digest": self.experiment_digest}
 
     @classmethod
@@ -155,8 +199,11 @@ class ExperimentStore:
         for line in reversed(self.path.read_text(encoding="utf-8").splitlines()):
             try:
                 data = json.loads(line)
+                if not isinstance(data, dict):
+                    continue
                 if data.get("experiment_id") == experiment_id:
                     return ExperimentResult.from_dict(data)
             except (ValueError, TypeError, json.JSONDecodeError):
+                # Corrupt rows are skipped; older valid rows remain retrievable.
                 continue
         return None

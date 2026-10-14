@@ -3,11 +3,26 @@
 
 import os
 import shlex
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import subprocess
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class ReadinessHandler(BaseHTTPRequestHandler):
+    status_code = 200
+
+    def do_GET(self):
+        self.send_response(type(self).status_code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"ok": true}\\n')
+
+    def log_message(self, *_args):
+        pass
 
 SERVICES = (
     ("memory-service", "claude-memory.service"),
@@ -16,12 +31,17 @@ SERVICES = (
     ("alert_service", "claude-alert.service"),
     ("session-messaging", "claude-messenger.service"),
     ("graph-service", "claude-graph.service"),
+    ("server", "claude-ensemble.service"),
 )
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"FAIL: {message}")
 
+
+readiness_server = HTTPServer(("127.0.0.1", 0), ReadinessHandler)
+readiness_thread = threading.Thread(target=readiness_server.serve_forever, daemon=True)
+readiness_thread.start()
 
 with tempfile.TemporaryDirectory() as tmp:
     home = Path(tmp) / "home"
@@ -33,7 +53,10 @@ with tempfile.TemporaryDirectory() as tmp:
     fake_systemctl.write_text(
         '''#!/usr/bin/env bash
 echo "$*" >> "$SYSTEMCTL_LOG"
-if [[ "$*" == *"is-active"* ]]; then exit 0; fi
+if [[ "$*" == *"is-active"* ]]; then
+  if [[ -n "${FAIL_INACTIVE_UNIT:-}" && "$*" == *"$FAIL_INACTIVE_UNIT"* ]]; then exit 3; fi
+  exit 0
+fi
 exit 0
 ''',
         encoding="utf-8",
@@ -52,6 +75,8 @@ exit 0
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["SYSTEMCTL_LOG"] = str(Path(tmp) / "systemctl.log")
     env["SYSTEMCTL_BIN"] = str(fake_systemctl)
+    env["ENSEMBLE_READINESS_URL"] = f"http://127.0.0.1:{readiness_server.server_port}/api/v1/ready"
+    env["ENSEMBLE_READINESS_TIMEOUT_SECONDS"] = "2"
 
     for service_dir, service_name in SERVICES:
         script = ROOT / service_dir / "install.sh"
@@ -148,8 +173,44 @@ exit 0
             fail(f"top-level installer did not enable {service_name}")
         if f"start {service_name}" not in systemctl_log:
             fail(f"top-level installer did not start {service_name}")
-    
+
+    # A live unit is not sufficient: a readiness endpoint that never returns
+    # HTTP 200 must fail the gateway installer, without a 20-second test delay.
+    ReadinessHandler.status_code = 503
+    not_ready = subprocess.run(
+        ["bash", str(ROOT / "server/install.sh")],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    if not_ready.returncode == 0:
+        fail("gateway installer succeeded while readiness returned HTTP 503")
+    if "dependencies are not ready" not in not_ready.stderr:
+        fail(f"readiness failure was not diagnosed: {not_ready.stdout}\\n{not_ready.stderr}")
+    ReadinessHandler.status_code = 200
+
+    # The default installer must fail closed if the gateway unit is inactive.
+    inactive_env = env.copy()
+    inactive_env["FAIL_INACTIVE_UNIT"] = "claude-ensemble.service"
+    inactive = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), str(ROOT)],
+        cwd=ROOT,
+        env=inactive_env,
+        input="n\n",
+        text=True,
+        capture_output=True,
+    )
+    if inactive.returncode == 0:
+        fail("top-level installer succeeded while the REST gateway was inactive")
+    if "REST gateway failed to start" not in inactive.stderr:
+        fail(f"inactive gateway failure was not diagnosed: {inactive.stdout}\n{inactive.stderr}")
+
 if not (ROOT / "toolkit-models.yaml.default").is_file():
     fail("missing toolkit-models.yaml.default")
+
+readiness_server.shutdown()
+readiness_server.server_close()
+readiness_thread.join(2)
 
 print("PASS: Linux service installers render valid systemd units")

@@ -49,9 +49,23 @@ class CredentialPool:
                     )
         if self.credentials_file:
             credentials = self._merge_file(credentials, Path(self.credentials_file).expanduser())
+        self._validate_unique_identities(credentials)
         with self._lock:
             self._credentials = credentials
             self._next.clear()
+
+    @staticmethod
+    def _validate_unique_identities(credentials: dict[str, list[Credential]]) -> None:
+        for provider, entries in credentials.items():
+            seen: set[str] = set()
+            for item in entries:
+                identity = item.name.strip().lower().replace("_", "-")
+                if not identity or identity in seen:
+                    # Never include credential values in diagnostics.
+                    raise ValueError(
+                        f"duplicate or empty credential identity for {provider}/{identity or '<empty>'}"
+                    )
+                seen.add(identity)
 
     @staticmethod
     def _merge_file(credentials: dict[str, list[Credential]], path: Path) -> dict[str, list[Credential]]:
@@ -67,14 +81,18 @@ class CredentialPool:
         for provider, entries in raw.items():
             if not isinstance(provider, str) or not isinstance(entries, dict):
                 raise ValueError("credentials YAML must map providers to credential objects")
+            provider = provider.strip().lower()
+            if not provider:
+                raise ValueError("credential provider names must not be empty")
             for name, value in entries.items():
-                if not isinstance(name, str) or not isinstance(value, dict):
+                if not isinstance(name, str) or not name.strip() or not isinstance(value, dict):
                     raise ValueError(f"invalid credential entry for {provider!r}")
+                account = name.strip().lower().replace("_", "-")
                 api_key = value.get("api_key")
                 if not isinstance(api_key, str) or not api_key:
                     raise ValueError(f"credential {provider}/{name} must contain api_key")
                 credentials.setdefault(provider, []).append(
-                    Credential(name, provider, api_key, f"file:{path}")
+                    Credential(account, provider, api_key, f"file:{path}")
                 )
         return credentials
 

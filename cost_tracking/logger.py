@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, TypeAlias
 
-from .pricing import CLAUDE_PRICING, calculate_cost
-from .schema import CANONICAL_LOG_PATH, CostRecord
+try:
+    from .pricing import CLAUDE_PRICING, calculate_cost
+    from .schema import CANONICAL_LOG_PATH, CostRecord
+except ImportError:
+    from pricing import CLAUDE_PRICING, calculate_cost
+    from schema import CANONICAL_LOG_PATH, CostRecord
 
 PRICING = CLAUDE_PRICING
 ModelName: TypeAlias = str

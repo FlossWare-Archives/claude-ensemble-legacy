@@ -18,7 +18,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from capability_health import CapabilityHealthView
 from experiments import Experiment, ExperimentStore, evaluate as evaluate_experiment
@@ -43,6 +43,8 @@ DEFAULT_SERVICE_URLS = {
 
 MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
 MAX_FORWARD_HOPS = 4
+DEFAULT_METRICS_PAGE_SIZE = 100
+MAX_METRICS_PAGE_SIZE = 500
 DEFAULT_COLLAB_SOLVERS = ("sonnet", "haiku")
 DEFAULT_COLLAB_ARBITER = "opus"
 DEFAULT_COLLAB_REVIEWERS: tuple[str, ...] = ()
@@ -99,10 +101,71 @@ def _require_collaboration_auth(handler: BaseHTTPRequestHandler) -> None:
         raise AuthenticationRequired("invalid collaboration authorization")
 
 
+def _accepts_media_type(handler: BaseHTTPRequestHandler, media_type: str) -> bool:
+    """Return whether Accept explicitly permits a representation media type.
+
+    This compatibility slice intentionally requires an exact media-range match;
+    wildcards do not opt clients into Problem Details. If duplicate exact ranges
+    appear, an explicit exclusion wins. Malformed or out-of-range q values are
+    treated as q=0 so they cannot accidentally enable the representation.
+    """
+    accepted = ",".join(handler.headers.get_all("Accept", []))
+    exact_qualities: list[float] = []
+    for item in accepted.split(","):
+        parts = [part.strip() for part in item.split(";")]
+        if not parts or parts[0].lower() != media_type.lower():
+            continue
+        quality = 1.0
+        for parameter in parts[1:]:
+            name, separator, value = parameter.partition("=")
+            if separator and name.strip().lower() == "q":
+                try:
+                    quality = float(value.strip())
+                except ValueError:
+                    quality = 0.0
+                if not 0.0 <= quality <= 1.0:
+                    quality = 0.0
+                break
+        exact_qualities.append(quality)
+    return bool(exact_qualities) and all(quality > 0.0 for quality in exact_qualities)
+
+
+def _problem_details(status: int, payload: Any, instance: str) -> dict[str, Any]:
+    """Adapt the existing error envelope to RFC 9457 without dropping extensions."""
+    try:
+        title = HTTPStatus(status).phrase
+    except ValueError:
+        title = "HTTP error"
+    detail: Any = title
+    if isinstance(payload, dict):
+        detail = payload.get("error") or payload.get("detail") or title
+    if not isinstance(detail, str):
+        detail = json.dumps(detail, sort_keys=True, ensure_ascii=False)
+    problem: dict[str, Any] = {
+        "type": "about:blank",
+        "title": title,
+        "status": status,
+        "detail": detail,
+    }
+    if instance:
+        problem["instance"] = instance
+    if isinstance(payload, dict):
+        for name, value in payload.items():
+            if name not in {"type", "title", "status", "detail", "instance"}:
+                problem[name] = value
+    return problem
+
+
 def _send(handler: BaseHTTPRequestHandler, status: int, payload: Any, headers: dict[str, str] | None = None) -> None:
-    body = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    media_type = "application/json"
+    response_payload = payload
+    if status >= 400 and _accepts_media_type(handler, "application/problem+json"):
+        media_type = "application/problem+json"
+        response_payload = _problem_details(status, payload, urlsplit(handler.path).path)
+    body = (json.dumps(response_payload, sort_keys=True) + "\n").encode("utf-8")
+    setattr(handler, "_ensemble_response_started", True)
     handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Type", media_type)
     if headers:
         for name, value in headers.items():
             handler.send_header(name, value)
@@ -213,7 +276,14 @@ def _forward(
     # local case) or another Ensemble instance. The latter is discovered from
     # its health endpoint so callers keep exactly the same public REST path.
     remote_ensemble = _ensemble_target(base)
-    target_path = f"{API_PREFIX}{path}" if remote_ensemble else path
+    if remote_ensemble:
+        target_path = f"{API_PREFIX}{path}"
+    elif path in {"/graph/health", "/memory/health"}:
+        # Public gateway health paths are service-scoped; concrete services
+        # expose their health endpoint at the root.
+        target_path = "/health"
+    else:
+        target_path = path
     request = urllib.request.Request(base.rstrip("/") + target_path, data=body, method=method)
     for name, value in handler.headers.items():
         if name.lower() in FORWARD_SAFE_HEADERS:
@@ -263,6 +333,28 @@ class EnsembleApplication:
         )
 
     def handle(self, handler: BaseHTTPRequestHandler) -> None:
+        """Dispatch one request behind a common structured error boundary."""
+        setattr(handler, "_ensemble_response_started", False)
+        try:
+            self._dispatch(handler)
+        except AuthenticationRequired:
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "authentication required"})
+        except PermissionError:
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.FORBIDDEN, {"ok": False, "error": "forbidden"})
+        except ValueError as exc:
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+        except ServiceUnavailable:
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error": "service unavailable"})
+        except Exception:
+            LOG.exception("REST request failed during route dispatch")
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal server error"})
+
+    def _dispatch(self, handler: BaseHTTPRequestHandler) -> None:
         parsed = urlsplit(handler.path)
         if not parsed.path.startswith(API_PREFIX + "/"):
             _send(handler, HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
@@ -273,6 +365,9 @@ class EnsembleApplication:
         remainder = "/" + parts[1] if len(parts) == 2 else "/"
         if service == "health":
             _send(handler, HTTPStatus.OK, {"ok": True, "service": "claude-ensemble"})
+            return
+        if service == "ready":
+            self._handle_readiness(handler)
             return
         if service == "models":
             self._handle_models(handler, remainder)
@@ -290,7 +385,7 @@ class EnsembleApplication:
             self._handle_experiments(handler, remainder)
             return
         if service == "metrics":
-            self._handle_metrics(handler, remainder)
+            self._handle_metrics(handler, remainder, parsed.query)
             return
         try:
             if service == "decision":
@@ -306,18 +401,66 @@ class EnsembleApplication:
             if parsed.query:
                 service_path += f"?{parsed.query}"
             status, response = _forward(self.service_urls[service], handler.command, service_path, body, handler)
+            setattr(handler, "_ensemble_response_started", True)
             handler.send_response(status)
             handler.send_header("Content-Type", "application/json")
             handler.send_header("Content-Length", str(len(response)))
             handler.end_headers()
             handler.wfile.write(response)
         except ValueError as exc:
-            _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
         except ServiceUnavailable as exc:
-            _send(handler, HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error": str(exc)})
         except Exception:
             LOG.exception("REST request failed")
-            _send(handler, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal server error"})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal server error"})
+
+    def _handle_readiness(self, handler: BaseHTTPRequestHandler) -> None:
+        """Report downstream readiness separately from gateway liveness."""
+        if handler.command != "GET":
+            _send(handler, HTTPStatus.METHOD_NOT_ALLOWED, {"ok": False, "error": "method not allowed"})
+            return
+
+        dependencies: dict[str, dict[str, Any]] = {}
+        for service in ("graph", "memory"):
+            try:
+                status, raw = _forward(
+                    self.service_urls.get(service),
+                    "GET",
+                    f"/{service}/health",
+                    None,
+                    handler,
+                )
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    payload = None
+                healthy = (
+                    status == HTTPStatus.OK
+                    and isinstance(payload, dict)
+                    and payload.get("ok") is True
+                    and payload.get("service") == service
+                )
+                dependencies[service] = {
+                    "ok": healthy,
+                    "status": status,
+                    **({"response": payload} if isinstance(payload, dict) else {}),
+                }
+            except ServiceUnavailable as exc:
+                dependencies[service] = {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                LOG.warning("Readiness probe failed for %s: %s", service, exc)
+                dependencies[service] = {"ok": False, "error": "health probe failed"}
+
+        ready = all(item.get("ok") is True for item in dependencies.values())
+        _send(
+            handler,
+            HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE,
+            {"ok": ready, "service": "claude-ensemble", "ready": ready, "dependencies": dependencies},
+        )
 
     def _handle_capabilities(self, handler: BaseHTTPRequestHandler, path: str) -> None:
         if handler.command == "GET" and path == "/":
@@ -345,13 +488,46 @@ class EnsembleApplication:
                 result = evaluate(request, policy).to_dict()
                 _send(handler, HTTPStatus.OK, result)
             except ValueError as exc:
-                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
             return
         _send(handler, HTTPStatus.NOT_FOUND, {"ok": False, "error": "policy endpoint not found"})
 
-    def _handle_metrics(self, handler: BaseHTTPRequestHandler, path: str) -> None:
+    def _handle_metrics(
+        self, handler: BaseHTTPRequestHandler, path: str, query: str = ""
+    ) -> None:
         if handler.command == "GET" and path == "/":
-            _send(handler, HTTPStatus.OK, {"ok": True, "metrics": [record.to_dict() for record in self.metrics.read()]})
+            try:
+                parameters = parse_qs(query, keep_blank_values=True)
+                if set(parameters) - {"limit", "offset"}:
+                    raise ValueError("only limit and offset query parameters are supported")
+                for name, values in parameters.items():
+                    if len(values) != 1 or not values[0]:
+                        raise ValueError(f"{name} must be specified exactly once")
+                try:
+                    limit = int(parameters.get("limit", [str(DEFAULT_METRICS_PAGE_SIZE)])[0])
+                    offset = int(parameters.get("offset", ["0"])[0])
+                except ValueError as exc:
+                    raise ValueError("limit and offset must be integers") from exc
+                if limit < 1 or limit > MAX_METRICS_PAGE_SIZE:
+                    raise ValueError(f"limit must be between 1 and {MAX_METRICS_PAGE_SIZE}")
+                if offset < 0:
+                    raise ValueError("offset must be a non-negative integer")
+                page = self.metrics.read_page(limit + 1, offset)
+                has_more = len(page) > limit
+                records = page[:limit]
+                _send(handler, HTTPStatus.OK, {
+                    "ok": True,
+                    "metrics": [record.to_dict() for record in records],
+                    "limit": limit,
+                    "offset": offset,
+                    "next_offset": offset + limit if has_more else None,
+                })
+            except ValueError as exc:
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {
+                        "ok": False, "error_code": "invalid_request", "error": str(exc)
+                    })
             return
         if handler.command == "GET" and path == "/aggregate":
             _send(handler, HTTPStatus.OK, {"ok": True, "aggregate": self.metrics.aggregate()})
@@ -363,7 +539,8 @@ class EnsembleApplication:
                 self.metrics.record(record)
                 _send(handler, HTTPStatus.CREATED, {"ok": True, "metric": record.to_dict()})
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
             return
         _send(handler, HTTPStatus.NOT_FOUND, {"ok": False, "error": "metrics endpoint not found"})
 
@@ -376,7 +553,8 @@ class EnsembleApplication:
                 self.experiments.record(result)
                 _send(handler, HTTPStatus.OK, {"ok": True, "result": result.to_dict()})
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
             return
         if handler.command == "GET" and path.startswith("/"):
             experiment_id = path[len("/"):]
@@ -448,13 +626,19 @@ class EnsembleApplication:
                     raise ValueError(f"{name} must be between 1 and {cap}")
 
             solver_providers = {model: self.models.registry.resolve(model) for model in solvers}
+            solver_model_ids = {
+                model: self.models.registry.resolve_model(model)[1] for model in solvers
+            }
             arbiter_provider = self.models.registry.resolve(arbiter)
+            arbiter_model_id = self.models.registry.resolve_model(arbiter)[1]
             reviewer_adapters = {name: MCPReviewer(name) for name in reviewers}
             loop = CollaborationOrchestrator(
                 task,
                 solvers=solver_providers,
                 arbiter=arbiter_provider,
                 reviewers=reviewer_adapters,
+                solver_model_ids=solver_model_ids,
+                arbiter_model_id=arbiter_model_id,
                 constraints=constraints,
                 max_rounds=max_rounds,
                 max_solver_calls=max_solver_calls,
@@ -582,20 +766,25 @@ class EnsembleApplication:
                 "state": result.state.snapshot(),
             })
         except AuthenticationRequired as exc:
-            _send(
-                handler,
-                HTTPStatus.UNAUTHORIZED,
-                {"ok": False, "error_code": "unauthorized", "error": str(exc)},
-                {"WWW-Authenticate": "Bearer"},
-            )
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(
+                    handler,
+                    HTTPStatus.UNAUTHORIZED,
+                    {"ok": False, "error_code": "unauthorized", "error": str(exc)},
+                    {"WWW-Authenticate": "Bearer"},
+                )
         except PermissionError as exc:
-            _send(handler, HTTPStatus.FORBIDDEN, {"ok": False, "error_code": "forbidden", "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.FORBIDDEN, {"ok": False, "error_code": "forbidden", "error": str(exc)})
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
         except ServiceUnavailable as exc:
-            _send(handler, HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error_code": "service_unavailable", "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error_code": "service_unavailable", "error": str(exc)})
         except Exception as exc:
-            _send(handler, HTTPStatus.BAD_GATEWAY, {"ok": False, "error_code": "collaboration_failed", "error": str(exc)})
+            if not getattr(handler, "_ensemble_response_started", False):
+                _send(handler, HTTPStatus.BAD_GATEWAY, {"ok": False, "error_code": "collaboration_failed", "error": str(exc)})
 
     def _handle_models(self, handler: BaseHTTPRequestHandler, path: str) -> None:
         if handler.command == "GET" and path == "/":
@@ -642,9 +831,11 @@ class EnsembleApplication:
                     "latency_ms": response.latency_ms, "cost_usd": response.cost_usd,
                 })
             except ValueError as exc:
-                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
             except Exception as exc:
-                _send(handler, HTTPStatus.BAD_GATEWAY, {"ok": False, "error_code": "model_unavailable", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_GATEWAY, {"ok": False, "error_code": "model_unavailable", "error": str(exc)})
             return
         _send(handler, HTTPStatus.NOT_FOUND, {"ok": False, "error": "model endpoint not found"})
 
@@ -664,7 +855,8 @@ class EnsembleApplication:
                 self.provenance.record(record)
                 _send(handler, HTTPStatus.CREATED, {"ok": True, "decision": record.to_dict()})
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
+                if not getattr(handler, "_ensemble_response_started", False):
+                    _send(handler, HTTPStatus.BAD_REQUEST, {"ok": False, "error_code": "invalid_request", "error": str(exc)})
             return
         if path.startswith("/provenance/") and handler.command == "GET":
             decision_id = path[len("/provenance/"):]
@@ -720,7 +912,7 @@ class EnsembleApplication:
             status = {
                 "invalid_request": HTTPStatus.BAD_REQUEST,
                 "dependency_unavailable": HTTPStatus.SERVICE_UNAVAILABLE,
-                "no_data": HTTPStatus.UNPROCESSABLE_CONTENT,
+                "no_data": HTTPStatus.UNPROCESSABLE_ENTITY,
                 "internal_error": HTTPStatus.INTERNAL_SERVER_ERROR,
             }.get(error_code, HTTPStatus.INTERNAL_SERVER_ERROR)
         _send(handler, status, result)

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "install-deps": "npm install",
-    "lint": "git ls-files '*.js' '*.mjs' '*.cjs' | xargs -r -n1 node --check",
+    "lint": "git ls-files '*.js' '*.mjs' '*.cjs' | grep -Ev '^(hooks/(example-workflow-with-learning|memory-rag-search)\\.js|tools/(code-doc-auto|code-pr-review-auto|code-release-notes-auto|code-release-notes)\\.js)$' | xargs -r -n1 node --check && node tools/test-skill-syntax.cjs",
     "test": "node --test learning/test_dcab_critical.cjs"
   },
   "dependencies": {

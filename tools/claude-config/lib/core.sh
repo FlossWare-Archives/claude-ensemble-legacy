@@ -54,15 +54,27 @@ sha256_file(){
 }
 detect(){
   local json_mode="false" claude="" memory_url="${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}"
+  local gateway_url="${ENSEMBLE_GATEWAY_URL:-http://127.0.0.1:8080}"
+  local gateway_unit_status="inactive" gateway_http_status="unreachable"
   [ "$#" -gt 0 ] && json_mode="$1"
   command -v claude >/dev/null 2>&1 && claude="$(claude --version 2>/dev/null | head -1 || true)"
   local memory_status="unreachable"
   command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "$memory_url/health" >/dev/null 2>&1 && memory_status="reachable" || true
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet claude-ensemble.service >/dev/null 2>&1; then
+    gateway_unit_status="active"
+  fi
+  command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "$gateway_url/api/v1/health" >/dev/null 2>&1 && gateway_http_status="reachable" || true
   if [ "$json_mode" = true ]; then
-    python3 - "$claude" "$memory_url" "$memory_status" "$CC_SETTINGS_PATH" "$CC_HOOK_PATH" <<'PY'
+    python3 - "$claude" "$memory_url" "$memory_status" "$gateway_url" "$gateway_unit_status" "$gateway_http_status" "$CC_SETTINGS_PATH" "$CC_HOOK_PATH" <<'PY'
 import json,os,sys
-claude,url,status,settings,hook=sys.argv[1:]
-print(json.dumps({"claude":{"installed":bool(claude),"version":claude},"memory":{"url":url,"status":status},"settings":{"path":settings,"exists":os.path.exists(settings)},"hook":{"path":hook,"exists":os.path.exists(hook)}},indent=2))
+claude,memory_url,memory_status,gateway_url,unit_status,http_status,settings,hook=sys.argv[1:]
+print(json.dumps({
+    "claude":{"installed":bool(claude),"version":claude},
+    "memory":{"url":memory_url,"status":memory_status},
+    "gateway":{"url":gateway_url,"unit_status":unit_status,"http_status":http_status},
+    "settings":{"path":settings,"exists":os.path.exists(settings)},
+    "hook":{"path":hook,"exists":os.path.exists(hook)}
+},indent=2))
 PY
     return
   fi
@@ -71,7 +83,10 @@ PY
   [ -f "$CC_SETTINGS_PATH" ] && ok "User settings exist" || warn "User settings do not exist"
   [ -f "$CC_HOOK_PATH" ] && ok "Memory hook exists" || warn "Memory hook not installed"
   [ -f "$CC_SESSION_END_HOOK_PATH" ] && ok "SessionEnd capture hook exists" || warn "SessionEnd capture hook not installed"
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] && ok "Evidence-gated Learning outcome adapter exists in checkout" || warn "Learning outcome adapter missing from checkout"
   [ "$memory_status" = reachable ] && ok "Memory REST: $memory_url" || warn "Memory REST unavailable: $memory_url"
+  [ "$gateway_unit_status" = active ] && ok "Gateway unit: claude-ensemble.service active" || warn "Gateway unit inactive: claude-ensemble.service"
+  [ "$gateway_http_status" = reachable ] && ok "Gateway REST: $gateway_url/api/v1/health" || warn "Gateway REST unavailable: $gateway_url/api/v1/health"
 }
 plan(){ python3 "$CC_ROOT/lib/json_tool.py" plan "$CC_SETTINGS_PATH" "$CC_HOOK_PATH"; }
 sync_memory(){ python3 "$CC_ROOT/lib/memory_sync.py" sync "$@"; }
@@ -81,6 +96,10 @@ verify(){
   [ -d "$HOME/.claude" ] || { err "~/.claude missing"; failed=1; }
   [ -f "$CC_HOOK_PATH" ] || { err "memory hook missing"; failed=1; }
   [ -f "$CC_SESSION_END_HOOK_PATH" ] || { err "SessionEnd capture hook missing"; failed=1; }
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] || { err "Learning outcome adapter missing from checkout"; failed=1; }
+  if [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ]; then
+    python3 -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), filename=sys.argv[1])' "$CC_REPO_ROOT/tools/record_workflow_outcome.py" || { err "Learning outcome adapter Python syntax invalid"; failed=1; }
+  fi
   [ -f "$CC_SETTINGS_PATH" ] || { err "settings.json missing"; failed=1; }
   if [ -f "$CC_SETTINGS_PATH" ]; then python3 "$CC_ROOT/lib/json_tool.py" validate-settings "$CC_SETTINGS_PATH" "$CC_HOOK_PATH" "$CC_SESSION_END_HOOK_PATH" || failed=1; fi
   if command -v node >/dev/null 2>&1; then
@@ -100,7 +119,10 @@ verify(){
     done
   else err "FlossWare manifest missing"; failed=1; fi
   local memory_url="${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}"
+  local gateway_url="${ENSEMBLE_GATEWAY_URL:-http://127.0.0.1:8080}"
   if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "$memory_url/health" >/dev/null 2>&1; then ok "Memory REST is reachable"; else warn "Memory REST is unavailable (hook will fail open)"; fi
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet claude-ensemble.service; then ok "Gateway unit is active"; else warn "Gateway unit is inactive or systemd user manager is unavailable"; fi
+  if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "$gateway_url/api/v1/health" >/dev/null 2>&1; then ok "Gateway REST is reachable"; else warn "Gateway REST is unavailable: $gateway_url/api/v1/health"; fi
   return "$failed"
 }
 doctor(){ detect; printf '\n'; verify || true; }
@@ -122,6 +144,7 @@ install(){
   CC_SETTINGS_BACKUP=""; CC_HOOK_BACKUP=""; CC_SESSION_END_HOOK_BACKUP=""; CC_MANIFEST_BACKUP=""
   [ -f "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" ] || die "source memory hook is missing"
   [ -f "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" ] || die "source SessionEnd capture hook is missing"
+  [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] || die "source Learning outcome adapter is missing"
   command -v node >/dev/null 2>&1 || die "node executable not found; cannot install Memory hooks"
   node --check "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" >/dev/null 2>&1 || die "source memory hook JavaScript is invalid"
   node --check "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" >/dev/null 2>&1 || die "source SessionEnd hook JavaScript is invalid"

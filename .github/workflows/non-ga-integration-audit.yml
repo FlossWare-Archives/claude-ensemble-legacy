@@ -1,0 +1,92 @@
+name: Non-GA Integration Audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**"
+      - "!ga_tuning/**"
+      - "!learning-service/test_ga_artifact_contract.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**"
+      - "!ga_tuning/**"
+      - "!learning-service/test_ga_artifact_contract.py"
+      - ".github/workflows/non-ga-integration-audit.yml"
+  workflow_dispatch:
+
+jobs:
+  python-test-inventory:
+    name: Full non-GA Python test inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov pytest-timeout
+      - name: Run every discovered Python test except GA-specific tests
+        run: python tools/run-test-inventory.py
+      - name: Check Python syntax
+        run: python -m compileall -q .
+
+  javascript-test-suite:
+    name: JavaScript tests and lint
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: learning
+          POSTGRES_USER: ensemble
+          POSTGRES_PASSWORD: ensemble-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ensemble -d learning"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Run JavaScript tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: learning
+          PGUSER: ensemble
+          PGPASSWORD: ensemble-test
+        run: npm test
+      - name: Run JavaScript lint
+        run: npm run lint
+
+  claude-config-regressions:
+    name: Claude config and hook regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Make test scripts executable
+        run: chmod +x tools/claude-config/bin/claude-config tools/claude-config/bin/claude-config-tui tools/claude-config/install.sh tools/claude-config/uninstall.sh tools/claude-config/verify.sh tools/claude-config/doctor.sh tools/claude-config/tui.sh tools/claude-config/tests/test-install.sh
+      - name: Run installer regression tests
+        run: bash tools/claude-config/tests/test-install.sh
+      - name: Run Memory hook REST regression test
+        run: node tools/claude-config/tests/test-memory-hook.mjs
+      - name: Run SessionEnd capture regression test
+        run: node tools/claude-config/tests/test-session-end-hook.mjs
+      - name: Run Memory sync regression test
+        run: python tools/claude-config/tests/test-memory-sync.py

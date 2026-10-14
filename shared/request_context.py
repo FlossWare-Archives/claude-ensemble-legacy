@@ -15,7 +15,7 @@ Usage:
 import uuid
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class RequestContext:
             'request_id': self.request_id,
             'caller': self.caller,
             'method': self.method,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
         }
 
     def __str__(self) -> str:

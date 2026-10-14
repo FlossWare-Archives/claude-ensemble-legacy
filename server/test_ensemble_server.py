@@ -4,6 +4,16 @@ from __future__ import annotations
 import json, os, tempfile, threading, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
+
+ROOT_REPO = Path(__file__).resolve().parents[1]
+for import_path in (
+    ROOT_REPO,
+    ROOT_REPO / "graph-service",
+    ROOT_REPO / "memory-service",
+    ROOT_REPO / "learning",
+):
+    sys.path.insert(0, str(import_path))
 
 def request(server, method, path, payload=None, headers=None):
 
@@ -72,10 +82,11 @@ def run():
     finally:
         ensemble_module.urllib.request.urlopen = original_urlopen
         ensemble_module._health_cache.clear()
-    root_repo=Path(__file__).parents[1]
-    sys.path.insert(0,str(root_repo))
-    sys.path.insert(0,str(root_repo/"graph-service"))
-    sys.path.insert(0,str(root_repo/"memory-service"))
+    root_repo=Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root_repo))
+    sys.path.insert(0, str(root_repo/"graph-service"))
+    sys.path.insert(0, str(root_repo/"memory-service"))
+    sys.path.insert(0, str(root_repo/"learning"))
     from graph_service import create_server as graph_server
     from memory_service import MemoryService
     from server.ensemble_server import create_server as gateway_server, _forward
@@ -150,7 +161,7 @@ def run():
         try:
             status,body=request(query_gateway,"GET","/api/v1/graph/capture?scope=remote&limit=2",headers={"Authorization":"Bearer secret","X-Request-ID":"req-169"})
             assert status==200 and body["ok"]
-            assert QueryCaptureHandler.seen_path=="/graph/capture?scope=remote&limit=2"
+            assert QueryCaptureHandler.seen_path=="/api/v1/graph/capture?scope=remote&limit=2"
             assert QueryCaptureHandler.seen_headers["x-request-id"]=="req-169"
             assert "authorization" not in QueryCaptureHandler.seen_headers
         finally:
@@ -161,6 +172,45 @@ def run():
                                memory_url=f"http://127.0.0.1:{memory.http_port}")
         kt=threading.Thread(target=gateway.serve_forever,daemon=True); kt.start()
         try:
+            # A failure after a forwarded response starts must not send a second status line.
+            import server.ensemble_server as boundary_module
+            class BrokenWriter:
+                def write(self, _body):
+                    raise ValueError("simulated response write failure")
+            class FakeServer:
+                server_port = 8080
+            class FakeHeaders(dict):
+                def get(self, key, default=None):
+                    return super().get(key, default)
+            class FakeHandler:
+                path = "/api/v1/graph/test"
+                command = "GET"
+                headers = FakeHeaders()
+                server = FakeServer()
+                wfile = BrokenWriter()
+                def __init__(self):
+                    self.statuses = []
+                def send_response(self, status):
+                    self.statuses.append(status)
+                def send_header(self, *_args):
+                    pass
+                def end_headers(self):
+                    pass
+            fake_handler = FakeHandler()
+            original_forward = boundary_module._forward
+            boundary_module._forward = lambda *_args, **_kwargs: (200, b"{}")
+            try:
+                gateway.application.handle(fake_handler)
+                assert fake_handler.statuses == [200], fake_handler.statuses
+            finally:
+                boundary_module._forward = original_forward
+
+            # Local route validation catches must not retry a response after
+            # a successful status line and a failing body write.
+            local_handler = FakeHandler()
+            gateway.application._handle_metrics(local_handler, "/", "limit=1")
+            assert local_handler.statuses == [200], local_handler.statuses
+
             # Collaboration authentication follows RFC 6750 semantics.
             original_token = os.environ.get("ENSEMBLE_COLLABORATION_AUTH_TOKEN")
             original_solvers = os.environ.get("ENSEMBLE_COLLABORATION_SOLVERS")
@@ -173,14 +223,14 @@ def run():
 
             status,headers,body=request_with_headers(gateway,"POST","/api/v1/collaboration/run",{"task":"auth test"})
             assert status==401 and body["error_code"]=="unauthorized"
-            assert headers.get("Www-Authenticate")=="Bearer", headers
+            assert next((value for name, value in headers.items() if name.lower() == "www-authenticate"), None) == "Bearer", headers
 
             status,headers,body=request_with_headers(
                 gateway,"POST","/api/v1/collaboration/run",{"task":"auth test"},
                 {"Authorization":"Bearer incorrect-token"},
             )
             assert status==401 and body["error_code"]=="unauthorized"
-            assert headers.get("Www-Authenticate")=="Bearer", headers
+            assert next((value for name, value in headers.items() if name.lower() == "www-authenticate"), None) == "Bearer", headers
 
             os.environ["ENSEMBLE_COLLABORATION_SOLVERS"]="sonnet"
             status,body=request(
@@ -199,6 +249,10 @@ def run():
                 os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"]=original_token
 
             assert request(gateway,"GET","/api/v1/health")[0]==200
+            graph_status, graph_health = request(gateway, "GET", "/api/v1/graph/health")
+            assert graph_status == 200 and graph_health.get("ok") is True, graph_health
+            memory_status, memory_health = request(gateway, "GET", "/api/v1/memory/health")
+            assert memory_status == 200 and memory_health.get("ok") is True, memory_health
             for node in [
                 {"id":"model:sonnet","type":"model","properties":{"name":"sonnet"}},
                 {"id":"task:code_review","type":"task_type","properties":{"name":"code_review"}},
@@ -213,9 +267,11 @@ def run():
             import server.ensemble_server as gateway_module
             from collaboration import Candidate, CollaborationResult, CollaborationState, ReviewRecord
 
+            captured_model_config = {}
+
             class FakeCollaboration:
                 def __init__(self, *args, **kwargs):
-                    pass
+                    captured_model_config.update(kwargs)
 
                 def run(self, *, context=""):
                     state = CollaborationState("test collaboration")
@@ -257,9 +313,12 @@ def run():
             original_collaboration = gateway_module.CollaborationOrchestrator
             original_memory_writer = gateway.application.memory_writer
             original_provenance_store = gateway.application.provenance
+            original_resolve = gateway.application.models.registry.resolve
             gateway_module.CollaborationOrchestrator = FakeCollaboration
             gateway.application.memory_writer = FakeMemoryWriter()
             gateway.application.provenance = FakeProvenanceStore()
+            gateway.application.models.registry.resolve = lambda *_args, **_kwargs: object()
+            os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"] = "test-collaboration-token"
             try:
                 status, body = request(
                     gateway,
@@ -272,6 +331,15 @@ def run():
                     },
                 )
                 assert status == 200 and body["ok"]
+                assert captured_model_config["solver_model_ids"]["sonnet"] == (
+                    gateway.application.models.registry.resolve_model("sonnet")[1]
+                )
+                assert captured_model_config["solver_model_ids"]["haiku"] == (
+                    gateway.application.models.registry.resolve_model("haiku")[1]
+                )
+                assert captured_model_config["arbiter_model_id"] == (
+                    gateway.application.models.registry.resolve_model("opus")[1]
+                )
                 assert body["knowledge_persisted"] is True
                 assert body["execution_id"] == "collab-test-1"
                 assert len(memory_events) == 1
@@ -332,6 +400,11 @@ def run():
                 gateway_module.CollaborationOrchestrator = original_collaboration
                 gateway.application.memory_writer = original_memory_writer
                 gateway.application.provenance = original_provenance_store
+                gateway.application.models.registry.resolve = original_resolve
+                if original_token is None:
+                    os.environ.pop("ENSEMBLE_COLLABORATION_AUTH_TOKEN", None)
+                else:
+                    os.environ["ENSEMBLE_COLLABORATION_AUTH_TOKEN"] = original_token
 
             # Memory is independently reachable through the same public boundary.
             assert request(gateway,"POST","/api/v1/memory/write",

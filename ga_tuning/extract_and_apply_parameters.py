@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -276,7 +276,7 @@ class ParameterExtractor:
         """Extract, acknowledge, and log one immutable GA candidate snapshot."""
         try:
             best_params_file, _ = self.get_latest_results()
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
 
             # Read the optimizer result exactly once. Parameter application and
             # artifact provenance must describe this same immutable in-memory snapshot.
@@ -390,7 +390,7 @@ class ParameterExtractor:
                 "run_id": run_id,
                 "candidate_digest": candidate_digest(artifact),
                 "learning_ack": {"ok": True, "memory": True},
-                "acknowledged_at": datetime.utcnow().isoformat() + "Z",
+                "acknowledged_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             }
             try:
                 with marker_temp.open("w", encoding="utf-8") as handle:

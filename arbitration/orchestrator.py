@@ -507,7 +507,8 @@ class ArbitrationOrchestrator:
     def _worker_request(self, phase_config: PhaseConfig, model: str, context: str) -> ModelRequest:
         prompt = (
             f"{phase_config.instructions}\n\n"
-            f"## Evidence\n\n{context}\n\n"
+            f"## Original Task and Evidence\n\n{self.task_description}\n\n"
+            f"## Current Phase Evidence\n\n{context}\n\n"
             "Return your actual analysis. Do not claim to have inspected evidence "
             "that is not present in the supplied context."
         )

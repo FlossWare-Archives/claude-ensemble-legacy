@@ -48,16 +48,30 @@ def cache_key(root: Path, arguments: dict[str, Any]) -> str:
 
 
 def cache_get(key: str) -> Any | None:
-    path = cache_path()
-    if not path.exists():
-        return None
+    # Cache setup, record validation, reads, and parsing are optional. Any
+    # malformed or unavailable cache data is a miss, never a search failure.
     try:
+        path = cache_path()
+        if not path.exists():
+            return None
         with path.open() as handle:
             for line in handle:
-                entry = json.loads(line)
-                if entry.get("key") == key and time.time() - entry["timestamp"] < CACHE_TTL:
-                    return entry["result"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("key") != key:
+                    continue
+                timestamp = entry.get("timestamp")
+                result = entry.get("result")
+                if (
+                    isinstance(timestamp, (int, float))
+                    and not isinstance(timestamp, bool)
+                    and 0 <= time.time() - timestamp < CACHE_TTL
+                    and isinstance(result, dict)
+                ):
+                    return result
+    except (OSError, TypeError, ValueError, OverflowError):
         return None
     return None
 
@@ -83,15 +97,19 @@ def search_code(arguments: dict[str, Any]) -> dict[str, Any]:
     glob = arguments.get("glob")
     fixed = bool(arguments.get("fixed_string", False))
     case_sensitive = bool(arguments.get("case_sensitive", True))
+    use_cache = arguments.get("use_cache", False)
+    if not isinstance(use_cache, bool):
+        raise ValueError("use_cache must be a boolean")
 
     query = {
         "pattern": pattern, "path": path, "max_results": max_results,
         "glob": glob, "fixed_string": fixed, "case_sensitive": case_sensitive,
     }
     key = cache_key(root, query)
-    cached = cache_get(key)
-    if cached is not None:
-        return {"cached": True, **cached}
+    if use_cache:
+        cached = cache_get(key)
+        if cached is not None:
+            return {"cached": True, **cached}
 
     command = ["rg", "--json", "--hidden", "--glob", "!.git", "--max-count", str(max_results)]
     if fixed:
@@ -100,7 +118,8 @@ def search_code(arguments: dict[str, Any]) -> dict[str, Any]:
         command.append("--ignore-case")
     if isinstance(glob, str) and glob:
         command.extend(["--glob", glob])
-    command.extend([pattern, path])
+    # End option parsing before either caller-controlled positional argument.
+    command.extend(["--", pattern, path])
 
     completed = subprocess.run(
         command, cwd=root, text=True, capture_output=True, timeout=30,
@@ -126,7 +145,8 @@ def search_code(arguments: dict[str, Any]) -> dict[str, Any]:
             break
 
     result = {"matches": matches, "count": len(matches), "truncated": len(matches) >= max_results}
-    cache_put(key, result)
+    if use_cache:
+        cache_put(key, result)
     return result
 
 
@@ -154,7 +174,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
             "jsonrpc": "2.0", "id": request_id,
             "result": {"tools": [{
                 "name": "search_code",
-                "description": "Search repository code with ripgrep. Results are cached for 24 hours.",
+                "description": "Search current repository contents with ripgrep. Fresh search is the default; set use_cache=true to opt into a 24-hour cached snapshot.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -164,6 +184,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
                         "max_results": {"type": "integer", "minimum": 1, "maximum": MAX_RESULTS, "default": 50},
                         "fixed_string": {"type": "boolean", "default": False},
                         "case_sensitive": {"type": "boolean", "default": True},
+                        "use_cache": {"type": "boolean", "default": False},
                     },
                     "required": ["pattern"],
                 },
