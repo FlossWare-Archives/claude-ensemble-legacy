@@ -115,6 +115,9 @@ jobs:
       - name: Run installer/template consistency checks
         run: python test/test_service_installers.py
 
+      - name: Run isolated top-level installer end-to-end test
+        run: python test/test_top_level_install.py
+
       - name: Check tracked runtime artifacts
         shell: bash
         run: |
