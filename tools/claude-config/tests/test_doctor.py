@@ -84,7 +84,8 @@ class DoctorHealthTests(unittest.TestCase):
             self.assertEqual(1, exit_code)  # Missing Claude CLI is reported without touching the host profile.
             self.assertEqual(str(claude_home), checks["CLAUDE_HOME"]["detail"])
             self.assertEqual("pass", checks["HOOK_REGISTRATION"]["status"])
-            self.assertEqual("skip", checks["CLAUDE_PROVIDER_POLICY"]["status"])
+            self.assertEqual("fail", checks["CLAUDE_PROVIDER_POLICY"]["status"])
+            self.assertIn("Claude Code executable not found", checks["CLAUDE_PROVIDER_POLICY"]["detail"])
             self.assertEqual(str(validator), run_bounded.call_args.args[0][1])
             self.assertIn("http://injected.invalid/api/v1/health", health_urls)
             self.assertIn("http://127.0.0.1:8767/health", health_urls)
