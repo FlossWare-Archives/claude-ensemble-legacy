@@ -182,6 +182,19 @@ def test_vertex_auth_status_is_rejected_before_prompt_invocation() -> None:
     popen.assert_not_called()
 
 
+def test_dedicated_ce_profile_is_child_process_only() -> None:
+    with patch.dict(
+        "providers.claude_code.os.environ",
+        {"ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": "/tmp/ce-profile-test"},
+        clear=False,
+    ):
+        original = os.environ.get("CLAUDE_CONFIG_DIR")
+        run_env = ClaudeCodeProvider()._run_env()
+        assert run_env is not None
+        assert run_env["CLAUDE_CONFIG_DIR"] == "/tmp/ce-profile-test"
+        assert os.environ.get("CLAUDE_CONFIG_DIR") == original
+
+
 def test_missing_executable_is_clear() -> None:
     provider = ClaudeCodeProvider()
     with patch("providers.claude_code.shutil.which", return_value=None):
