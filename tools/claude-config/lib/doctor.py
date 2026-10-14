@@ -50,6 +50,15 @@ def timed_call(fn):
     return result, round((time.monotonic() - start) * 1000)
 
 
+def run_bounded(command: list[str], timeout: float = 2.0, text: bool = True):
+    try:
+        return subprocess.run(
+            command, capture_output=True, text=text, timeout=timeout, check=False
+        ), None
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, type(exc).__name__
+
+
 def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
@@ -87,13 +96,13 @@ def main() -> int:
 
     claude = shutil.which("claude")
     if claude:
-        result, duration = timed_call(lambda: subprocess.run(
-            [claude, "--version"], capture_output=True, text=True, timeout=2, check=False
-        ))
-        status = "pass" if result.returncode == 0 else "warn"
+        started = time.monotonic()
+        result, error = run_bounded([claude, "--version"], timeout=2)
+        duration = round((time.monotonic() - started) * 1000)
+        status = "pass" if result is not None and result.returncode == 0 else "warn"
+        detail = (result.stdout.strip() or "version command failed") if result is not None else f"version command unavailable ({error})"
         check(checks, "CLAUDE_CLI", "Claude Code CLI", status,
-              result.stdout.strip() or "version command failed",
-              "Install Claude Code or repair PATH." if status != "pass" else "", duration_ms=duration)
+              detail, "Install Claude Code or repair PATH." if status != "pass" else "", duration_ms=duration)
     else:
         check(checks, "CLAUDE_CLI_MISSING", "Claude Code CLI", "fail",
               "claude executable not found on PATH", "Install Claude Code and ensure it is on PATH.", "error")
@@ -128,12 +137,13 @@ def main() -> int:
 
     validator = REPO_ROOT / "tools" / "claude-config" / "lib" / "json_tool.py"
     if settings.is_file() and prompt_hook.is_file() and session_hook.is_file() and validator.is_file():
-        result, duration = timed_call(lambda: subprocess.run(
+        started = time.monotonic()
+        result, error = run_bounded(
             [sys.executable, str(validator), "validate-settings", str(settings),
-             str(prompt_hook), str(session_hook)],
-            capture_output=True, text=True, timeout=2, check=False
-        ))
-        valid_hooks = result.returncode == 0
+             str(prompt_hook), str(session_hook)], timeout=2
+        )
+        duration = round((time.monotonic() - started) * 1000)
+        valid_hooks = result is not None and result.returncode == 0
         check(checks, "HOOK_REGISTRATION", "Claude hook registration",
               "pass" if valid_hooks else "fail",
               "managed UserPromptSubmit and unconditional SessionEnd hooks are registered"
@@ -145,14 +155,16 @@ def main() -> int:
               "settings validator is missing from this checkout")
 
     if shutil.which("systemctl"):
-        result, duration = timed_call(lambda: subprocess.run(
+        started = time.monotonic()
+        result, error = run_bounded(
             ["systemctl", "--user", "is-active", "--quiet", "claude-ensemble.service"],
-            capture_output=True, timeout=2, check=False
-        ))
-        active = result.returncode == 0
+            timeout=2, text=False
+        )
+        duration = round((time.monotonic() - started) * 1000)
+        active = result is not None and result.returncode == 0
         check(checks, "GATEWAY_UNIT", "Gateway systemd user unit",
               "pass" if active else "warn",
-              "active" if active else "not active (the gateway may be managed another way)",
+              "active" if active else (f"unit state unavailable ({error})" if result is None else "not active (the gateway may be managed another way)"),
               "" if active else "Start claude-ensemble.service if this installation uses systemd.",
               duration_ms=duration)
     else:
