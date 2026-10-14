@@ -9,7 +9,7 @@ CC_VERSION="0.2"
 CC_CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
 case "$CC_CLAUDE_HOME" in
   "~") CC_CLAUDE_HOME="$HOME" ;;
-  "~/"*) CC_CLAUDE_HOME="$HOME/${CC_CLAUDE_HOME#\\~/}" ;;
+  "~/"*) CC_CLAUDE_HOME="$HOME/${CC_CLAUDE_HOME#\~/}" ;;
 esac
 CC_HOOK_DIR="$CC_CLAUDE_HOME/hooks"
 CC_STATE_DIR="$CC_CLAUDE_HOME/.flossware-claude-config"
