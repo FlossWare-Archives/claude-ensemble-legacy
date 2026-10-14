@@ -461,3 +461,22 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 ## Operational Metrics API
 
 The metrics REST listing is bounded and paginated. See [Operational Metrics REST API](docs/OPERATIONAL_METRICS.md) for page limits, continuation semantics, and aggregation behavior.
+
+
+## Service Diagnostics
+
+Run from the repository checkout:
+
+```bash
+tools/ce doctor
+tools/ce doctor --verbose
+tools/ce doctor --json
+tools/ce diagnose
+tools/ce diagnose --deep
+tools/ce diagnose --service learning
+tools/ce diagnose --json
+```
+
+`doctor` checks the local Claude Code integration and reports actionable configuration, hook-registration, systemd, and REST health findings. `diagnose` uses a shared correlation ID across bounded service probes, checks gateway readiness (including Graph and Memory), and can exercise read-only Memory/Graph/Decision operations with `--deep`. It also pings the Learning and Thompson Unix sockets and runs an isolated transient publish/subscribe round trip through Messenger. Alert delivery is never triggered; the diagnostic checks only the alert unit state.
+
+The diagnostic is deliberately safe by default: it does not write persistent Memory or Graph records, record Learning outcomes, change Thompson priors, send external notifications, or invoke a model. Because the real Learning-to-Thompson outcome path mutates production state, this read-only diagnostic does not claim to prove that mutation path; that requires a separately isolated integration test. HTTP and socket timeouts are bounded, and failures identify the affected step with remediation guidance.
