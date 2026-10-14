@@ -146,6 +146,42 @@ def test_parses_model_usage_when_top_level_metadata_is_absent() -> None:
     assert response.cost_usd == 0.001
 
 
+def test_first_party_auth_status_is_normalized_to_anthropic() -> None:
+    auth_status = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "firstParty"}),
+        stderr="",
+    )
+    process = _process(json.dumps(_with_provider_metadata({"result": "hello"})))
+    with patch(
+        "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
+    ), patch(
+        "providers.claude_code.subprocess.run", return_value=auth_status
+    ), patch(
+        "providers.claude_code.subprocess.Popen", return_value=process
+    ):
+        response = ClaudeCodeProvider().generate(ModelRequest("hello"))
+    assert response.text == "hello"
+
+
+def test_vertex_auth_status_is_rejected_before_prompt_invocation() -> None:
+    auth_status = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "vertex"}),
+        stderr="",
+    )
+    with patch(
+        "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
+    ), patch(
+        "providers.claude_code.subprocess.run", return_value=auth_status
+    ), patch("providers.claude_code.subprocess.Popen") as popen:
+        with pytest.raises(RuntimeError, match="provider 'vertex'.*expected 'anthropic'"):
+            ClaudeCodeProvider().generate(ModelRequest("do not send this prompt"))
+    popen.assert_not_called()
+
+
 def test_missing_executable_is_clear() -> None:
     provider = ClaudeCodeProvider()
     with patch("providers.claude_code.shutil.which", return_value=None):
