@@ -426,7 +426,20 @@ class LearningService:
 
             # Send response
             conn.sendall((response + '\n').encode('utf-8'))
-            ctx.log_exit(status='success')
+            # A request can be handled correctly at the transport layer while its
+            # business operation fails (for example, Memory returns HTTP 401).
+            # Reflect an explicit negative service acknowledgement in request logs.
+            try:
+                response_data = json.loads(response)
+            except (TypeError, json.JSONDecodeError):
+                response_data = None
+            if isinstance(response_data, dict) and response_data.get('ok') is False:
+                ctx.log_exit(
+                    status='error',
+                    error_code=str(response_data.get('error') or 'operation_failed'),
+                )
+            else:
+                ctx.log_exit(status='success')
         except socket.timeout:
             logger.debug(f"{ctx} Client timeout")
             ctx.log_exit(status='timeout', error_code='timeout')

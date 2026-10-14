@@ -23,6 +23,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run GA tuning contract tests
-        run: python -m unittest ga_tuning.test_scheduler_contract ga_tuning.test_parameter_schema ga_tuning.test_learning_artifact
+        run: python -m unittest ga_tuning.test_scheduler_contract ga_tuning.test_parameter_schema ga_tuning.test_learning_artifact ga_tuning.test_pending_recovery
+      - name: Test Learning service negative acknowledgement logging
+        run: python learning-service/test_learning_response_logging.py
       - name: Check scheduler shell syntax
         run: bash -n tools/ga-tuning-schedule.sh
