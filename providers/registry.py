@@ -1,8 +1,8 @@
 """Single-runtime model routing for Claude Ensemble.
 
-All model work runs through the installed Claude Code CLI. The legacy direct
-API adapters remain in the repository for reference during this migration, but
-the runtime registry never selects them.
+All model work runs through the installed Claude Code CLI. Direct Anthropic and
+Google API adapters have been removed from this branch; the prior implementation
+is preserved on the archive branch.
 """
 
 from __future__ import annotations
