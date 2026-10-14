@@ -113,14 +113,14 @@ cp "$ROOT/../../hooks/memory-search-on-prompt.js" "$legacy_settings_target/memor
 foreign_hook="$TMP/foreign/hooks/memory-search-on-prompt.js"
 mkdir -p "$(dirname "$foreign_hook")"
 printf '%s\n' '#!/bin/sh' 'echo unrelated' > "$foreign_hook"
-python3 - "$CLAUDE_HOME/settings.json" "$legacy_settings_target/memory-search-on-prompt.js" "$foreign_hook" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_settings_target/memory-search-on-prompt.js" "$foreign_hook" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys
-p,legacy,foreign=sys.argv[1:]
+p,legacy,foreign,managed_alias=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
     {"type":"command","command":legacy,"timeout":3},
-    {"type":"command","command":"~/.claude/hooks/memory-search-on-prompt.js","timeout":3}
+    {"type":"command","command":managed_alias,"timeout":3}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
     {"type":"command","command":foreign,"timeout":3},
