@@ -802,7 +802,7 @@ class EnsembleApplication:
                 "ok": True,
                 "credentials": {
                     provider: self.models.registry.credential_status(provider)
-                    for provider in ("anthropic", "google")
+                    for provider in ("claude-code",)
                 },
             })
             return
