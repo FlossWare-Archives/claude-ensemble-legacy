@@ -49,7 +49,7 @@ class DoctorHealthTests(unittest.TestCase):
         self.assertEqual("skip", status)
         self.assertIn("default profile was not inspected", detail)
 
-    def test_provider_check_accepts_expected_provider_in_explicit_profile(self):
+    def test_provider_check_accepts_first_party_anthropic_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = root / "ce-profile"
@@ -60,7 +60,7 @@ class DoctorHealthTests(unittest.TestCase):
                 encoding="utf-8",
             )
             executable.chmod(0o755)
-            status, detail = doctor.provider_health(str(executable), str(profile), "firstParty")
+            status, detail = doctor.provider_health(str(executable), str(profile), "anthropic")
             self.assertEqual("pass", status, detail)
 
     def test_provider_check_rejects_mismatched_provider(self):
