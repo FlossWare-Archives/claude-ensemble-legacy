@@ -364,7 +364,7 @@ default_settings="$CLAUDE_HOME/settings.json"
 default_before="$(sha256sum "$default_settings" | awk '{print $1}')"
 ce_profile="$TMP/dedicated CE profile"
 mkdir -p "$ce_profile"
-CLAUDE_CONFIG_DIR="$ce_profile" bash "$ROOT/install.sh" --non-interactive
+ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ce_profile" CLAUDE_CONFIG_DIR="$ce_profile" bash "$ROOT/install.sh" --non-interactive
 test -f "$ce_profile/settings.json"
 test -f "$ce_profile/hooks/memory-search-on-prompt.js"
 test -f "$ce_profile/hooks/session-end-memory-capture.js"
@@ -378,7 +378,7 @@ mkdir -p "$unsafe_profile" "$outside_hooks"
 printf '%s\n' '{"permissions":{}}' > "$unsafe_profile/settings.json"
 ln -s "$outside_hooks" "$unsafe_profile/hooks"
 unsafe_settings_before="$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')"
-if CLAUDE_CONFIG_DIR="$unsafe_profile" bash "$ROOT/install.sh" --non-interactive; then
+if ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$unsafe_profile" CLAUDE_CONFIG_DIR="$unsafe_profile" bash "$ROOT/install.sh" --non-interactive; then
   echo "expected symlinked hooks-directory refusal" >&2
   exit 1
 fi
