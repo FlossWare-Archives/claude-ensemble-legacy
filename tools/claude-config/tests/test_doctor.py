@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import io
+import subprocess
 import tempfile
 import threading
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -33,6 +37,48 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 
 class DoctorHealthTests(unittest.TestCase):
+    def test_main_uses_injected_home_and_repository_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "alternate-home"
+            claude_home = home / ".claude"
+            (claude_home / "hooks").mkdir(parents=True)
+            (claude_home / ".flossware-claude-config").mkdir()
+            (claude_home / "settings.json").write_text('{"hooks": {}}', encoding="utf-8")
+            (claude_home / "hooks" / "memory-search-on-prompt.js").write_text("// prompt", encoding="utf-8")
+            (claude_home / "hooks" / "session-end-memory-capture.js").write_text("// session", encoding="utf-8")
+            (claude_home / ".flossware-claude-config" / "manifest.json").write_text("{}", encoding="utf-8")
+            repo_root = root / "alternate-repo"
+            validator = repo_root / "tools" / "claude-config" / "lib" / "json_tool.py"
+            validator.parent.mkdir(parents=True)
+            validator.write_text("# test validator", encoding="utf-8")
+            config = doctor.DoctorConfig(
+                home=home,
+                repo_root=repo_root,
+                environ={"ENSEMBLE_GATEWAY_URL": "http://injected.invalid"},
+            )
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+            output = io.StringIO()
+            with (
+                patch("sys.argv", ["doctor", "--json"]),
+                patch.object(doctor.shutil, "which", side_effect=[None, None]),
+                patch.object(doctor, "run_bounded", return_value=(completed, None)) as run_bounded,
+                patch.object(doctor, "http_health", return_value=("pass", "test health")),
+                redirect_stdout(output),
+            ):
+                exit_code = doctor.main(config)
+
+            report = json.loads(output.getvalue())
+            checks = {item["code"]: item for item in report["checks"]}
+            self.assertEqual(1, exit_code)  # Missing Claude CLI is reported without touching the host profile.
+            self.assertEqual(str(claude_home), checks["CLAUDE_HOME"]["detail"])
+            self.assertEqual("pass", checks["HOOK_REGISTRATION"]["status"])
+            self.assertEqual("skip", checks["CLAUDE_PROVIDER_POLICY"]["status"])
+            self.assertEqual(str(validator), run_bounded.call_args.args[0][1])
+            self.assertEqual("http://injected.invalid/api/v1/health", doctor.DEFAULT_GATEWAY_URL.replace(
+                "http://127.0.0.1:8080", "http://injected.invalid"
+            ))
+
     def setUp(self):
         HealthHandler.payload = {"ok": True}
         HealthHandler.status_code = 200
