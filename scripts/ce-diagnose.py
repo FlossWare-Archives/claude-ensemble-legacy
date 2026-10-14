@@ -194,7 +194,9 @@ def unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deep", action="store_true",
-                        help="also exercise read-only Memory, Graph, and Decision operations")
+                        help="exercise read-only Memory/Graph/Decision operations and the isolated Learning-to-Thompson pipeline")
+    parser.add_argument("--pipeline-test", action="store_true",
+                        help="run the isolated Learning-to-Thompson integration test using temporary state")
     parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson", "messenger", "alert"),
                         help="run only the selected service/integration checks")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -275,6 +277,33 @@ def main() -> int:
             status, detail, elapsed = unit_status("claude-alert.service", args.timeout)
             record(results, "alert.unit", status, detail, elapsed, "systemd user unit claude-alert.service",
                    "Check claude-alert.service logs. Alert delivery is intentionally not triggered by diagnostics.")
+
+    if args.deep or args.pipeline_test:
+        started = time.monotonic()
+        pipeline_test = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_ce_pipeline.py")
+        try:
+            pipeline = subprocess.run(
+                [sys.executable, pipeline_test],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            elapsed = round((time.monotonic() - started) * 1000)
+            pipeline_ok = pipeline.returncode == 0
+            detail = (
+                "isolated Learning request → Thompson outcome path passed"
+                if pipeline_ok else f"isolated pipeline test failed (exit {pipeline.returncode})"
+            )
+            remediation = "" if pipeline_ok else "Run python3 scripts/test_ce_pipeline.py and inspect the isolated test failure."
+            record(results, "pipeline.learning_to_thompson", "pass" if pipeline_ok else "fail",
+                   detail, elapsed, "temporary state and socket; no production state touched", remediation)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            elapsed = round((time.monotonic() - started) * 1000)
+            record(results, "pipeline.learning_to_thompson", "fail",
+                   f"isolated pipeline test could not complete ({type(exc).__name__})",
+                   elapsed, "temporary state and socket; no production state touched",
+                   "Run python3 scripts/test_ce_pipeline.py and inspect the test environment.")
 
     failures = [item for item in results if item["status"] == "fail"]
     summary = {
