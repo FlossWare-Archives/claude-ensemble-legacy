@@ -353,4 +353,32 @@ group=next(g for g in settings["hooks"]["SessionEnd"] if any(h.get("command")=="
 assert group.get("matcher")=="clear", group
 PY
 
+
+# Explicit Claude profile selection must isolate install from the default HOME/.claude.
+default_settings="$HOME/.claude/settings.json"
+default_before="$(sha256sum "$default_settings" | awk '{print $1}')"
+ce_profile="$TMP/dedicated CE profile"
+mkdir -p "$ce_profile"
+CLAUDE_CONFIG_DIR="$ce_profile" bash "$ROOT/install.sh" --non-interactive
+test -f "$ce_profile/settings.json"
+test -f "$ce_profile/hooks/memory-search-on-prompt.js"
+test -f "$ce_profile/hooks/session-end-memory-capture.js"
+test -f "$ce_profile/.flossware-claude-config/manifest.json"
+test "$(sha256sum "$default_settings" | awk '{print $1}')" = "$default_before"
+
+# A hooks-directory symlink must be rejected before any write can escape the profile.
+unsafe_profile="$TMP/unsafe CE profile"
+outside_hooks="$TMP/outside hooks"
+mkdir -p "$unsafe_profile" "$outside_hooks"
+printf '%s\n' '{"permissions":{}}' > "$unsafe_profile/settings.json"
+ln -s "$outside_hooks" "$unsafe_profile/hooks"
+unsafe_settings_before="$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')"
+if CLAUDE_CONFIG_DIR="$unsafe_profile" bash "$ROOT/install.sh" --non-interactive; then
+  echo "expected symlinked hooks-directory refusal" >&2
+  exit 1
+fi
+test "$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')" = "$unsafe_settings_before"
+test ! -e "$outside_hooks/memory-search-on-prompt.js"
+test ! -e "$outside_hooks/session-end-memory-capture.js"
+
 echo "claude-config tests passed"
