@@ -44,7 +44,10 @@ def _mock_auth_status(monkeypatch: pytest.MonkeyPatch) -> None:
         stdout=json.dumps({"loggedIn": True, "apiProvider": "anthropic"}),
         stderr="",
     )
-    monkeypatch.setattr("providers.claude_code.subprocess.run", lambda *args, **kwargs: result)
+    monkeypatch.setattr(
+        "providers.claude_code.subprocess.run",
+        lambda *args, **kwargs: result,
+    )
 
 
 def _process(
