@@ -313,7 +313,7 @@ def main() -> int:
         "passed": sum(item["status"] == "pass" for item in results),
         "failed": len(failures),
         "skipped": 0,
-        "mode": "deep" if args.deep else "standard",
+        "mode": "deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"),
         "side_effects": "read-only; no model calls, learning outcomes, Thompson updates, notifications, or persistent writes",
         "results": results,
     }
