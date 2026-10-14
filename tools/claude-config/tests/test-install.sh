@@ -5,6 +5,8 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export FLOSSWARE_MEMORY_URL="http://127.0.0.1:9"
+# The test harness must explicitly select its disposable profile.
+export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.claude"
 mkdir -p "$HOME/.claude"
 
 cat > "$HOME/.claude/settings.json" <<'JSON'
@@ -380,5 +382,29 @@ fi
 test "$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')" = "$unsafe_settings_before"
 test ! -e "$outside_hooks/memory-search-on-prompt.js"
 test ! -e "$outside_hooks/session-end-memory-capture.js"
+
+# Installer must fail closed without an explicitly selected CE profile.
+no_profile_home="$TMP/no-profile-home"
+mkdir -p "$no_profile_home/.claude"
+printf '%s\n' '{"sentinel":"must remain untouched"}' > "$no_profile_home/.claude/settings.json"
+if env -u ENSEMBLE_CLAUDE_CODE_CONFIG_DIR -u CLAUDE_CONFIG_DIR HOME="$no_profile_home" bash "$ROOT/install.sh" --non-interactive; then
+  echo "expected install without an explicit profile to fail" >&2
+  exit 1
+fi
+test ! -e "$no_profile_home/.claude/hooks"
+grep -q 'must remain untouched' "$no_profile_home/.claude/settings.json"
+
+# Installer must refuse a symlinked hooks directory and leave its target intact.
+linked_profile="$TMP/linked-profile"
+external_hooks="$TMP/external-hooks"
+mkdir -p "$linked_profile" "$external_hooks"
+printf '%s\n' '{"sentinel":"external hook target"}' > "$external_hooks/memory-search-on-prompt.js"
+ln -s "$external_hooks" "$linked_profile/hooks"
+if ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$linked_profile" HOME="$TMP/linked-home" bash "$ROOT/install.sh" --non-interactive --force; then
+  echo "expected symlinked hooks directory to be refused" >&2
+  exit 1
+fi
+grep -q 'external hook target' "$external_hooks/memory-search-on-prompt.js"
+test ! -e "$linked_profile/settings.json"
 
 echo "claude-config tests passed"
