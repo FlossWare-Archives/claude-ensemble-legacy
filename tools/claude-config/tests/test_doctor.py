@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,6 +43,40 @@ class DoctorHealthTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=1)
+
+    def test_provider_check_does_not_inspect_default_profile(self):
+        status, detail = doctor.provider_health("/usr/bin/claude", None)
+        self.assertEqual("skip", status)
+        self.assertIn("default profile was not inspected", detail)
+
+    def test_provider_check_accepts_expected_provider_in_explicit_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = root / "ce-profile"
+            profile.mkdir()
+            executable = root / "fake-claude"
+            executable.write_text(
+                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'apiProvider': 'firstParty'}))\\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            status, detail = doctor.provider_health(str(executable), str(profile), "firstParty")
+            self.assertEqual("pass", status, detail)
+
+    def test_provider_check_rejects_mismatched_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = root / "ce-profile"
+            profile.mkdir()
+            executable = root / "fake-claude"
+            executable.write_text(
+                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'apiProvider': 'vertex'}))\\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            status, detail = doctor.provider_health(str(executable), str(profile), "anthropic")
+            self.assertEqual("fail", status)
+            self.assertIn("expected 'anthropic'", detail)
 
     def test_health_endpoint_requires_ok_true(self):
         HealthHandler.payload = {"ok": True}
