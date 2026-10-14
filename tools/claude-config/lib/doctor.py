@@ -93,6 +93,8 @@ def provider_health(
     if not isinstance(actual, str) or not actual.strip():
         return "fail", "auth status did not identify the upstream provider"
     actual_provider = actual.strip().lower()
+    if not isinstance(expected_provider, str) or not expected_provider.strip():
+        return "fail", "expected provider is blank; set ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER to a valid provider"
     expected = expected_provider.strip().lower()
     # Claude Code's native Anthropic route is labelled "firstParty" by auth status.
     if actual_provider == "firstparty":
@@ -113,7 +115,10 @@ def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             if response.status != 200:
                 return "fail", f"HTTP {response.status}"
-            raw = response.read(64 * 1024)
+            # Read one byte beyond the cap so oversized responses fail explicitly.
+            raw = response.read((64 * 1024) + 1)
+        if len(raw) > 64 * 1024:
+            return "fail", "endpoint response exceeded the 64 KiB limit"
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -207,12 +212,15 @@ def main() -> int:
         or os.environ.get("CLAUDE_CONFIG_DIR")
     )
     expected_provider = os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
-    provider_status, provider_detail = provider_health(claude, provider_profile, expected_provider)
+    (provider_status, provider_detail), provider_duration = timed_call(
+        lambda: provider_health(claude, provider_profile, expected_provider)
+    )
     check(
         checks, "CLAUDE_PROVIDER_POLICY", "Claude Code provider policy",
         provider_status, provider_detail,
-        "Configure ENSEMBLE_CLAUDE_CODE_CONFIG_DIR to a dedicated CE profile authenticated with Anthropic; do not repoint a separately managed work profile.",
-        "error",
+        "Configure ENSEMBLE_CLAUDE_CODE_CONFIG_DIR to a dedicated CE profile authenticated with Anthropic; do not repoint a separately managed work profile."
+        if provider_status == "fail" else "",
+        "error", provider_duration,
     )
 
     if shutil.which("systemctl"):
