@@ -72,9 +72,8 @@ def test_missing_provider_metadata_is_rejected(monkeypatch):
     monkeypatch.setattr(provider, "_verify_upstream_provider_before_invocation", lambda _: None)
     monkeypatch.setattr(provider, "_start_process", lambda _: FakeProcess(data))
 
-    with pytest.raises(RuntimeError, match="did not report its upstream provider"):
+    with pytest.raises(RuntimeError, match="did not consistently report its upstream provider"):
         provider.generate(ModelRequest(prompt="test"))
-
 
 
 def test_blank_expected_provider_is_rejected(monkeypatch):
@@ -84,8 +83,6 @@ def test_blank_expected_provider_is_rejected(monkeypatch):
 
 
 def test_preflight_rejects_vertex_before_invocation(monkeypatch):
-    import subprocess
-
     monkeypatch.setattr("providers.claude_code.shutil.which", lambda _: "/fake/claude")
     provider = ClaudeCodeProvider(expected_provider="anthropic")
 
