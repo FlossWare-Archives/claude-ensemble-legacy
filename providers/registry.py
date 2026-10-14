@@ -30,7 +30,11 @@ class ProviderRegistry:
             elif name == "google":
                 self.providers[name] = GoogleProvider(credentials=self.credentials)
             elif name == "claude-code":
-                self.providers[name] = ClaudeCodeProvider()
+                self.providers[name] = ClaudeCodeProvider(
+                    expected_provider=os.environ.get(
+                        "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic"
+                    )
+                )
         if name not in self.providers:
             raise ValueError(f"Provider {name!r} is not registered")
         return self.providers[name]
