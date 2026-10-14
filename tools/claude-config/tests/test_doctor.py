@@ -56,7 +56,7 @@ class DoctorHealthTests(unittest.TestCase):
             profile.mkdir()
             executable = root / "fake-claude"
             executable.write_text(
-                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'apiProvider': 'firstParty'}))\\n",
+                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'apiProvider': 'firstParty'}))\n",
                 encoding="utf-8",
             )
             executable.chmod(0o755)
@@ -70,7 +70,7 @@ class DoctorHealthTests(unittest.TestCase):
             profile.mkdir()
             executable = root / "fake-claude"
             executable.write_text(
-                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'apiProvider': 'vertex'}))\\n",
+                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'apiProvider': 'vertex'}))\n",
                 encoding="utf-8",
             )
             executable.chmod(0o755)
