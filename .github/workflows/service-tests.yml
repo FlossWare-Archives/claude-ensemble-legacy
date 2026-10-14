@@ -68,6 +68,9 @@ jobs:
       - name: Run gateway REST integration tests
         run: python server/test_ensemble_server.py
 
+      - name: Run gateway HTTP representation contract tests
+        run: python -m pytest server/test_http_contract.py -q
+
       - name: Run service unit and integration tests
         run: |
           python -m pytest \
