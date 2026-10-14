@@ -109,7 +109,7 @@ def _accepts_media_type(handler: BaseHTTPRequestHandler, media_type: str) -> boo
     appear, an explicit exclusion wins. Malformed or out-of-range q values are
     treated as q=0 so they cannot accidentally enable the representation.
     """
-    accepted = handler.headers.get("Accept", "")
+    accepted = ",".join(handler.headers.get_all("Accept", []))
     exact_qualities: list[float] = []
     for item in accepted.split(","):
         parts = [part.strip() for part in item.split(";")]
