@@ -65,6 +65,21 @@ class DoctorHealthTests(unittest.TestCase):
             status, detail = doctor.provider_health(str(executable), str(profile), "anthropic")
             self.assertEqual("pass", status, detail)
 
+    def test_provider_check_rejects_blank_expected_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = root / "ce-profile"
+            profile.mkdir()
+            executable = root / "fake-claude"
+            executable.write_text(
+                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'firstParty'}))\\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            status, detail = doctor.provider_health(str(executable), str(profile), "")
+            self.assertEqual("fail", status)
+            self.assertIn("expected provider is blank", detail)
+
     def test_provider_check_rejects_unauthenticated_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -110,6 +125,12 @@ class DoctorHealthTests(unittest.TestCase):
         status, detail = doctor.http_health(self.url)
         self.assertEqual("fail", status)
         self.assertIn("ok=true", detail)
+
+    def test_health_endpoint_rejects_oversized_response(self):
+        HealthHandler.payload = "x" * (64 * 1024)
+        status, detail = doctor.http_health(self.url)
+        self.assertEqual("fail", status)
+        self.assertIn("exceeded the 64 KiB limit", detail)
 
     def test_http_error_is_reported_as_failure(self):
         HealthHandler.status_code = 503
