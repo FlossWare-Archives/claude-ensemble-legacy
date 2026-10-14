@@ -127,6 +127,9 @@ class ParameterExtractor:
 
         # Even the idempotent path syncs the existing audit entry before callers
         # are allowed to discard the pending snapshot.
+        if already_logged and self.tracking_log.exists():
+            with self.tracking_log.open("rb") as handle:
+                os.fsync(handle.fileno())
         self._fsync_directory(self.tracking_log.parent)
 
     def _remove_pending_durably(self, pending_path: Path, pending_bytes: bytes) -> None:
