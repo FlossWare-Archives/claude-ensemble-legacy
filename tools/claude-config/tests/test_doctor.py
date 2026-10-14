@@ -59,11 +59,17 @@ class DoctorHealthTests(unittest.TestCase):
             )
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             output = io.StringIO()
+            health_urls = []
+
+            def fake_health(url):
+                health_urls.append(url)
+                return "pass", "test health"
+
             with (
                 patch("sys.argv", ["doctor", "--json"]),
                 patch.object(doctor.shutil, "which", side_effect=[None, None]),
                 patch.object(doctor, "run_bounded", return_value=(completed, None)) as run_bounded,
-                patch.object(doctor, "http_health", return_value=("pass", "test health")),
+                patch.object(doctor, "http_health", side_effect=fake_health),
                 redirect_stdout(output),
             ):
                 exit_code = doctor.main(config)
@@ -75,9 +81,8 @@ class DoctorHealthTests(unittest.TestCase):
             self.assertEqual("pass", checks["HOOK_REGISTRATION"]["status"])
             self.assertEqual("skip", checks["CLAUDE_PROVIDER_POLICY"]["status"])
             self.assertEqual(str(validator), run_bounded.call_args.args[0][1])
-            self.assertEqual("http://injected.invalid/api/v1/health", doctor.DEFAULT_GATEWAY_URL.replace(
-                "http://127.0.0.1:8080", "http://injected.invalid"
-            ))
+            self.assertIn("http://injected.invalid/api/v1/health", health_urls)
+            self.assertIn("http://127.0.0.1:8767/health", health_urls)
 
     def setUp(self):
         HealthHandler.payload = {"ok": True}
