@@ -7,6 +7,7 @@ from collections.abc import Mapping
 
 from .anthropic import AnthropicProvider
 from .credentials import CredentialPool
+from .claude_code import ClaudeCodeProvider
 from .google import GoogleProvider
 from .model_provider import ModelProvider
 
@@ -28,6 +29,8 @@ class ProviderRegistry:
                 self.providers[name] = AnthropicProvider(credentials=self.credentials)
             elif name == "google":
                 self.providers[name] = GoogleProvider(credentials=self.credentials)
+            elif name == "claude-code":
+                self.providers[name] = ClaudeCodeProvider()
         if name not in self.providers:
             raise ValueError(f"Provider {name!r} is not registered")
         return self.providers[name]
@@ -41,7 +44,17 @@ class ProviderRegistry:
 
     def resolve_model(self, model: str) -> tuple[str, str]:
         normalized = model.lower()
-        if normalized in self._ANTHROPIC_ALIASES:
+        cli_models = {
+            item.strip().lower()
+            for item in os.environ.get("ENSEMBLE_CLAUDE_CODE_MODELS", "").split(",")
+            if item.strip()
+        }
+        if normalized in cli_models:
+            provider_name = "claude-code"
+            # Claude Code accepts short aliases itself; preserve them rather than
+            # translating them into direct-API model IDs.
+            canonical = normalized
+        elif normalized in self._ANTHROPIC_ALIASES:
             provider_name = "anthropic"
             env_name = self._ANTHROPIC_ALIASES[normalized]
             canonical = os.environ.get(env_name, self._DEFAULT_ANTHROPIC_MODELS[normalized])
