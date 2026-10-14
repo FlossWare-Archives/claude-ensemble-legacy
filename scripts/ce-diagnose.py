@@ -109,14 +109,14 @@ def socket_ping(path: str, service: str, correlation_id: str, timeout: float = 2
 
 def read_json_line(client: socket.socket) -> dict[str, Any]:
     data = bytearray()
-    while b"\\n" not in data and len(data) < 65536:
+    while b"\n" not in data and len(data) < 65536:
         chunk = client.recv(4096)
         if not chunk:
             break
         data.extend(chunk)
     if not data:
         raise ConnectionError("socket closed without a response")
-    value = json.loads(bytes(data).split(b"\\n", 1)[0].decode("utf-8"))
+    value = json.loads(bytes(data).split(b"\n", 1)[0].decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("socket response must be a JSON object")
     return value
@@ -136,7 +136,7 @@ def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -
                 "op": "subscribe",
                 "subscription_id": subscription_id,
                 "filter": {"topics": [topic], "event_types": [event_type]},
-            }) + "\\n").encode("utf-8"))
+            }) + "\n").encode("utf-8"))
             ack = read_json_line(subscriber)
             if not isinstance(ack, dict) or ack.get("ok") is not True:
                 return "fail", "messenger rejected diagnostic subscription", round((time.monotonic() - start) * 1000)
@@ -147,12 +147,12 @@ def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -
                 publisher.sendall((json.dumps({
                     "op": "publish", "topic": topic, "event_type": event_type,
                     "data": {"diagnostic": True, "correlation_id": correlation_id},
-                }) + "\\n").encode("utf-8"))
+                }) + "\n").encode("utf-8"))
                 publish_ack = read_json_line(publisher)
                 if not isinstance(publish_ack, dict) or publish_ack.get("ok") is not True or publish_ack.get("delivered") != 1:
                     return "fail", "messenger did not acknowledge delivery to the isolated diagnostic subscriber", round((time.monotonic() - start) * 1000)
 
-            message = json.loads(subscriber.makefile("r", encoding="utf-8").readline())
+            message = read_json_line(subscriber)
             elapsed = round((time.monotonic() - start) * 1000)
             valid = (
                 isinstance(message, dict)
