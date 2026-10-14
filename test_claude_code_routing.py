@@ -40,7 +40,7 @@ def test_registry_routes_only_configured_models(monkeypatch):
     registry = ProviderRegistry()
 
     assert registry.resolve_model("haiku") == ("claude-code", "haiku")
-    assert registry.resolve_model("opus")[0] == "anthropic"
+    assert registry.resolve_model("opus") == ("claude-code", "opus")
 
 
 def test_expected_provider_is_accepted(monkeypatch):
