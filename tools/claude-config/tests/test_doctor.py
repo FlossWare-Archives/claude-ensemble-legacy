@@ -57,7 +57,10 @@ class DoctorHealthTests(unittest.TestCase):
             config = doctor.DoctorConfig(
                 home=home,
                 repo_root=repo_root,
-                environ={"ENSEMBLE_GATEWAY_URL": "http://injected.invalid"},
+                environ={
+                    "ENSEMBLE_GATEWAY_URL": "http://injected.invalid",
+                    "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": str(claude_home),
+                },
             )
             completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
             output = io.StringIO()
@@ -85,6 +88,41 @@ class DoctorHealthTests(unittest.TestCase):
             self.assertEqual(str(validator), run_bounded.call_args.args[0][1])
             self.assertIn("http://injected.invalid/api/v1/health", health_urls)
             self.assertIn("http://127.0.0.1:8767/health", health_urls)
+
+    def test_main_skips_all_profile_file_checks_without_explicit_ce_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "alternate-home"
+            default_profile = home / ".claude"
+            default_profile.mkdir(parents=True)
+            (default_profile / "settings.json").write_text(
+                '{"workProfile": "must not be read"}', encoding="utf-8"
+            )
+            config = doctor.DoctorConfig(
+                home=home,
+                repo_root=root,
+                environ={},
+            )
+            output = io.StringIO()
+            with (
+                patch("sys.argv", ["doctor", "--json"]),
+                patch.object(doctor.shutil, "which", return_value=None),
+                patch.object(doctor, "http_health", return_value=("pass", "test health")),
+                redirect_stdout(output),
+            ):
+                exit_code = doctor.main(config)
+
+            report = json.loads(output.getvalue())
+            checks = {item["code"]: item for item in report["checks"]}
+            for code in (
+                "CLAUDE_HOME", "SETTINGS_MISSING", "PROMPT_HOOK_MISSING",
+                "SESSION_HOOK_MISSING", "MANIFEST_MISSING", "SETTINGS_JSON",
+                "HOOK_REGISTRATION",
+            ):
+                self.assertEqual("skip", checks[code]["status"], code)
+                self.assertIn("default Claude profile was not inspected", checks[code]["detail"])
+            self.assertEqual("skip", checks["CLAUDE_PROVIDER_POLICY"]["status"])
+            self.assertEqual(1, exit_code)  # Only the missing CLI fails.
 
     def setUp(self):
         HealthHandler.payload = {"ok": True}
