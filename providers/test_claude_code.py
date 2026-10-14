@@ -16,6 +16,34 @@ from providers.claude_code import ClaudeCodeProvider
 from providers.model_provider import ModelRequest
 
 
+def _with_provider_metadata(payload: dict[str, object]) -> dict[str, object]:
+    """Keep legacy response-parser tests compatible with enforced provider metadata."""
+    enriched = dict(payload)
+    model_usage = enriched.get("modelUsage")
+    if not isinstance(model_usage, dict) or not model_usage:
+        enriched["modelUsage"] = {
+            "claude-sonnet-test": {"provider": "anthropic", "inputTokens": 1, "outputTokens": 1}
+        }
+    else:
+        enriched["modelUsage"] = {
+            key: ({**value, "provider": "anthropic"} if isinstance(value, dict) else value)
+            for key, value in model_usage.items()
+        }
+    return enriched
+
+
+@pytest.fixture(autouse=True)
+def _mock_auth_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy provider tests exercise CLI response behavior, not local CLI auth."""
+    result = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "anthropic"}),
+        stderr="",
+    )
+    monkeypatch.setattr("providers.claude_code.subprocess.run", lambda *args, **kwargs: result)
+
+
 def _process(
     stdout: str,
     returncode: int = 0,
@@ -39,7 +67,7 @@ def _run_provider(
     model: str | None = None,
     provider: ClaudeCodeProvider | None = None,
 ):
-    process = _process(json.dumps(payload))
+    process = _process(json.dumps(_with_provider_metadata(payload)))
     provider = provider or ClaudeCodeProvider()
     with patch(
         "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
@@ -241,7 +269,7 @@ def test_env_overrides_preserve_inherited_environment() -> None:
     ],
 )
 def test_provider_error_response_is_rejected(payload: dict[str, object]) -> None:
-    process = _process(json.dumps(payload))
+    process = _process(json.dumps(_with_provider_metadata(payload)))
     with patch(
         "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
     ), patch("providers.claude_code.subprocess.Popen", return_value=process):
@@ -259,7 +287,7 @@ def test_provider_error_response_is_rejected(payload: dict[str, object]) -> None
     ],
 )
 def test_invalid_accounting_metadata_is_rejected(payload: dict[str, object]) -> None:
-    process = _process(json.dumps(payload))
+    process = _process(json.dumps(_with_provider_metadata(payload)))
     with patch(
         "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
     ), patch("providers.claude_code.subprocess.Popen", return_value=process):
