@@ -87,6 +87,8 @@ def provider_health(
         status = json.loads(result.stdout)
     except json.JSONDecodeError:
         return "fail", "auth status returned invalid JSON"
+    if not isinstance(status, dict) or status.get("loggedIn") is not True:
+        return "fail", "configured CE profile is not authenticated"
     actual = status.get("apiProvider") if isinstance(status, dict) else None
     if not isinstance(actual, str) or not actual.strip():
         return "fail", "auth status did not identify the upstream provider"
