@@ -165,6 +165,23 @@ def test_first_party_auth_status_is_normalized_to_anthropic() -> None:
     assert response.text == "hello"
 
 
+def test_unauthenticated_profile_is_rejected_before_prompt_invocation() -> None:
+    auth_status = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": False, "apiProvider": "firstParty"}),
+        stderr="",
+    )
+    with patch(
+        "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
+    ), patch(
+        "providers.claude_code.subprocess.run", return_value=auth_status
+    ), patch("providers.claude_code.subprocess.Popen") as popen:
+        with pytest.raises(RuntimeError, match="not authenticated"):
+            ClaudeCodeProvider().generate(ModelRequest("do not send this prompt"))
+    popen.assert_not_called()
+
+
 def test_vertex_auth_status_is_rejected_before_prompt_invocation() -> None:
     auth_status = subprocess.CompletedProcess(
         args=["claude", "auth", "status"],
