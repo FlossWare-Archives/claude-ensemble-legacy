@@ -103,7 +103,7 @@ def socket_ping(path: str, service: str, correlation_id: str, timeout: float = 2
         if isinstance(response, dict) and response.get("ok") is True:
             return "pass", "Unix-socket ping acknowledged", elapsed
         return "fail", "service returned a negative or malformed ping acknowledgment", elapsed
-    except (OSError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         return "fail", f"socket request failed ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
 
 
