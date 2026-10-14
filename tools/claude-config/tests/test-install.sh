@@ -359,8 +359,11 @@ assert group.get("matcher")=="clear", group
 PY
 
 
-# Explicit Claude profile selection must isolate install from the default HOME/.claude.
-default_settings="$CLAUDE_HOME/settings.json"
+# Explicit Claude profile selection must isolate install from the real default HOME/.claude.
+default_profile="$HOME/.claude"
+mkdir -p "$default_profile"
+printf '%s\n' '{"sentinel":"work-managed default profile"}' > "$default_profile/settings.json"
+default_settings="$default_profile/settings.json"
 default_before="$(sha256sum "$default_settings" | awk '{print $1}')"
 ce_profile="$TMP/dedicated CE profile"
 mkdir -p "$ce_profile"
@@ -370,6 +373,7 @@ test -f "$ce_profile/hooks/memory-search-on-prompt.js"
 test -f "$ce_profile/hooks/session-end-memory-capture.js"
 test -f "$ce_profile/.flossware-claude-config/manifest.json"
 test "$(sha256sum "$default_settings" | awk '{print $1}')" = "$default_before"
+test ! -e "$default_profile/hooks"
 
 # A hooks-directory symlink must be rejected before any write can escape the profile.
 unsafe_profile="$TMP/unsafe CE profile"
