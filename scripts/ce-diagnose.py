@@ -11,6 +11,7 @@ import json
 import os
 import socket
 import subprocess
+import shutil
 import sys
 import time
 import urllib.error
@@ -21,6 +22,7 @@ from typing import Any
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
 DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
 DEFAULT_THOMPSON_SOCKET = "/tmp/claude-thompson.sock"
+DEFAULT_MESSENGER_SOCKET = f"/run/user/{os.getuid()}/claude-messenger/claude-messenger.sock"
 
 
 def record(results: list[dict[str, Any]], name: str, status: str, detail: str,
@@ -105,11 +107,71 @@ def socket_ping(path: str, service: str, correlation_id: str, timeout: float = 2
         return "fail", f"socket request failed ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
 
 
+def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -> tuple[str, str, int]:
+    """Exercise transient pub/sub with a unique topic so no unrelated subscriber matches."""
+    start = time.monotonic()
+    topic = f"ce-diagnostic.{correlation_id}"
+    event_type = f"ce.diagnostic.{correlation_id}"
+    subscription_id = f"diag-{correlation_id}"
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as subscriber:
+            subscriber.settimeout(timeout)
+            subscriber.connect(path)
+            subscriber.sendall((json.dumps({
+                "op": "subscribe",
+                "subscription_id": subscription_id,
+                "filter": {"topics": [topic], "event_types": [event_type]},
+            }) + "\\n").encode("utf-8"))
+            ack = json.loads(subscriber.makefile("r", encoding="utf-8").readline())
+            if not isinstance(ack, dict) or ack.get("ok") is not True:
+                return "fail", "messenger rejected diagnostic subscription", round((time.monotonic() - start) * 1000)
+
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as publisher:
+                publisher.settimeout(timeout)
+                publisher.connect(path)
+                publisher.sendall((json.dumps({
+                    "op": "publish", "topic": topic, "event_type": event_type,
+                    "data": {"diagnostic": True, "correlation_id": correlation_id},
+                }) + "\\n").encode("utf-8"))
+                publish_ack = json.loads(publisher.makefile("r", encoding="utf-8").readline())
+                if not isinstance(publish_ack, dict) or publish_ack.get("ok") is not True or publish_ack.get("delivered") != 1:
+                    return "fail", "messenger did not acknowledge delivery to the isolated diagnostic subscriber", round((time.monotonic() - start) * 1000)
+
+            message = json.loads(subscriber.makefile("r", encoding="utf-8").readline())
+            elapsed = round((time.monotonic() - start) * 1000)
+            valid = (
+                isinstance(message, dict)
+                and message.get("topic") == topic
+                and message.get("event_type") == event_type
+                and isinstance(message.get("data"), dict)
+                and message["data"].get("correlation_id") == correlation_id
+            )
+            if not valid:
+                return "fail", "messenger delivered an invalid or mismatched diagnostic event", elapsed
+            return "pass", "isolated publish/subscribe round trip acknowledged; event was transient", elapsed
+    except (OSError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return "fail", f"messenger round trip failed ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
+
+
+def shutil_which_systemctl() -> bool:\n    return shutil.which("systemctl") is not None\n\n\ndef unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", unit],
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return "warn", f"unit state unavailable ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
+    elapsed = round((time.monotonic() - start) * 1000)
+    state = result.stdout.strip() or result.stderr.strip() or "unknown"
+    return ("pass", state, elapsed) if result.returncode == 0 else ("fail", state, elapsed)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deep", action="store_true",
                         help="also exercise read-only Memory, Graph, and Decision operations")
-    parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson"),
+    parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson", "messenger", "alert"),
                         help="run only the selected service/integration checks")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument("--timeout", type=float, default=2.0,
@@ -121,6 +183,7 @@ def main() -> int:
     gateway = os.environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY).rstrip("/")
     learning_socket = os.environ.get("ENSEMBLE_LEARNING_SOCKET", DEFAULT_LEARNING_SOCKET)
     thompson_socket = os.environ.get("ENSEMBLE_THOMPSON_SOCKET", DEFAULT_THOMPSON_SOCKET)
+    messenger_socket = os.environ.get("CLAUDE_MESSENGER_SOCKET", os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") + "/claude-messenger/claude-messenger.sock")
     correlation_id = str(uuid.uuid4())
     results: list[dict[str, Any]] = []
 
@@ -170,6 +233,20 @@ def main() -> int:
         status, detail, elapsed = socket_ping(thompson_socket, "thompson", correlation_id, args.timeout)
         record(results, "thompson.ping", status, detail, elapsed, f"Unix socket {thompson_socket}",
                "Check claude-thompson.service and ENSEMBLE_THOMPSON_SOCKET.")
+
+    if selected("messenger"):
+        status, detail, elapsed = messenger_round_trip(messenger_socket, correlation_id, args.timeout)
+        record(results, "messenger.round_trip", status, detail, elapsed, f"Unix socket {messenger_socket}",
+               "Check claude-messenger.service and CLAUDE_MESSENGER_SOCKET.")
+
+    if selected("alert"):
+        if not shutil_which_systemctl():
+            record(results, "alert.unit", "skip", "systemctl unavailable; alert service state was not checked",
+                   0, "systemd user unit claude-alert.service")
+        else:
+            status, detail, elapsed = unit_status("claude-alert.service", args.timeout)
+            record(results, "alert.unit", status, detail, elapsed, "systemd user unit claude-alert.service",
+                   "Check claude-alert.service logs. Alert delivery is intentionally not triggered by diagnostics.")
 
     failures = [item for item in results if item["status"] == "fail"]
     summary = {
