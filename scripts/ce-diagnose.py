@@ -278,7 +278,7 @@ def main() -> int:
             record(results, "alert.unit", status, detail, elapsed, "systemd user unit claude-alert.service",
                    "Check claude-alert.service logs. Alert delivery is intentionally not triggered by diagnostics.")
 
-    if args.deep or args.pipeline_test:
+    if args.pipeline_test or (args.deep and args.service is None):
         started = time.monotonic()
         pipeline_test = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_ce_pipeline.py")
         try:
