@@ -18,18 +18,21 @@ from providers.model_provider import ModelRequest
 
 def _with_provider_metadata(payload: dict[str, object]) -> dict[str, object]:
     """Keep legacy response-parser tests compatible with enforced provider metadata."""
-    enriched = dict(payload)
-    model_usage = enriched.get("modelUsage")
+    model_usage = payload.get("modelUsage")
     if not isinstance(model_usage, dict) or not model_usage:
-        enriched["modelUsage"] = {
-            "claude-sonnet-test": {"provider": "anthropic", "inputTokens": 1, "outputTokens": 1}
+        payload["modelUsage"] = {
+            "claude-sonnet-test": {
+                "provider": "anthropic",
+                "inputTokens": 1,
+                "outputTokens": 1,
+            }
         }
     else:
-        enriched["modelUsage"] = {
+        payload["modelUsage"] = {
             key: ({**value, "provider": "anthropic"} if isinstance(value, dict) else value)
             for key, value in model_usage.items()
         }
-    return enriched
+    return payload
 
 
 @pytest.fixture(autouse=True)
