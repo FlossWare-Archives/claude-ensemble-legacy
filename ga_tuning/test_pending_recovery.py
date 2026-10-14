@@ -147,7 +147,17 @@ class PendingRecoveryTests(unittest.TestCase):
 
     def test_new_receipt_directory_sync_failure_is_repaired_by_retry(self):
         _, pending = self.make_pending()
-        with patch.object(self.extractor, "_fsync_directory", side_effect=OSError("sync failed")):
+        real_sync = self.extractor._fsync_directory
+        calls = 0
+
+        def fail_receipt_sync(directory):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("receipt directory sync failed")
+            return real_sync(directory)
+
+        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_receipt_sync):
             with patch.object(
                 module.LearningClient,
                 "record_artifact",
@@ -166,14 +176,14 @@ class PendingRecoveryTests(unittest.TestCase):
         real_sync = self.extractor._fsync_directory
         calls = 0
 
-        def fail_second_sync(directory):
+        def fail_third_sync(directory):
             nonlocal calls
             calls += 1
-            if calls == 2:
+            if calls == 3:
                 raise OSError("post-unlink sync failed")
             return real_sync(directory)
 
-        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_second_sync):
+        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_third_sync):
             with patch.object(
                 module.LearningClient,
                 "record_artifact",
