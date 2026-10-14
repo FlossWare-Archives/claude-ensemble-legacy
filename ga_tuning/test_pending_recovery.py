@@ -199,13 +199,15 @@ class PendingRecoveryTests(unittest.TestCase):
 
     def test_symlinked_pending_artifact_is_rejected_without_submission(self):
         _, original = self.make_pending()
+        external = self.root / "external-pending.json"
+        original.rename(external)
         link = self.results / ".ga-linked.learning-artifact.json"
-        link.symlink_to(original)
+        link.symlink_to(external)
         with patch.object(module.LearningClient, "record_artifact") as send:
             with self.assertRaisesRegex(RuntimeError, "unresolved"):
                 self.extractor.recover_pending()
         send.assert_not_called()
-        self.assertTrue(original.exists())
+        self.assertTrue(external.exists())
         self.assertTrue(link.is_symlink())
 
     def test_cli_recovery_does_not_require_settings_or_run_normal_ingestion(self):
