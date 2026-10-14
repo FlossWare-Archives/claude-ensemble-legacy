@@ -106,7 +106,8 @@ def test_parses_success_and_usage_metadata() -> None:
     assert response.cache_creation_tokens == 10
     assert response.thinking_tokens == 7
     assert response.cost_usd == 0.0123
-    assert response.raw_metadata == payload
+    assert response.raw_metadata["result"] == payload["result"]
+    assert response.raw_metadata["modelUsage"]["claude-sonnet-test"]["provider"] == "anthropic"
 
     args = popen.call_args.args[0]
     assert args[:3] == ["/usr/bin/claude", "--print", "--output-format=json"]
@@ -252,7 +253,7 @@ def test_env_overrides_preserve_inherited_environment() -> None:
     ), patch(
         "providers.claude_code.shutil.which", return_value="/usr/bin/claude"
     ), patch(
-        "providers.claude_code.subprocess.Popen", return_value=_process(json.dumps(payload))
+        "providers.claude_code.subprocess.Popen", return_value=_process(json.dumps(_with_provider_metadata(payload)))
     ) as popen:
         provider.generate(ModelRequest("hello"))
 
