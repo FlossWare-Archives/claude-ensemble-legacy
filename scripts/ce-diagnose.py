@@ -139,7 +139,8 @@ def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -
                 "subscription_id": subscription_id,
                 "filter": {"topics": [topic], "event_types": [event_type]},
             }) + "\n").encode("utf-8"))
-            ack = read_json_line(subscriber)
+            subscriber_reader = subscriber.makefile("r", encoding="utf-8")
+            ack = json.loads(subscriber_reader.readline())
             if not isinstance(ack, dict) or ack.get("ok") is not True:
                 return "fail", "messenger rejected diagnostic subscription", round((time.monotonic() - start) * 1000)
 
@@ -150,11 +151,12 @@ def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -
                     "op": "publish", "topic": topic, "event_type": event_type,
                     "data": {"diagnostic": True, "correlation_id": correlation_id},
                 }) + "\n").encode("utf-8"))
-                publish_ack = read_json_line(publisher)
+                publisher_reader = publisher.makefile("r", encoding="utf-8")
+                publish_ack = json.loads(publisher_reader.readline())
                 if not isinstance(publish_ack, dict) or publish_ack.get("ok") is not True or publish_ack.get("delivered") != 1:
                     return "fail", "messenger did not acknowledge delivery to the isolated diagnostic subscriber", round((time.monotonic() - start) * 1000)
 
-            message = read_json_line(subscriber)
+            message = json.loads(subscriber_reader.readline())
             elapsed = round((time.monotonic() - start) * 1000)
             valid = (
                 isinstance(message, dict)
