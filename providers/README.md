@@ -1,115 +1,47 @@
-# Model Providers
+# Model Runtime
 
-Claude Ensemble exposes a small provider-neutral ModelProvider contract.
+Claude Ensemble now has one active model runtime: the installed Claude Code CLI.
+Memory, Learning, Thompson, GA, Graph, Alert, Messenger, arbitration, and
+collaboration remain independent systems; they are not provider implementations
+and are not removed by this simplification.
 
-## Direct API providers
+## Runtime contract
 
-AnthropicProvider and GoogleProvider invoke their public model APIs directly
-and normalize responses into ModelResponse. They use the standard library HTTP
-client, so provider support does not add an SDK dependency.
+`MultiModelClient` and `ModelRequest` / `ModelResponse` remain as compatibility
+interfaces so existing orchestration, metrics, and learning code does not need
+to be rewritten. `ProviderRegistry` sends every model invocation through
+`ClaudeCodeProvider`. It does not dispatch to direct Anthropic, Google, Cursor,
+OpenAI, or local-model APIs.
 
-Credentials are read from:
+Claude model aliases `haiku`, `sonnet`, and `opus` pass through to Claude Code.
+Legacy non-Claude model labels are temporarily mapped to `sonnet` so old worker
+lists still execute during migration. This is a compatibility fallback, not
+multi-model diversity. Update routing/configuration to use Claude model aliases.
 
-- ANTHROPIC_API_KEY
-- GOOGLE_API_KEY
+## Authentication and data policy
 
-Requests are bounded by ModelRequest.timeout as an overall wall-clock deadline.
-The blocking standard-library transport runs in a short-lived child process; if
-the deadline expires, the parent terminates and reaps that process so network
-I/O does not continue in an abandoned worker thread. Process startup and OS-level
-termination cleanup can add a small scheduling tolerance. Provider-specific HTTP
-failures are surfaced as actionable exceptions and are not converted into fake
-successful responses.
+Claude Code owns authentication. CE does not read or copy credentials from the
+Claude configuration directory. The CLI inherits the service process
+environment unless an explicit provider environment is supplied.
 
-ModelRequest keeps \`messages\` as prior conversation turns and always appends
-\`prompt\` as the current/final user turn. This makes a request with both fields
-self-contained and prevents the current prompt from being silently discarded.
-Temperature is provider-neutral and must be in the inclusive range 0 through 2.
+Before sending a prompt, the adapter runs `claude auth status` and requires
+`apiProvider` to match `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER`. If status cannot
+be read or does not match, the prompt is not sent. The adapter also checks the
+provider metadata reported in the response. The default expectation is
+`anthropic`; set an explicit value only when the target data is authorized for
+that upstream. **For Red Hat internal code, keep the expected provider set to
+`anthropic`; do not route that code through Vertex or another upstream.**
 
-Provider responses populate ModelResponse.latency_ms with the elapsed provider
-request time. The compatibility client may also record its own wall-clock
-latency for cost tracking.
-
-## Claude Code
-
-ClaudeCodeProvider remains available for the Claude Code CLI workflow. It
-deliberately treats Claude Code as the authentication/runtime boundary rather
-than reading Claude Code credentials itself.
-
-To route selected model aliases through the installed CLI, set
-`ENSEMBLE_CLAUDE_CODE_MODELS` to a comma-separated list, for example
-`haiku,sonnet,opus`. This is opt-in; without it, the registry keeps using the
-direct Anthropic API provider. The CLI inherits the service process environment
-unless an explicit provider environment is supplied.
-
-The registry and provider default `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to `anthropic`; a blank value is rejected. Before sending any prompt, the adapter runs `claude auth status` and requires its `apiProvider` to match the expected provider. If status cannot be read or does not match, the prompt is not sent. Afterward, it also requires every reported `modelUsage` entry to identify the same expected provider.
-
-These checks fail closed, but depend on Claude Code's local auth-status and response metadata being accurate. Preserve the CLI's existing authentication configuration; do not change it merely to enable this adapter. In particular, do not set the expected provider to `vertex` for Red Hat internal code. The adapter's own provider name (`claude-code`) does not identify the upstream service.
-
-## Selecting providers
-
-ProviderRegistry maps Claude model names to Anthropic and Gemini model names
-to Google. The short Anthropic aliases \`haiku\`, \`sonnet\`, and \`opus\` are
-canonicalized to API model IDs before invocation. The defaults can be overridden
-with \`CLAUDE_HAIKU_MODEL\`, \`CLAUDE_SONNET_MODEL\`, and \`CLAUDE_OPUS_MODEL\`.
-
-Default provider adapters are constructed lazily when a model requiring them
-is resolved. Explicitly supplied providers are never replaced or eagerly
-constructed.
-
-Additional providers can be explicitly registered without changing the
-request/response contract.
-
-The compatibility facade in arbitration/api_client.py keeps the existing
-MultiModelClient.call_model() API while exposing call_model_response() for
-normalized usage and metadata.
-
-The old Cursor direct-API path is intentionally removed. Cursor is not a
-provider in the current MultiModelClient/provider registry; adding another
-provider requires an explicit ModelProvider implementation and registration.
+Do not change the user's existing `~/.claude` authentication configuration as
+part of installing CE. Profile and hook installation are separate from model
+runtime selection.
 
 ## Smoke test
 
-With credentials configured, a real call can be exercised without modifying
-the test suite:
+With Claude Code installed and authenticated to the permitted upstream:
 
-    python -c 'from arbitration.api_client import MultiModelClient; print(MultiModelClient().call_model("gemini-2.5-flash", "Reply with one word."))'
-
-Use the Anthropic model name appropriate to the account for an Anthropic smoke
-test. Tests use mocked HTTP responses and never require live credentials.
-
-
-## Multi-account credentials
-
-The provider layer uses a shared credential pool. The default source remains
-environment variables:
-
-- `ANTHROPIC_API_KEY`
-- `GOOGLE_API_KEY`
-
-Additional accounts can be supplied without a YAML file using numbered/account
-variables such as `ANTHROPIC_API_KEY_PERSONAL_1` and
-`ANTHROPIC_API_KEY_PERSONAL_2`. Account names are normalized to
-`personal-1` and `personal-2`.
-
-For a more robust personal multi-account setup, set
-`ENSEMBLE_CREDENTIALS_FILE` to a YAML file with provider/account entries.
-The file should be protected with mode 0600. Example:
-
-```yaml
-anthropic:
-  personal-1:
-    api_key: "..."
-  personal-2:
-    api_key: "..."
+```bash
+python -c 'from arbitration.api_client import MultiModelClient; print(MultiModelClient().call_model("sonnet", "Reply with one word."))'
 ```
 
-The REST boundary exposes this capability through `/api/v1/models`,
-`/api/v1/models/credentials`, and `POST /api/v1/models/invoke`. A request
-may optionally specify `credential`; otherwise the pool rotates available
-credentials. Failed automatic selections enter a short cooldown. Credential
-values are never returned by the status endpoints.
-
-Environment and YAML credentials can coexist. Environment credentials remain
-the simple default, while the YAML store supports independent personal
-accounts without putting secrets in source-controlled configuration.
+The automated tests mock Claude Code and do not require live credentials.
