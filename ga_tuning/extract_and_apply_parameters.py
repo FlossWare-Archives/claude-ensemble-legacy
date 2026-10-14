@@ -103,28 +103,64 @@ class ParameterExtractor:
         return params
 
     def log_parameter_evolution(self, params: Dict[str, Any], timestamp: str, run_id: str = None) -> None:
-        """Log parameter changes once per GA run, including after a partial retry."""
+        """Durably log parameter changes once per GA run, including after a partial retry."""
+        already_logged = False
         if run_id and self.tracking_log.exists():
             marker = json.dumps(run_id)
-            if f'"run_id": {marker}' in self.tracking_log.read_text(encoding="utf-8"):
-                return
+            already_logged = f'"run_id": {marker}' in self.tracking_log.read_text(encoding="utf-8")
 
-        # Initialize log file if needed
-        if not self.tracking_log.exists():
-            self.tracking_log.write_text("# GA Parameter Evolution Log\n\n")
+        if not already_logged:
+            entry = {
+                'timestamp': timestamp,
+                'run_id': run_id,
+                'parameters': params
+            }
+            with self.tracking_log.open('a', encoding="utf-8") as handle:
+                if self.tracking_log.stat().st_size == 0:
+                    handle.write("# GA Parameter Evolution Log\n\n")
+                handle.write(f"## {timestamp}\n\n")
+                handle.write("```json\n")
+                handle.write(json.dumps(entry, indent=2))
+                handle.write("\n```\n\n")
+                handle.flush()
+                os.fsync(handle.fileno())
 
-        # Append new entry
-        entry = {
-            'timestamp': timestamp,
-            'run_id': run_id,
-            'parameters': params
-        }
+        # Even the idempotent path syncs the existing audit entry before callers
+        # are allowed to discard the pending snapshot.
+        self._fsync_directory(self.tracking_log.parent)
 
-        with open(self.tracking_log, 'a') as f:
-            f.write(f"## {timestamp}\n\n")
-            f.write("```json\n")
-            f.write(json.dumps(entry, indent=2))
-            f.write("\n```\n\n")
+    @staticmethod
+    def _remove_pending_durably(pending_path: Path, pending_bytes: bytes) -> None:
+        """Remove a pending snapshot, restoring it if the unlink sync fails."""
+        pending_path.unlink()
+        try:
+            ParameterExtractor._fsync_directory(pending_path.parent)
+        except OSError:
+            # The receipt is already durable, but the unlink may not be. Restore
+            # the immutable snapshot so a subsequent recovery has a safe retry path.
+            temp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=pending_path.parent,
+                    prefix=f".{pending_path.name}.", suffix=".restore",
+                    delete=False,
+                ) as handle:
+                    temp_path = Path(handle.name)
+                    handle.write(pending_bytes)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_path, pending_path)
+                temp_path = None
+                try:
+                    ParameterExtractor._fsync_directory(pending_path.parent)
+                except OSError:
+                    # Preserve the live retry file even if the filesystem remains
+                    # unable to confirm directory durability; propagate original error.
+                    pass
+            finally:
+                if temp_path is not None:
+                    temp_path.unlink(missing_ok=True)
+            raise
 
 
     @staticmethod
@@ -147,8 +183,11 @@ class ParameterExtractor:
         failures = []
         for pending_path in pending_files:
             try:
+                if pending_path.is_symlink():
+                    raise ValueError(f"Refusing symlinked pending artifact: {pending_path.name}")
+                pending_bytes = pending_path.read_bytes()
                 artifact = LearningArtifact.from_json(
-                    pending_path.read_text(encoding="utf-8")
+                    pending_bytes.decode("utf-8")
                 )
                 run_id = artifact.payload.get("run_id")
                 expected_name = f".{run_id}.learning-artifact.json"
@@ -181,8 +220,7 @@ class ParameterExtractor:
                     params = artifact_data["payload"].get("selected_parameters", {})
                     timestamp = artifact_data["payload"].get("run_timestamp", run_id)
                     self.log_parameter_evolution(params, timestamp, run_id=run_id)
-                    pending_path.unlink()
-                    self._fsync_directory(self.results_dir)
+                    self._remove_pending_durably(pending_path, pending_bytes)
                     print(f"{run_id}: valid receipt already exists; removed stale pending file.")
                     recovered += 1
                     continue
@@ -217,8 +255,7 @@ class ParameterExtractor:
                 finally:
                     temp_path.unlink(missing_ok=True)
 
-                pending_path.unlink()
-                self._fsync_directory(self.results_dir)
+                self._remove_pending_durably(pending_path, pending_bytes)
                 print(f"{run_id}: Learning and Memory acknowledged; receipt written.")
                 recovered += 1
             except Exception as exc:
