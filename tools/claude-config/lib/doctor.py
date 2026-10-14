@@ -50,13 +50,52 @@ def timed_call(fn):
     return result, round((time.monotonic() - start) * 1000)
 
 
-def run_bounded(command: list[str], timeout: float = 2.0, text: bool = True):
+def run_bounded(command: list[str], timeout: float = 2.0, text: bool = True, env: dict[str, str] | None = None):
     try:
         return subprocess.run(
-            command, capture_output=True, text=text, timeout=timeout, check=False
+            command, capture_output=True, text=text, timeout=timeout, check=False, env=env
         ), None
     except (OSError, subprocess.TimeoutExpired) as exc:
         return None, type(exc).__name__
+
+
+def provider_health(
+    claude: str | None,
+    profile: str | None,
+    expected_provider: str = "anthropic",
+    timeout: float = 3.0,
+) -> tuple[str, str]:
+    """Check only an explicitly selected Claude profile; never inspect the default profile implicitly."""
+    if not profile:
+        return "skip", (
+            "no dedicated Claude Code profile configured; the default profile was not inspected "
+            "because it may belong to a separately managed work environment"
+        )
+    if not claude:
+        return "fail", "Claude Code executable not found"
+    profile_path = Path(profile).expanduser()
+    if not profile_path.is_dir():
+        return "fail", "configured Claude Code profile directory does not exist"
+    env = os.environ.copy()
+    env["CLAUDE_CONFIG_DIR"] = str(profile_path)
+    result, error = run_bounded([claude, "auth", "status"], timeout=timeout, env=env)
+    if result is None:
+        return "fail", f"auth status could not be checked ({error})"
+    if result.returncode != 0:
+        return "fail", "auth status failed for the configured CE profile"
+    try:
+        status = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return "fail", "auth status returned invalid JSON"
+    actual = status.get("apiProvider") if isinstance(status, dict) else None
+    if not isinstance(actual, str) or not actual.strip():
+        return "fail", "auth status did not identify the upstream provider"
+    if actual.strip().lower() != expected_provider.strip().lower():
+        return "fail", (
+            f"configured CE profile uses provider {actual.strip().lower()!r}; "
+            f"expected {expected_provider.strip().lower()!r}"
+        )
+    return "pass", f"configured CE profile uses expected provider {expected_provider.strip().lower()!r}"
 
 
 def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
@@ -153,6 +192,19 @@ def main() -> int:
     elif not validator.is_file():
         check(checks, "HOOK_VALIDATOR_MISSING", "Claude hook registration", "skip",
               "settings validator is missing from this checkout")
+
+    provider_profile = (
+        os.environ.get("ENSEMBLE_CLAUDE_CODE_CONFIG_DIR")
+        or os.environ.get("CLAUDE_CONFIG_DIR")
+    )
+    expected_provider = os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
+    provider_status, provider_detail = provider_health(claude, provider_profile, expected_provider)
+    check(
+        checks, "CLAUDE_PROVIDER_POLICY", "Claude Code provider policy",
+        provider_status, provider_detail,
+        "Configure ENSEMBLE_CLAUDE_CODE_CONFIG_DIR to a dedicated CE profile authenticated with Anthropic; do not repoint a separately managed work profile.",
+        "error",
+    )
 
     if shutil.which("systemctl"):
         started = time.monotonic()
