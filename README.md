@@ -2,7 +2,7 @@
 
 **Claude Code orchestration with persistent learning and service integration.**
 
-Claude Ensemble is a portable toolkit built around the installed Claude Code runtime. It combines multi-phase worker/arbiter review, persistent Memory, autonomous outcome learning, Thompson/GA tuning, cost tracking, compression, caching, and reusable workflow skills. The active runtime routes model calls through Claude Code; legacy direct-API adapters are not used for dispatch.
+Claude Ensemble is a portable toolkit built around the installed Claude Code runtime. It combines multi-phase worker/arbiter review, persistent Memory, autonomous outcome learning, Thompson/GA tuning, cost tracking, compression, caching, and reusable workflow skills. The active runtime routes model calls through Claude Code. Direct API provider implementations and API-key rotation have been removed from this branch.
 
 It is designed to work both in Red Hat-centric environments and as a standalone personal or open-source toolkit. Runtime paths, credentials, service sockets, and repository locations are configurable rather than hard-coded.
 
