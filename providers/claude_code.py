@@ -29,11 +29,15 @@ class ClaudeCodeProvider(ModelProvider):
         env: Mapping[str, str] | None = None,
         cwd: str | None = None,
         default_model: str | None = None,
+        expected_provider: str | None = None,
     ) -> None:
         self.executable = executable
         self.env = dict(env) if env is not None else None
         self.cwd = cwd
         self.default_model = default_model
+        self.expected_provider = (
+            expected_provider or os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER")
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         executable = shutil.which(self.executable)
@@ -83,7 +87,21 @@ class ClaudeCodeProvider(ModelProvider):
         except json.JSONDecodeError as exc:
             raise RuntimeError("Claude Code returned malformed JSON") from exc
 
-        return self._parse_response(payload, requested_model=model)
+        response = self._parse_response(payload, requested_model=model)
+        if self.expected_provider:
+            actual_provider = self._reported_upstream_provider(payload, response.model)
+            expected = self.expected_provider.strip().lower()
+            if actual_provider is None:
+                raise RuntimeError(
+                    "Claude Code did not report its upstream provider; refusing invocation "
+                    f"because ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER={expected!r}"
+                )
+            if actual_provider.lower() != expected:
+                raise RuntimeError(
+                    f"Claude Code used upstream provider {actual_provider!r}, "
+                    f"expected {expected!r}; response rejected"
+                )
+        return response
 
     def _start_process(self, command: list[str]) -> subprocess.Popen[str]:
         kwargs: dict[str, Any] = {
@@ -237,6 +255,24 @@ class ClaudeCodeProvider(ModelProvider):
             cost_usd=cost_usd,
             raw_metadata=payload,
         )
+
+    @staticmethod
+    def _reported_upstream_provider(
+        payload: dict[str, Any], model: str
+    ) -> str | None:
+        """Return the provider reported by Claude Code, not this adapter's name."""
+        model_usage = payload.get("modelUsage")
+        if not isinstance(model_usage, dict):
+            return None
+        selected = model_usage.get(model)
+        if not isinstance(selected, dict):
+            if len(model_usage) != 1:
+                return None
+            selected = next(iter(model_usage.values()))
+        if not isinstance(selected, dict):
+            return None
+        provider = selected.get("provider")
+        return provider.strip() if isinstance(provider, str) and provider.strip() else None
 
     @staticmethod
     def _response_model(
