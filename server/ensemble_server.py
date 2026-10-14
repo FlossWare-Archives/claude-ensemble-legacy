@@ -162,7 +162,7 @@ def _send(handler: BaseHTTPRequestHandler, status: int, payload: Any, headers: d
     if status >= 400 and _accepts_media_type(handler, "application/problem+json"):
         media_type = "application/problem+json"
         response_payload = _problem_details(status, payload, urlsplit(handler.path).path)
-    body = (json.dumps(response_payload, sort_keys=True) + "\\n").encode("utf-8")
+    body = (json.dumps(response_payload, sort_keys=True) + "\n").encode("utf-8")
     setattr(handler, "_ensemble_response_started", True)
     handler.send_response(status)
     handler.send_header("Content-Type", media_type)
