@@ -315,7 +315,7 @@ def main() -> int:
         "failed": len(failures),
         "skipped": 0,
         "mode": "deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"),
-        "side_effects": ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if (args.deep or args.pipeline_test) and args.service is None else "read-only service probes; no production writes, model calls, or notifications"),
+        "side_effects": ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"),
         "results": results,
     }
     if args.json:
