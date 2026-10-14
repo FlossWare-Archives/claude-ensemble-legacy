@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import threading
+from email.message import Message
+from types import SimpleNamespace
 import urllib.error
 import urllib.request
 
-from server.ensemble_server import _problem_details, create_server
+from server.ensemble_server import _accepts_media_type, _problem_details, create_server
 
 
 def request(server, path: str, accept: str | None = None):
@@ -168,3 +170,17 @@ def test_structured_error_detail_is_serialized_as_json_text():
     )
     assert problem["detail"] == '{"field": "Accept", "reason": "invalid"}'
     assert problem["error"] == {"field": "Accept", "reason": "invalid"}
+
+
+def test_repeated_accept_header_fields_are_combined():
+    headers = Message()
+    headers.add_header("Accept", "application/json")
+    headers.add_header("Accept", "application/problem+json")
+    handler = SimpleNamespace(headers=headers)
+    assert _accepts_media_type(handler, "application/problem+json")
+
+    excluded_headers = Message()
+    excluded_headers.add_header("Accept", "application/problem+json;q=0")
+    excluded_headers.add_header("Accept", "application/problem+json")
+    excluded_handler = SimpleNamespace(headers=excluded_headers)
+    assert not _accepts_media_type(excluded_handler, "application/problem+json")
