@@ -90,12 +90,19 @@ def provider_health(
     actual = status.get("apiProvider") if isinstance(status, dict) else None
     if not isinstance(actual, str) or not actual.strip():
         return "fail", "auth status did not identify the upstream provider"
-    if actual.strip().lower() != expected_provider.strip().lower():
+    actual_provider = actual.strip().lower()
+    expected = expected_provider.strip().lower()
+    # Claude Code's native Anthropic route is labelled "firstParty" by auth status.
+    if actual_provider == "firstparty":
+        actual_provider = "anthropic"
+    if expected == "firstparty":
+        expected = "anthropic"
+    if actual_provider != expected:
         return "fail", (
-            f"configured CE profile uses provider {actual.strip().lower()!r}; "
-            f"expected {expected_provider.strip().lower()!r}"
+            f"configured CE profile uses provider {actual_provider!r}; "
+            f"expected {expected!r}"
         )
-    return "pass", f"configured CE profile uses expected provider {expected_provider.strip().lower()!r}"
+    return "pass", f"configured CE profile uses expected provider {expected!r}"
 
 
 def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
