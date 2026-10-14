@@ -20,7 +20,7 @@ Safety:
 - preserve existing Claude configuration
 - merge UserPromptSubmit hooks
 - resolve settings, hooks, manifest, backups, and lock under the selected Claude profile
-- select the profile with ENSEMBLE_CLAUDE_CODE_CONFIG_DIR (preferred for CE) or CLAUDE_CONFIG_DIR; absent either, retain the legacy ~/.claude default
+- require an explicit profile for profile-scoped operations, selected with ENSEMBLE_CLAUDE_CODE_CONFIG_DIR (preferred for CE) or CLAUDE_CONFIG_DIR; without one, mutation and verification commands fail closed rather than inspect or modify ~/.claude
 - refuse symlinked hooks directories, settings files, or installer state directories to prevent writes escaping the selected profile
 - track managed files in <selected-profile>/.flossware-claude-config/manifest.json
 - back up before mutation
