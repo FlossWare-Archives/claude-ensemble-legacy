@@ -64,6 +64,8 @@ def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             return "fail", "endpoint did not return JSON with ok=true"
         return "pass", "HTTP 200; JSON ok=true"
+    except urllib.error.HTTPError as exc:
+        return "fail", f"HTTP {exc.code}"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
         return "warn", f"unreachable ({type(reason).__name__})"
