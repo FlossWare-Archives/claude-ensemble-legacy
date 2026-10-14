@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Read-only, correlated diagnostics for the running Claude Ensemble stack.
 
-This intentionally does not write production Memory/Graph data, record Learning
-outcomes, alter Thompson priors, send alerts/messages, or invoke a model.
+This never writes production Memory/Graph data, sends alerts/messages, or invokes a
+model. Deep mode can run a separate Learning-to-Thompson test that writes only to
+temporary test state and sockets.
 """
 from __future__ import annotations
 
@@ -314,7 +315,7 @@ def main() -> int:
         "failed": len(failures),
         "skipped": 0,
         "mode": "deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"),
-        "side_effects": "read-only; no model calls, learning outcomes, Thompson updates, notifications, or persistent writes",
+        "side_effects": ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if (args.deep or args.pipeline_test) and args.service is None else "read-only service probes; no production writes, model calls, or notifications"),
         "results": results,
     }
     if args.json:
