@@ -19,7 +19,10 @@ TUI:
 Safety:
 - preserve existing Claude configuration
 - merge UserPromptSubmit hooks
-- track managed files in ~/.claude/.flossware-claude-config/manifest.json
+- resolve settings, hooks, manifest, backups, and lock under the selected Claude profile
+- select the profile with ENSEMBLE_CLAUDE_CODE_CONFIG_DIR (preferred for CE) or CLAUDE_CONFIG_DIR; absent either, retain the legacy ~/.claude default
+- refuse symlinked hooks directories, settings files, or installer state directories to prevent writes escaping the selected profile
+- track managed files in <selected-profile>/.flossware-claude-config/manifest.json
 - back up before mutation
 - refuse unknown hook conflicts unless --force is supplied
 - fail open when Memory REST is unavailable
