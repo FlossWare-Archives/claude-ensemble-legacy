@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.error import URLError
+from pathlib import Path
 
-from tools.claude_config.lib import doctor
+DOCTOR_PATH = Path(__file__).resolve().parents[1] / "lib" / "doctor.py"
+SPEC = importlib.util.spec_from_file_location("ce_doctor", DOCTOR_PATH)
+doctor = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(doctor)
 
 
 class HealthHandler(BaseHTTPRequestHandler):
