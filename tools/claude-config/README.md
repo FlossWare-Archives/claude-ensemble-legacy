@@ -10,6 +10,8 @@ CLI:
   tools/claude-config/bin/claude-config plan
   tools/claude-config/bin/claude-config verify
   tools/claude-config/bin/claude-config doctor
+  tools/claude-config/bin/claude-config doctor --verbose
+  tools/claude-config/bin/claude-config doctor --json
 
 TUI:
   tools/claude-config/tui.sh
