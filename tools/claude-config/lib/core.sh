@@ -4,14 +4,22 @@ CC_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # tools/claude-config is two levels below the repository root.
 CC_REPO_ROOT="$(cd "$CC_ROOT/../.." && pwd)"
 CC_VERSION="0.2"
-CC_STATE_DIR="$HOME/.claude/.flossware-claude-config"
+# Keep all managed files scoped to the explicitly selected Claude profile.
+# Claude Code supports CLAUDE_CONFIG_DIR; CE also has a dedicated override.
+CC_CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+case "$CC_CLAUDE_HOME" in
+  "~") CC_CLAUDE_HOME="$HOME" ;;
+  "~/"*) CC_CLAUDE_HOME="$HOME/${CC_CLAUDE_HOME#\\~/}" ;;
+esac
+CC_HOOK_DIR="$CC_CLAUDE_HOME/hooks"
+CC_STATE_DIR="$CC_CLAUDE_HOME/.flossware-claude-config"
 if [ -n "${FLOSSWARE_CLAUDE_CONFIG_STATE_DIR:-}" ]; then CC_STATE_DIR="$FLOSSWARE_CLAUDE_CONFIG_STATE_DIR"; fi
 CC_MANIFEST="$CC_STATE_DIR/manifest.json"
 CC_BACKUP_DIR="$CC_STATE_DIR/backups"
 CC_LOCK_DIR="$CC_STATE_DIR/install.lock"
-CC_HOOK_PATH="$HOME/.claude/hooks/memory-search-on-prompt.js"
-CC_SESSION_END_HOOK_PATH="$HOME/.claude/hooks/session-end-memory-capture.js"
-CC_SETTINGS_PATH="$HOME/.claude/settings.json"
+CC_HOOK_PATH="$CC_HOOK_DIR/memory-search-on-prompt.js"
+CC_SESSION_END_HOOK_PATH="$CC_HOOK_DIR/session-end-memory-capture.js"
+CC_SETTINGS_PATH="$CC_CLAUDE_HOME/settings.json"
 LAST_BACKUP=""
 CC_TXN_ACTIVE="false"
 CC_SETTINGS_EXISTED="false"
@@ -41,6 +49,13 @@ cleanup(){
 }
 ok(){ printf '✓ %s\n' "$*"; }; warn(){ printf '⚠ %s\n' "$*" >&2; }; err(){ printf '✗ %s\n' "$*" >&2; }; die(){ err "$*"; exit 1; }
 ensure_state(){ mkdir -p "$CC_STATE_DIR" "$CC_BACKUP_DIR"; }
+ensure_safe_targets(){
+  # A symlinked hooks directory redirects writes outside the selected profile.
+  # Refuse it rather than copying through it, even when the target looks valid.
+  [ ! -L "$CC_HOOK_DIR" ] || die "refusing to install through symlinked hooks directory: $CC_HOOK_DIR"
+  [ ! -L "$CC_SETTINGS_PATH" ] || die "refusing to modify symlinked settings file: $CC_SETTINGS_PATH"
+  [ ! -L "$CC_STATE_DIR" ] || die "refusing to write through symlinked installer state directory: $CC_STATE_DIR"
+}
 acquire_lock(){ ensure_state; mkdir "$CC_LOCK_DIR" 2>/dev/null || die "another claude-config operation is already running"; trap cleanup EXIT; }
 backup_file(){ local src="$1"; [ -e "$src" ] || { LAST_BACKUP=""; return 0; }; ensure_state; local dest="$CC_BACKUP_DIR/$(date +%Y%m%d-%H%M%S)-$$"; mkdir -p "$dest"; cp -a "$src" "$dest/"; LAST_BACKUP="$dest"; }
 sha256_file(){
@@ -79,7 +94,7 @@ PY
     return
   fi
   [ -n "$claude" ] && ok "Claude Code: $claude" || warn "Claude Code executable not found"
-  [ -d "$HOME/.claude" ] && ok "Claude configuration directory exists" || warn "~/.claude does not exist"
+  [ -d "$CC_CLAUDE_HOME" ] && ok "Claude configuration directory exists: $CC_CLAUDE_HOME" || warn "Claude configuration directory does not exist: $CC_CLAUDE_HOME"
   [ -f "$CC_SETTINGS_PATH" ] && ok "User settings exist" || warn "User settings do not exist"
   [ -f "$CC_HOOK_PATH" ] && ok "Memory hook exists" || warn "Memory hook not installed"
   [ -f "$CC_SESSION_END_HOOK_PATH" ] && ok "SessionEnd capture hook exists" || warn "SessionEnd capture hook not installed"
@@ -93,7 +108,7 @@ sync_memory(){ python3 "$CC_ROOT/lib/memory_sync.py" sync "$@"; }
 watch_memory(){ python3 "$CC_ROOT/lib/memory_sync.py" watch "$@"; }
 verify(){
   local failed=0
-  [ -d "$HOME/.claude" ] || { err "~/.claude missing"; failed=1; }
+  [ -d "$CC_CLAUDE_HOME" ] || { err "Claude configuration directory missing: $CC_CLAUDE_HOME"; failed=1; }
   [ -f "$CC_HOOK_PATH" ] || { err "memory hook missing"; failed=1; }
   [ -f "$CC_SESSION_END_HOOK_PATH" ] || { err "SessionEnd capture hook missing"; failed=1; }
   [ -f "$CC_REPO_ROOT/tools/record_workflow_outcome.py" ] || { err "Learning outcome adapter missing from checkout"; failed=1; }
@@ -137,9 +152,10 @@ install(){
     esac
     shift
   done
+  ensure_safe_targets
   [ "$dry_run" = true ] && { plan; return; }
   acquire_lock
-  mkdir -p "$HOME/.claude/hooks"
+  mkdir -p "$CC_HOOK_DIR"
   CC_SETTINGS_EXISTED="false"; CC_HOOK_EXISTED="false"; CC_SESSION_END_HOOK_EXISTED="false"; CC_MANIFEST_EXISTED="false"
   CC_SETTINGS_BACKUP=""; CC_HOOK_BACKUP=""; CC_SESSION_END_HOOK_BACKUP=""; CC_MANIFEST_BACKUP=""
   [ -f "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" ] || die "source memory hook is missing"
@@ -193,6 +209,7 @@ install(){
   ok "Claude configuration installed/updated"
 }
 uninstall(){
+  ensure_safe_targets
   acquire_lock
   [ -f "$CC_MANIFEST" ] || die "no FlossWare manifest found; refusing unmanaged uninstall"
   python3 "$CC_ROOT/lib/json_tool.py" validate-manifest "$CC_MANIFEST" "$CC_HOOK_PATH" >/dev/null || die "invalid FlossWare manifest; refusing uninstall"
