@@ -29,6 +29,7 @@ class LearningThompsonPipelineTests(unittest.TestCase):
             })
             script = r'''
 import json
+import socket
 import sys
 import time
 import threading
@@ -76,7 +77,21 @@ request = {
     "cost": 0.0,
 }
 try:
-    result = json.loads(learning._process_request(json.dumps(request)))
+    client_end, service_end = socket.socketpair()
+    client_end.settimeout(5)
+    handler = threading.Thread(target=learning._handle_client, args=(service_end,), daemon=True)
+    handler.start()
+    client_end.sendall((json.dumps(request) + "\\n").encode("utf-8"))
+    response_bytes = bytearray()
+    while b"\\n" not in response_bytes and len(response_bytes) < 65536:
+        chunk = client_end.recv(4096)
+        if not chunk:
+            break
+        response_bytes.extend(chunk)
+    client_end.close()
+    handler.join(timeout=2)
+    assert not handler.is_alive(), "Learning request handler did not finish"
+    result = json.loads(bytes(response_bytes).split(b"\\n", 1)[0].decode("utf-8"))
     assert result.get("ok") is True, result
     assert result.get("thompson") is True, result
     assert result.get("checkpoint_advanced") is True, result
