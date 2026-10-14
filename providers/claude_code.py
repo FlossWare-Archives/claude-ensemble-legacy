@@ -151,11 +151,24 @@ class ClaudeCodeProvider(ModelProvider):
                 "Claude Code auth status did not identify apiProvider; "
                 "refusing to send the prompt"
             )
-        if actual.strip().lower() != self.expected_provider:
+        # Claude Code's auth status uses "firstParty" for its native Anthropic
+        # route, while response usage metadata reports "anthropic". Normalize
+        # this known auth-status alias without weakening third-party provider
+        # checks such as Vertex or Bedrock.
+        actual_provider = self._normalize_auth_provider(actual)
+        expected_provider = self._normalize_auth_provider(self.expected_provider)
+        if actual_provider != expected_provider:
             raise RuntimeError(
                 f"Claude Code is configured for upstream provider {actual.strip()!r}, "
                 f"expected {self.expected_provider!r}; refusing to send the prompt"
             )
+
+    @staticmethod
+    def _normalize_auth_provider(provider: str) -> str:
+        normalized = provider.strip().lower()
+        if normalized == "firstparty":
+            return "anthropic"
+        return normalized
 
     def _start_process(self, command: list[str]) -> subprocess.Popen[str]:
         kwargs: dict[str, Any] = {
