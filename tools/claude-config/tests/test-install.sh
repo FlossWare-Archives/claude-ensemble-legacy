@@ -6,7 +6,7 @@ trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export FLOSSWARE_MEMORY_URL="http://127.0.0.1:9"
 # Keep the disposable CE profile outside the default ~/.claude tree.
-CLAUDE_HOME="$TMP/ce-profile"
+CLAUDE_HOME="$HOME/ce-profile"
 export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME"
 mkdir -p "$CLAUDE_HOME"
 
