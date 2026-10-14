@@ -5,6 +5,7 @@ import json
 import importlib.util
 import io
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -17,6 +18,7 @@ DOCTOR_PATH = Path(__file__).resolve().parents[1] / "lib" / "doctor.py"
 SPEC = importlib.util.spec_from_file_location("ce_doctor", DOCTOR_PATH)
 doctor = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
+sys.modules[SPEC.name] = doctor
 SPEC.loader.exec_module(doctor)
 
 
