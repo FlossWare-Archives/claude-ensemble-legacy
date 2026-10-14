@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,23 @@ EXPECTED = (
     "claude-messenger.service",
     "claude-graph.service",
 )
+
+class ReadyHandler(http.server.BaseHTTPRequestHandler):
+    """Stand in for the gateway readiness endpoint in this isolated test."""
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+# The installer correctly waits for gateway readiness. This test mocks that
+# dependency with a local HTTP endpoint because systemd itself is mocked.
+readiness_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ReadyHandler)
+threading.Thread(target=readiness_server.serve_forever, daemon=True).start()
 
 
 def fail(message: str) -> None:
@@ -51,6 +70,10 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
     env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
     env["SYSTEMCTL_LOG"] = str(systemctl_log)
     env["SYSTEMCTL_BIN"] = str(systemctl)
+    env["ENSEMBLE_READINESS_URL"] = (
+        f"http://127.0.0.1:{readiness_server.server_port}/api/v1/ready"
+    )
+    env["ENSEMBLE_READINESS_TIMEOUT_SECONDS"] = "3"
     return home, env
 
 
