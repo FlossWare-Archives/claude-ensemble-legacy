@@ -42,10 +42,10 @@ To route selected model aliases through the installed CLI, set
 direct Anthropic API provider. The CLI inherits the service process environment
 unless an explicit provider environment is supplied.
 
-For policy-sensitive workloads, set `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to
-the exact upstream provider reported in Claude Code's JSON metadata (for
-example, `anthropic`). The adapter rejects the response if the upstream provider
-is missing or differs. This check is important because the adapter's own provider
+The registry defaults `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to `anthropic`.
+The adapter rejects the response if the upstream provider is missing or differs.
+Only explicitly set this variable to another value for workloads whose policy
+permits that upstream; do not set it to `vertex` for Red Hat internal code. This check is important because the adapter's own provider
 name (`claude-code`) does not identify the upstream service. Do not use the CLI
 route for restricted data unless the expected upstream provider is configured
 and verified.
