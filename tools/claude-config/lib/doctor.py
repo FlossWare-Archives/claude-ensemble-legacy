@@ -145,6 +145,8 @@ def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
             return "fail", "endpoint did not return JSON with ok=true"
         return "pass", "HTTP 200; JSON ok=true"
     except urllib.error.HTTPError as exc:
+        # HTTPError is also a response object; close it to release the socket promptly.
+        exc.close()
         return "fail", f"HTTP {exc.code}"
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         reason = getattr(exc, "reason", exc)
