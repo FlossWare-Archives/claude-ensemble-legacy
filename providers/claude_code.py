@@ -145,6 +145,12 @@ class ClaudeCodeProvider(ModelProvider):
                 "refusing to send the prompt"
             )
 
+        if status.get("loggedIn") is not True:
+            raise RuntimeError(
+                "Claude Code is not authenticated for the configured profile; "
+                "refusing to send the prompt"
+            )
+
         actual = status.get("apiProvider")
         if not isinstance(actual, str) or not actual.strip():
             raise RuntimeError(
