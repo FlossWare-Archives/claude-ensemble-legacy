@@ -6,8 +6,8 @@ import os
 from collections.abc import Mapping
 
 from .anthropic import AnthropicProvider
-from .credentials import CredentialPool
 from .claude_code import ClaudeCodeProvider
+from .credentials import CredentialPool
 from .google import GoogleProvider
 from .model_provider import ModelProvider
 
