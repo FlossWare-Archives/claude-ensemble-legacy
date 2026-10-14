@@ -36,6 +36,20 @@ ClaudeCodeProvider remains available for the Claude Code CLI workflow. It
 deliberately treats Claude Code as the authentication/runtime boundary rather
 than reading Claude Code credentials itself.
 
+To route selected model aliases through the installed CLI, set
+`ENSEMBLE_CLAUDE_CODE_MODELS` to a comma-separated list, for example
+`haiku,sonnet,opus`. This is opt-in; without it, the registry keeps using the
+direct Anthropic API provider. The CLI inherits the service process environment
+unless an explicit provider environment is supplied.
+
+For policy-sensitive workloads, set `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to
+the exact upstream provider reported in Claude Code's JSON metadata (for
+example, `anthropic`). The adapter rejects the response if the upstream provider
+is missing or differs. This check is important because the adapter's own provider
+name (`claude-code`) does not identify the upstream service. Do not use the CLI
+route for restricted data unless the expected upstream provider is configured
+and verified.
+
 ## Selecting providers
 
 ProviderRegistry maps Claude model names to Anthropic and Gemini model names
