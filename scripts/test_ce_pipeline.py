@@ -81,9 +81,9 @@ try:
     client_end.settimeout(5)
     handler = threading.Thread(target=learning._handle_client, args=(service_end,), daemon=True)
     handler.start()
-    client_end.sendall((json.dumps(request) + "\\n").encode("utf-8"))
+    client_end.sendall((json.dumps(request) + "\n").encode("utf-8"))
     response_bytes = bytearray()
-    while b"\\n" not in response_bytes and len(response_bytes) < 65536:
+    while b"\n" not in response_bytes and len(response_bytes) < 65536:
         chunk = client_end.recv(4096)
         if not chunk:
             break
@@ -91,7 +91,7 @@ try:
     client_end.close()
     handler.join(timeout=2)
     assert not handler.is_alive(), "Learning request handler did not finish"
-    result = json.loads(bytes(response_bytes).split(b"\\n", 1)[0].decode("utf-8"))
+    result = json.loads(bytes(response_bytes).split(b"\n", 1)[0].decode("utf-8"))
     assert result.get("ok") is True, result
     assert result.get("thompson") is True, result
     assert result.get("checkpoint_advanced") is True, result
