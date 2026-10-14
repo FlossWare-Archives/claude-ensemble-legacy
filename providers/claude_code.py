@@ -35,9 +35,14 @@ class ClaudeCodeProvider(ModelProvider):
         self.env = dict(env) if env is not None else None
         self.cwd = cwd
         self.default_model = default_model
-        self.expected_provider = (
-            expected_provider or os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER")
+        configured_provider = (
+            expected_provider
+            if expected_provider is not None
+            else os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
         )
+        if not isinstance(configured_provider, str) or not configured_provider.strip():
+            raise ValueError("Expected upstream provider must be a non-empty value")
+        self.expected_provider = configured_provider.strip().lower()
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         executable = shutil.which(self.executable)
@@ -57,6 +62,9 @@ class ClaudeCodeProvider(ModelProvider):
             command.extend(["--model", model])
         if request.system_prompt:
             command.extend(["--system-prompt", request.system_prompt])
+
+        if self.expected_provider:
+            self._verify_upstream_provider_before_invocation(executable)
 
         process = self._start_process(command)
         try:
@@ -90,18 +98,64 @@ class ClaudeCodeProvider(ModelProvider):
         response = self._parse_response(payload, requested_model=model)
         if self.expected_provider:
             actual_provider = self._reported_upstream_provider(payload, response.model)
-            expected = self.expected_provider.strip().lower()
             if actual_provider is None:
                 raise RuntimeError(
-                    "Claude Code did not report its upstream provider; refusing invocation "
-                    f"because ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER={expected!r}"
+                    "Claude Code did not consistently report its upstream provider; "
+                    f"expected {self.expected_provider!r}"
                 )
-            if actual_provider.lower() != expected:
+            if actual_provider.lower() != self.expected_provider:
                 raise RuntimeError(
-                    f"Claude Code used upstream provider {actual_provider!r}, "
-                    f"expected {expected!r}; response rejected"
+                    f"Claude Code reported upstream provider {actual_provider!r}, "
+                    f"expected {self.expected_provider!r}; response rejected"
                 )
         return response
+
+    def _verify_upstream_provider_before_invocation(self, executable: str) -> None:
+        """Check CLI auth routing before sending the prompt to the CLI."""
+        try:
+            result = subprocess.run(
+                [executable, "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+                env=self._run_env(),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(
+                "Unable to verify Claude Code's upstream provider before invocation; "
+                "refusing to send the prompt"
+            ) from exc
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Claude Code auth status failed; refusing to send the prompt "
+                "without verifying its upstream provider"
+            )
+        try:
+            status = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "Claude Code auth status did not return valid JSON; "
+                "refusing to send the prompt"
+            ) from exc
+        if not isinstance(status, dict):
+            raise RuntimeError(
+                "Claude Code auth status returned an unexpected response; "
+                "refusing to send the prompt"
+            )
+
+        actual = status.get("apiProvider")
+        if not isinstance(actual, str) or not actual.strip():
+            raise RuntimeError(
+                "Claude Code auth status did not identify apiProvider; "
+                "refusing to send the prompt"
+            )
+        if actual.strip().lower() != self.expected_provider:
+            raise RuntimeError(
+                f"Claude Code is configured for upstream provider {actual.strip()!r}, "
+                f"expected {self.expected_provider!r}; refusing to send the prompt"
+            )
 
     def _start_process(self, command: list[str]) -> subprocess.Popen[str]:
         kwargs: dict[str, Any] = {
@@ -264,15 +318,19 @@ class ClaudeCodeProvider(ModelProvider):
         model_usage = payload.get("modelUsage")
         if not isinstance(model_usage, dict):
             return None
-        selected = model_usage.get(model)
-        if not isinstance(selected, dict):
-            if len(model_usage) != 1:
-                return None
-            selected = next(iter(model_usage.values()))
-        if not isinstance(selected, dict):
+        if not model_usage:
             return None
-        provider = selected.get("provider")
-        return provider.strip() if isinstance(provider, str) and provider.strip() else None
+        providers: set[str] = set()
+        for usage in model_usage.values():
+            if not isinstance(usage, dict):
+                return None
+            provider = usage.get("provider")
+            if not isinstance(provider, str) or not provider.strip():
+                return None
+            providers.add(provider.strip().lower())
+        if len(providers) != 1:
+            return None
+        return next(iter(providers))
 
     @staticmethod
     def _response_model(
