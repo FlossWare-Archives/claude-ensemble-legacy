@@ -34,7 +34,7 @@ The `/memory/search` contract returns JSON with `ok: true` and a `results` array
 
 Integration version: 0.2.
 
-The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports gateway deployment state (systemd unit active/inactive) separately from gateway HTTP health (`/api/v1/health` reachable/unreachable). Override the diagnostic URL with `ENSEMBLE_GATEWAY_URL`; these checks are informational and do not confuse hook verification with gateway availability.
+The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports actionable configuration/runtime findings, including gateway deployment state, Memory health, gateway health, capability health, and managed hook registration. Use `--verbose` to show passing checks or `--json` for machine-readable output. Override the gateway URL with `ENSEMBLE_GATEWAY_URL`; Memory uses `FLOSSWARE_MEMORY_URL`. To check CE provider policy without inspecting a separately managed default profile, set `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` to the dedicated CE profile directory (or set `CLAUDE_CONFIG_DIR` for the CE service) and optionally set `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` (defaults to `anthropic`). The check runs `claude auth status` only against that explicitly configured profile and never sends a model prompt.
 
 
 ## Workflow outcome integration
