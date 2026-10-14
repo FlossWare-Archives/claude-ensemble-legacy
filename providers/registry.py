@@ -1,75 +1,86 @@
-"""Small model-to-provider registry for Claude Ensemble."""
+"""Single-runtime model routing for Claude Ensemble.
+
+All model work runs through the installed Claude Code CLI. The legacy direct
+API adapters remain in the repository for reference during this migration, but
+the runtime registry never selects them.
+"""
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
 
-from .anthropic import AnthropicProvider
 from .claude_code import ClaudeCodeProvider
-from .credentials import CredentialPool
-from .google import GoogleProvider
 from .model_provider import ModelProvider
 
 
 class ProviderRegistry:
-    """Resolve models and construct providers backed by shared credentials."""
+    """Compatibility facade that routes every model request through Claude Code."""
 
-    _ANTHROPIC_ALIASES = {"haiku": "CLAUDE_HAIKU_MODEL", "sonnet": "CLAUDE_SONNET_MODEL", "opus": "CLAUDE_OPUS_MODEL"}
-    _DEFAULT_ANTHROPIC_MODELS = {"haiku": "claude-haiku-4-5", "sonnet": "claude-sonnet-5", "opus": "claude-opus-5"}
-
-    def __init__(self, providers: Mapping[str, ModelProvider] | None = None,
-                 credentials: CredentialPool | None = None) -> None:
-        self.providers = dict(providers or {})
-        self.credentials = credentials or CredentialPool()
-
-    def _provider(self, name: str) -> ModelProvider:
-        if name not in self.providers:
-            if name == "anthropic":
-                self.providers[name] = AnthropicProvider(credentials=self.credentials)
-            elif name == "google":
-                self.providers[name] = GoogleProvider(credentials=self.credentials)
-            elif name == "claude-code":
-                self.providers[name] = ClaudeCodeProvider(
-                    expected_provider=os.environ.get(
-                        "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic"
-                    )
+    def __init__(
+        self,
+        providers: Mapping[str, ModelProvider] | None = None,
+        credentials: object | None = None,
+    ) -> None:
+        # Keep the old constructor shape for callers, but reject alternative
+        # runtimes instead of silently allowing multi-provider dispatch.
+        self.providers: dict[str, ModelProvider] = {}
+        for name, provider in (providers or {}).items():
+            if name != "claude-code":
+                raise ValueError(
+                    f"Only the 'claude-code' runtime is supported; got {name!r}"
                 )
-        if name not in self.providers:
-            raise ValueError(f"Provider {name!r} is not registered")
-        return self.providers[name]
+            self.providers[name] = provider
+        self._configured_provider = os.environ.get(
+            "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic"
+        ).strip().lower()
+        if not self._configured_provider:
+            raise ValueError(
+                "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER must not be blank"
+            )
+
+    def _provider(self) -> ModelProvider:
+        if "claude-code" not in self.providers:
+            self.providers["claude-code"] = ClaudeCodeProvider(
+                expected_provider=self._configured_provider
+            )
+        return self.providers["claude-code"]
 
     def register(self, name: str, provider: ModelProvider) -> None:
+        if name != "claude-code":
+            raise ValueError(
+                f"Only the 'claude-code' runtime is supported; got {name!r}"
+            )
         self.providers[name] = provider
 
     def resolve(self, model: str) -> ModelProvider:
-        provider_name, _ = self.resolve_model(model)
-        return self._provider(provider_name)
+        self.resolve_model(model)
+        return self._provider()
 
     def resolve_model(self, model: str) -> tuple[str, str]:
-        normalized = model.lower()
-        cli_models = {
-            item.strip().lower()
-            for item in os.environ.get("ENSEMBLE_CLAUDE_CODE_MODELS", "").split(",")
-            if item.strip()
-        }
-        if normalized in cli_models:
-            provider_name = "claude-code"
-            # Claude Code accepts short aliases itself; preserve them rather than
-            # translating them into direct-API model IDs.
+        """Normalize legacy model labels to one Claude Code model.
+
+        Claude model names and aliases are preserved. Historical non-Claude
+        labels are mapped to Sonnet so old worker lists continue to execute,
+        but they do not invoke another provider or imply model diversity.
+        """
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("model must be a non-empty string")
+        normalized = model.strip()
+        lowered = normalized.lower()
+
+        aliases = {"haiku", "sonnet", "opus"}
+        if lowered in aliases:
+            canonical = lowered
+        elif lowered.startswith(("claude-", "claude_")):
             canonical = normalized
-        elif normalized in self._ANTHROPIC_ALIASES:
-            provider_name = "anthropic"
-            env_name = self._ANTHROPIC_ALIASES[normalized]
-            canonical = os.environ.get(env_name, self._DEFAULT_ANTHROPIC_MODELS[normalized])
-        elif normalized.startswith(("claude-", "claude_")):
-            provider_name, canonical = "anthropic", model
-        elif normalized.startswith(("gemini-", "gemini_", "models/gemini-")):
-            provider_name, canonical = "google", model
         else:
-            raise ValueError(f"No provider mapping for model {model!r}; register it explicitly")
-        self._provider(provider_name)
-        return provider_name, canonical
+            canonical = "sonnet"
+        self._provider()
+        return "claude-code", canonical
 
     def credential_status(self, provider: str) -> list[dict[str, object]]:
-        return self.credentials.status(provider)
+        """Return no API-key accounts; Claude Code owns authentication."""
+        if provider in {"claude-code", "anthropic", "google"}:
+            return []
+        return []
