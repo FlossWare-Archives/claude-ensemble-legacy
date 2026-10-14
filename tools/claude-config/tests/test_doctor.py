@@ -34,6 +34,8 @@ class HealthHandler(BaseHTTPRequestHandler):
 
 class DoctorHealthTests(unittest.TestCase):
     def setUp(self):
+        HealthHandler.payload = {"ok": True}
+        HealthHandler.status_code = 200
         self.server = HTTPServer(("127.0.0.1", 0), HealthHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -95,7 +97,7 @@ class DoctorHealthTests(unittest.TestCase):
         self.assertIn("ok=true", detail)
 
     def test_http_error_is_reported_as_failure(self):
-        ProbeHandler.status_code = 503
+        HealthHandler.status_code = 503
         status, detail = doctor.http_health(self.url)
         self.assertEqual("fail", status)
         self.assertIn("HTTP 503", detail)
