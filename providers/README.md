@@ -36,6 +36,16 @@ ClaudeCodeProvider remains available for the Claude Code CLI workflow. It
 deliberately treats Claude Code as the authentication/runtime boundary rather
 than reading Claude Code credentials itself.
 
+To route selected model aliases through the installed CLI, set
+`ENSEMBLE_CLAUDE_CODE_MODELS` to a comma-separated list, for example
+`haiku,sonnet,opus`. This is opt-in; without it, the registry keeps using the
+direct Anthropic API provider. The CLI inherits the service process environment
+unless an explicit provider environment is supplied.
+
+The registry and provider default `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to `anthropic`; a blank value is rejected. Before sending any prompt, the adapter runs `claude auth status` and requires its `apiProvider` to match the expected provider. If status cannot be read or does not match, the prompt is not sent. Afterward, it also requires every reported `modelUsage` entry to identify the same expected provider.
+
+These checks fail closed, but depend on Claude Code's local auth-status and response metadata being accurate. Preserve the CLI's existing authentication configuration; do not change it merely to enable this adapter. In particular, do not set the expected provider to `vertex` for Red Hat internal code. The adapter's own provider name (`claude-code`) does not identify the upstream service.
+
 ## Selecting providers
 
 ProviderRegistry maps Claude model names to Anthropic and Gemini model names
