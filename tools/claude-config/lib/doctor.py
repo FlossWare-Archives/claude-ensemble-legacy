@@ -153,10 +153,24 @@ def http_health(url: str, timeout: float = 1.5) -> tuple[str, str]:
 
 def main(config: DoctorConfig | None = None) -> int:
     config = config or DoctorConfig()
-    assert config.claude_home is not None
-    claude_home = config.claude_home
     repo_root = config.repo_root
     environ = config.environ
+    # Only inspect Claude profile files when a dedicated profile is explicitly selected.
+    # The default ~/.claude may be managed by a separate work environment (for example Vertex).
+    profile_value = (
+        environ.get("ENSEMBLE_CLAUDE_CODE_CONFIG_DIR")
+        or environ.get("CLAUDE_CONFIG_DIR")
+    )
+    claude_home: Path | None = None
+    if profile_value:
+        candidate = Path(profile_value)
+        if str(profile_value).startswith("~/"):
+            claude_home = config.home / str(profile_value)[2:]
+        else:
+            claude_home = candidate.expanduser()
+    elif config.claude_home is not None and environ.get("CE_DOCTOR_ALLOW_INJECTED_PROFILE") == "1":
+        # Explicit test-only injection; production runs never infer ~/.claude as the CE profile.
+        claude_home = config.claude_home
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verbose", action="store_true", help="show passing checks too")
@@ -164,10 +178,10 @@ def main(config: DoctorConfig | None = None) -> int:
     args = parser.parse_args()
 
     checks: list[dict[str, Any]] = []
-    settings = claude_home / "settings.json"
-    prompt_hook = claude_home / "hooks" / "memory-search-on-prompt.js"
-    session_hook = claude_home / "hooks" / "session-end-memory-capture.js"
-    manifest = claude_home / ".flossware-claude-config" / "manifest.json"
+    settings = claude_home / "settings.json" if claude_home is not None else None
+    prompt_hook = claude_home / "hooks" / "memory-search-on-prompt.js" if claude_home is not None else None
+    session_hook = claude_home / "hooks" / "session-end-memory-capture.js" if claude_home is not None else None
+    manifest = claude_home / ".flossware-claude-config" / "manifest.json" if claude_home is not None else None
     memory_url = environ.get("FLOSSWARE_MEMORY_URL", DEFAULT_MEMORY_URL).rstrip("/")
     gateway_url = environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY_URL).rstrip("/")
 
@@ -184,57 +198,71 @@ def main(config: DoctorConfig | None = None) -> int:
         check(checks, "CLAUDE_CLI_MISSING", "Claude Code CLI", "fail",
               "claude executable not found on PATH", "Install Claude Code and ensure it is on PATH.", "error")
 
-    check(checks, "CLAUDE_HOME", "Claude configuration directory",
-          "pass" if claude_home.is_dir() else "fail",
-          str(claude_home) if claude_home.is_dir() else f"missing: {claude_home}",
-          "Create the configured Claude directory and rerun the CE configuration installer." if not claude_home.is_dir() else "",
-          "error")
-
-    for code, title, path, remediation in (
-        ("SETTINGS_MISSING", "Claude settings", settings, "Run claude-config install, then review settings.json."),
-        ("PROMPT_HOOK_MISSING", "Prompt Memory hook", prompt_hook, "Run claude-config install and verify the UserPromptSubmit hook."),
-        ("SESSION_HOOK_MISSING", "SessionEnd capture hook", session_hook, "Run claude-config install and verify the SessionEnd hook."),
-        ("MANIFEST_MISSING", "Managed-file manifest", manifest, "Run claude-config install to create or reconcile the managed-file manifest."),
-    ):
-        exists = path.is_file()
-        check(checks, code, title, "pass" if exists else "fail",
-              str(path) if exists else f"missing: {path}", "" if exists else remediation,
+    if claude_home is None:
+        for code, title in (
+            ("CLAUDE_HOME", "Claude configuration directory"),
+            ("SETTINGS_MISSING", "Claude settings"),
+            ("PROMPT_HOOK_MISSING", "Prompt Memory hook"),
+            ("SESSION_HOOK_MISSING", "SessionEnd capture hook"),
+            ("MANIFEST_MISSING", "Managed-file manifest"),
+            ("SETTINGS_JSON", "Settings JSON"),
+            ("HOOK_REGISTRATION", "Claude hook registration"),
+        ):
+            check(
+                checks, code, title, "skip",
+                "no dedicated CE profile configured; the default Claude profile was not inspected",
+            )
+    else:
+        assert settings is not None and prompt_hook is not None
+        assert session_hook is not None and manifest is not None
+        check(checks, "CLAUDE_HOME", "Claude configuration directory",
+              "pass" if claude_home.is_dir() else "fail",
+              str(claude_home) if claude_home.is_dir() else f"missing: {claude_home}",
+              "Create the configured Claude directory and rerun the CE configuration installer." if not claude_home.is_dir() else "",
               "error")
 
-    if settings.is_file():
-        try:
-            data = json.loads(settings.read_text(encoding="utf-8"))
-            valid = isinstance(data, dict)
-            detail = "valid JSON object" if valid else "settings root must be a JSON object"
-        except (OSError, json.JSONDecodeError) as exc:
-            valid, detail = False, f"settings cannot be parsed ({type(exc).__name__})"
-        check(checks, "SETTINGS_JSON", "Settings JSON", "pass" if valid else "fail",
-              detail, "" if valid else "Repair settings.json JSON syntax and rerun claude-config verify.",
-              "error")
+        for code, title, path, remediation in (
+            ("SETTINGS_MISSING", "Claude settings", settings, "Run claude-config install, then review settings.json."),
+            ("PROMPT_HOOK_MISSING", "Prompt Memory hook", prompt_hook, "Run claude-config install and verify the UserPromptSubmit hook."),
+            ("SESSION_HOOK_MISSING", "SessionEnd capture hook", session_hook, "Run claude-config install and verify the SessionEnd hook."),
+            ("MANIFEST_MISSING", "Managed-file manifest", manifest, "Run claude-config install to create or reconcile the managed-file manifest."),
+        ):
+            exists = path.is_file()
+            check(checks, code, title, "pass" if exists else "fail",
+                  str(path) if exists else f"missing: {path}", "" if exists else remediation,
+                  "error")
 
-    validator = repo_root / "tools" / "claude-config" / "lib" / "json_tool.py"
-    if settings.is_file() and prompt_hook.is_file() and session_hook.is_file() and validator.is_file():
-        started = time.monotonic()
-        result, error = run_bounded(
-            [sys.executable, str(validator), "validate-settings", str(settings),
-             str(prompt_hook), str(session_hook)], timeout=2
-        )
-        duration = round((time.monotonic() - started) * 1000)
-        valid_hooks = result is not None and result.returncode == 0
-        check(checks, "HOOK_REGISTRATION", "Claude hook registration",
-              "pass" if valid_hooks else "fail",
-              "managed UserPromptSubmit and unconditional SessionEnd hooks are registered"
-              if valid_hooks else "settings do not register the managed prompt and SessionEnd hooks correctly",
-              "" if valid_hooks else "Run claude-config install, then review settings.json hook registration.",
-              "error", duration)
-    elif not validator.is_file():
-        check(checks, "HOOK_VALIDATOR_MISSING", "Claude hook registration", "skip",
-              "settings validator is missing from this checkout")
+        if settings.is_file():
+            try:
+                data = json.loads(settings.read_text(encoding="utf-8"))
+                valid = isinstance(data, dict)
+                detail = "valid JSON object" if valid else "settings root must be a JSON object"
+            except (OSError, json.JSONDecodeError) as exc:
+                valid, detail = False, f"settings cannot be parsed ({type(exc).__name__})"
+            check(checks, "SETTINGS_JSON", "Settings JSON", "pass" if valid else "fail",
+                  detail, "" if valid else "Repair settings.json JSON syntax and rerun claude-config verify.",
+                  "error")
 
-    provider_profile = (
-        environ.get("ENSEMBLE_CLAUDE_CODE_CONFIG_DIR")
-        or environ.get("CLAUDE_CONFIG_DIR")
-    )
+        validator = repo_root / "tools" / "claude-config" / "lib" / "json_tool.py"
+        if settings.is_file() and prompt_hook.is_file() and session_hook.is_file() and validator.is_file():
+            started = time.monotonic()
+            result, error = run_bounded(
+                [sys.executable, str(validator), "validate-settings", str(settings),
+                 str(prompt_hook), str(session_hook)], timeout=2
+            )
+            duration = round((time.monotonic() - started) * 1000)
+            valid_hooks = result is not None and result.returncode == 0
+            check(checks, "HOOK_REGISTRATION", "Claude hook registration",
+                  "pass" if valid_hooks else "fail",
+                  "managed UserPromptSubmit and unconditional SessionEnd hooks are registered"
+                  if valid_hooks else "settings do not register the managed prompt and SessionEnd hooks correctly",
+                  "" if valid_hooks else "Run claude-config install, then review settings.json hook registration.",
+                  "error", duration)
+        elif not validator.is_file():
+            check(checks, "HOOK_VALIDATOR_MISSING", "Claude hook registration", "skip",
+                  "settings validator is missing from this checkout")
+
+    provider_profile = profile_value
     expected_provider = environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
     (provider_status, provider_detail), provider_duration = timed_call(
         lambda: provider_health(claude, provider_profile, expected_provider, environ=environ, home=config.home)
