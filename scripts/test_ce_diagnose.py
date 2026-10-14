@@ -1,7 +1,9 @@
 """Unit tests for the correlated CE diagnostic runner."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import socket
 import sys
@@ -9,6 +11,7 @@ import time
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -84,6 +87,27 @@ class DiagnoseTests(unittest.TestCase):
         )
         self.assertEqual("fail", status)
         self.assertGreaterEqual(elapsed, 0)
+
+    def test_pipeline_test_mode_reports_isolated_result(self):
+        stdout = io.StringIO()
+        completed = __import__("subprocess").CompletedProcess(
+            args=["python", "test_ce_pipeline.py"], returncode=0, stdout="", stderr=""
+        )
+        with patch.object(sys, "argv", ["ce-diagnose.py", "--service", "gateway", "--pipeline-test", "--json"]), \
+             patch.object(diagnose, "http_request", return_value=("pass", "HTTP 200; ok=true", {"ok": True}, 1)), \
+             patch.object(diagnose, "socket_ping", return_value=("pass", "Unix-socket ping acknowledged", 1)), \
+             patch.object(diagnose, "messenger_round_trip", return_value=("pass", "round trip passed", 1)), \
+             patch.object(diagnose, "unit_status", return_value=("pass", "active", 1)), \
+             patch.object(diagnose, "shutil_which_systemctl", return_value=True), \
+             patch.object(diagnose.subprocess, "run", return_value=completed), \
+             contextlib.redirect_stdout(stdout):
+            exit_code = diagnose.main()
+        result = json.loads(stdout.getvalue())
+        pipeline = next(item for item in result["results"] if item["step"] == "pipeline.learning_to_thompson")
+        self.assertEqual(0, exit_code)
+        self.assertEqual("pipeline-test", result["mode"])
+        self.assertEqual("pass", pipeline["status"])
+        self.assertIn("temporary", result["side_effects"])
 
     def test_messenger_round_trip_uses_transient_unique_event(self):
         with tempfile.TemporaryDirectory() as tmp:
