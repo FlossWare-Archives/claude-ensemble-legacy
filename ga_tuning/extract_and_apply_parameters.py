@@ -129,12 +129,11 @@ class ParameterExtractor:
         # are allowed to discard the pending snapshot.
         self._fsync_directory(self.tracking_log.parent)
 
-    @staticmethod
-    def _remove_pending_durably(pending_path: Path, pending_bytes: bytes) -> None:
+    def _remove_pending_durably(self, pending_path: Path, pending_bytes: bytes) -> None:
         """Remove a pending snapshot, restoring it if the unlink sync fails."""
         pending_path.unlink()
         try:
-            ParameterExtractor._fsync_directory(pending_path.parent)
+            self._fsync_directory(pending_path.parent)
         except OSError:
             # The receipt is already durable, but the unlink may not be. Restore
             # the immutable snapshot so a subsequent recovery has a safe retry path.
@@ -152,7 +151,7 @@ class ParameterExtractor:
                 os.replace(temp_path, pending_path)
                 temp_path = None
                 try:
-                    ParameterExtractor._fsync_directory(pending_path.parent)
+                    self._fsync_directory(pending_path.parent)
                 except OSError:
                     # Preserve the live retry file even if the filesystem remains
                     # unable to confirm directory durability; propagate original error.
