@@ -161,6 +161,43 @@ class PendingRecoveryTests(unittest.TestCase):
         self.assertEqual(self.extractor.recover_pending(), 1)
         self.assertFalse(pending.exists())
 
+    def test_post_unlink_directory_sync_failure_restores_pending_snapshot(self):
+        _, pending = self.make_pending()
+        real_sync = self.extractor._fsync_directory
+        calls = 0
+
+        def fail_second_sync(directory):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("post-unlink sync failed")
+            return real_sync(directory)
+
+        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_second_sync):
+            with patch.object(
+                module.LearningClient,
+                "record_artifact",
+                return_value={"ok": True, "memory": True},
+            ):
+                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                    self.extractor.recover_pending()
+
+        self.assertTrue(pending.exists(), "failed cleanup must leave a retryable snapshot")
+        self.assertTrue((self.results / ".ga-test-001.ingested").exists())
+        self.assertEqual(self.extractor.recover_pending(), 1)
+        self.assertFalse(pending.exists())
+
+    def test_symlinked_pending_artifact_is_rejected_without_submission(self):
+        _, original = self.make_pending()
+        link = self.results / ".ga-linked.learning-artifact.json"
+        link.symlink_to(original)
+        with patch.object(module.LearningClient, "record_artifact") as send:
+            with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                self.extractor.recover_pending()
+        send.assert_not_called()
+        self.assertTrue(original.exists())
+        self.assertTrue(link.is_symlink())
+
     def test_cli_recovery_does_not_require_settings_or_run_normal_ingestion(self):
         with patch.object(module.ParameterExtractor, "recover_pending", return_value=0) as recover, \
              patch.object(module.ParameterExtractor, "run") as normal:
