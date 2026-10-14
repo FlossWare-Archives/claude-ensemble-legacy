@@ -370,10 +370,17 @@ class ClaudeCodeProvider(ModelProvider):
         return value if isinstance(value, dict) else {}
 
     def _run_env(self) -> dict[str, str] | None:
-        if self.env is None:
+        # Keep the user's default Claude profile untouched. CE can opt into a
+        # dedicated profile via ENSEMBLE_CLAUDE_CODE_CONFIG_DIR, which is mapped
+        # only into this provider's child-process environment.
+        configured_profile = os.environ.get("ENSEMBLE_CLAUDE_CODE_CONFIG_DIR")
+        if self.env is None and not configured_profile:
             return None
         run_env = os.environ.copy()
-        run_env.update(self.env)
+        explicit_env = self.env or {}
+        run_env.update(explicit_env)
+        if configured_profile and "CLAUDE_CONFIG_DIR" not in explicit_env:
+            run_env["CLAUDE_CONFIG_DIR"] = configured_profile
         return run_env
 
     @staticmethod
