@@ -101,11 +101,71 @@ def _require_collaboration_auth(handler: BaseHTTPRequestHandler) -> None:
         raise AuthenticationRequired("invalid collaboration authorization")
 
 
+def _accepts_media_type(handler: BaseHTTPRequestHandler, media_type: str) -> bool:
+    """Return whether Accept explicitly permits a representation media type.
+
+    This compatibility slice intentionally requires an exact media-range match;
+    wildcards do not opt clients into Problem Details. If duplicate exact ranges
+    appear, an explicit exclusion wins. Malformed or out-of-range q values are
+    treated as q=0 so they cannot accidentally enable the representation.
+    """
+    accepted = ",".join(handler.headers.get_all("Accept", []))
+    exact_qualities: list[float] = []
+    for item in accepted.split(","):
+        parts = [part.strip() for part in item.split(";")]
+        if not parts or parts[0].lower() != media_type.lower():
+            continue
+        quality = 1.0
+        for parameter in parts[1:]:
+            name, separator, value = parameter.partition("=")
+            if separator and name.strip().lower() == "q":
+                try:
+                    quality = float(value.strip())
+                except ValueError:
+                    quality = 0.0
+                if not 0.0 <= quality <= 1.0:
+                    quality = 0.0
+                break
+        exact_qualities.append(quality)
+    return bool(exact_qualities) and all(quality > 0.0 for quality in exact_qualities)
+
+
+def _problem_details(status: int, payload: Any, instance: str) -> dict[str, Any]:
+    """Adapt the existing error envelope to RFC 9457 without dropping extensions."""
+    try:
+        title = HTTPStatus(status).phrase
+    except ValueError:
+        title = "HTTP error"
+    detail: Any = title
+    if isinstance(payload, dict):
+        detail = payload.get("error") or payload.get("detail") or title
+    if not isinstance(detail, str):
+        detail = json.dumps(detail, sort_keys=True, ensure_ascii=False)
+    problem: dict[str, Any] = {
+        "type": "about:blank",
+        "title": title,
+        "status": status,
+        "detail": detail,
+    }
+    if instance:
+        problem["instance"] = instance
+    if isinstance(payload, dict):
+        for name, value in payload.items():
+            if name not in {"type", "title", "status", "detail", "instance"}:
+                problem[name] = value
+    return problem
+
+
 def _send(handler: BaseHTTPRequestHandler, status: int, payload: Any, headers: dict[str, str] | None = None) -> None:
-    body = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+    media_type = "application/json"
+    response_payload = payload
+    if status >= 400 and _accepts_media_type(handler, "application/problem+json"):
+        media_type = "application/problem+json"
+        response_payload = _problem_details(status, payload, urlsplit(handler.path).path)
+    body = (json.dumps(response_payload, sort_keys=True) + "\n").encode("utf-8")
     setattr(handler, "_ensemble_response_started", True)
     handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Type", media_type)
     if headers:
         for name, value in headers.items():
             handler.send_header(name, value)
