@@ -42,7 +42,9 @@ To route selected model aliases through the installed CLI, set
 direct Anthropic API provider. The CLI inherits the service process environment
 unless an explicit provider environment is supplied.
 
-The registry and provider default `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to `anthropic`; a blank value is rejected. Before sending any prompt, the adapter runs `claude auth status` and requires its `apiProvider` to match the expected provider. If status cannot be read or does not match, the prompt is not sent. Afterward, it also requires every reported `modelUsage` entry to identify the same expected provider.
+The registry and provider default `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` to `anthropic`; a blank value is rejected. Before sending any prompt, the adapter runs `claude auth status` and requires its `apiProvider` to match the expected provider. Claude Code labels its native Anthropic route `firstParty` in auth status, so CE normalizes that label to `anthropic`; third-party providers such as Vertex remain rejected. If status cannot be read or does not match, the prompt is not sent. Afterward, it also requires every reported `modelUsage` entry to identify the same expected provider.
+
+For an isolated CE profile, set `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` to the profile directory (for example, a dedicated `~/.claude-ce-anthropic` directory). CE maps this to `CLAUDE_CONFIG_DIR` only in the Claude CLI child-process environment, leaving the default profile and shell environment unchanged. Authenticate that profile separately before use. Do not repoint or reauthenticate a work-managed default profile just to enable CE.
 
 These checks fail closed, but depend on Claude Code's local auth-status and response metadata being accurate. Preserve the CLI's existing authentication configuration; do not change it merely to enable this adapter. In particular, do not set the expected provider to `vertex` for Red Hat internal code. The adapter's own provider name (`claude-code`) does not identify the upstream service.
 
