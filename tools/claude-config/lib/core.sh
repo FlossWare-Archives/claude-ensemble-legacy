@@ -125,7 +125,7 @@ verify(){
   if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 1 "$gateway_url/api/v1/health" >/dev/null 2>&1; then ok "Gateway REST is reachable"; else warn "Gateway REST is unavailable: $gateway_url/api/v1/health"; fi
   return "$failed"
 }
-doctor(){ detect; printf '\n'; verify || true; }
+doctor(){ python3 "$CC_ROOT/lib/doctor.py" "$@"; }
 install(){
   local dry_run="false" force="false"
   while [ "$#" -gt 0 ]; do
