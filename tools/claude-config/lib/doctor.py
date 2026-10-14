@@ -124,6 +124,24 @@ def main() -> int:
               detail, "" if valid else "Repair settings.json JSON syntax and rerun claude-config verify.",
               "error")
 
+    validator = REPO_ROOT / "tools" / "claude-config" / "lib" / "json_tool.py"
+    if settings.is_file() and prompt_hook.is_file() and session_hook.is_file() and validator.is_file():
+        result, duration = timed_call(lambda: subprocess.run(
+            [sys.executable, str(validator), "validate-settings", str(settings),
+             str(prompt_hook), str(session_hook)],
+            capture_output=True, text=True, timeout=2, check=False
+        ))
+        valid_hooks = result.returncode == 0
+        check(checks, "HOOK_REGISTRATION", "Claude hook registration",
+              "pass" if valid_hooks else "fail",
+              "managed UserPromptSubmit and unconditional SessionEnd hooks are registered"
+              if valid_hooks else "settings do not register the managed prompt and SessionEnd hooks correctly",
+              "" if valid_hooks else "Run claude-config install, then review settings.json hook registration.",
+              "error", duration)
+    elif not validator.is_file():
+        check(checks, "HOOK_VALIDATOR_MISSING", "Claude hook registration", "skip",
+              "settings validator is missing from this checkout")
+
     if shutil.which("systemctl"):
         result, duration = timed_call(lambda: subprocess.run(
             ["systemctl", "--user", "is-active", "--quiet", "claude-ensemble.service"],
