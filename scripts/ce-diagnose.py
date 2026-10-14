@@ -22,6 +22,7 @@ from typing import Any
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
 DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
 DEFAULT_THOMPSON_SOCKET = "/tmp/claude-thompson.sock"
+DEFAULT_ALERT_SOCKET = "/tmp/claude-alert.sock"
 DEFAULT_MESSENGER_SOCKET = f"/run/user/{os.getuid()}/claude-messenger/claude-messenger.sock"
 
 
@@ -206,6 +207,7 @@ def main() -> int:
     gateway = os.environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY).rstrip("/")
     learning_socket = os.environ.get("ENSEMBLE_LEARNING_SOCKET", DEFAULT_LEARNING_SOCKET)
     thompson_socket = os.environ.get("ENSEMBLE_THOMPSON_SOCKET", DEFAULT_THOMPSON_SOCKET)
+    alert_socket = os.environ.get("ENSEMBLE_ALERT_SOCKET", DEFAULT_ALERT_SOCKET)
     messenger_socket = os.environ.get("CLAUDE_MESSENGER_SOCKET", os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") + "/claude-messenger/claude-messenger.sock")
     correlation_id = str(uuid.uuid4())
     results: list[dict[str, Any]] = []
@@ -263,6 +265,9 @@ def main() -> int:
                "Check claude-messenger.service and CLAUDE_MESSENGER_SOCKET.")
 
     if selected("alert"):
+        status, detail, elapsed = socket_ping(alert_socket, "alert", correlation_id, args.timeout)
+        record(results, "alert.ping", status, detail, elapsed, f"Unix socket {alert_socket}",
+               "Check claude-alert.service and ENSEMBLE_ALERT_SOCKET. The diagnostic does not trigger alerts.")
         if not shutil_which_systemctl():
             record(results, "alert.unit", "skip", "systemctl unavailable; alert service state was not checked",
                    0, "systemd user unit claude-alert.service")
