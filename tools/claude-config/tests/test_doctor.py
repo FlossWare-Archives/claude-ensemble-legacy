@@ -17,10 +17,11 @@ SPEC.loader.exec_module(doctor)
 
 class HealthHandler(BaseHTTPRequestHandler):
     payload = {"ok": True}
+    status_code = 200
 
     def do_GET(self):
         body = json.dumps(self.payload).encode("utf-8")
-        self.send_response(200)
+        self.send_response(type(self).status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -57,6 +58,12 @@ class DoctorHealthTests(unittest.TestCase):
         status, detail = doctor.http_health(self.url)
         self.assertEqual("fail", status)
         self.assertIn("ok=true", detail)
+
+    def test_http_error_is_reported_as_failure(self):
+        ProbeHandler.status_code = 503
+        status, detail = doctor.http_health(self.url)
+        self.assertEqual("fail", status)
+        self.assertIn("HTTP 503", detail)
 
     def test_unreachable_endpoint_is_warning_not_exception(self):
         self.server.shutdown()
