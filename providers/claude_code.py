@@ -38,7 +38,7 @@ class ClaudeCodeProvider(ModelProvider):
         configured_provider = (
             expected_provider
             if expected_provider is not None
-            else os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
+            else os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex")
         )
         if not isinstance(configured_provider, str) or not configured_provider.strip():
             raise ValueError("Expected upstream provider must be a non-empty value")
