@@ -28,9 +28,9 @@ Before sending a prompt, the adapter runs `claude auth status` and requires
 `apiProvider` to match `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER`. If status cannot
 be read or does not match, the prompt is not sent. The adapter also checks the
 provider metadata reported in the response. The default expectation is
-`anthropic`; set an explicit value only when the target data is authorized for
+`vertex`; set an explicit value only when the target data is authorized for
 that upstream. **For Red Hat internal code, keep the expected provider set to
-`anthropic`; do not route that code through Vertex or another upstream.**
+`vertex`; do not route that code through Anthropic or another upstream.**
 
 Do not change the user's existing `~/.claude` authentication configuration as
 part of installing CE. Profile and hook installation are separate from model

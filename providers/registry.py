@@ -32,7 +32,7 @@ class ProviderRegistry:
                 )
             self.providers[name] = provider
         self._configured_provider = os.environ.get(
-            "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic"
+            "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex"
         ).strip().lower()
         if not self._configured_provider:
             raise ValueError(

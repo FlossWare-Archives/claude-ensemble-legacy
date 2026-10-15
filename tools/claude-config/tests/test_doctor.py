@@ -157,20 +157,20 @@ class DoctorHealthTests(unittest.TestCase):
             status, detail = doctor.provider_health(str(executable), str(profile), "anthropic")
             self.assertEqual("pass", status, detail)
 
-    def test_provider_check_defaults_to_anthropic(self):
+    def test_provider_check_defaults_to_vertex(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             profile = root / "ce-profile"
             profile.mkdir()
             executable = root / "fake-claude"
             executable.write_text(
-                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'anthropic'}))\n",
+                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'vertex'}))\n",
                 encoding="utf-8",
             )
             executable.chmod(0o755)
             status, detail = doctor.provider_health(str(executable), str(profile))
             self.assertEqual("pass", status, detail)
-            self.assertIn("expected provider 'anthropic'", detail)
+            self.assertIn("expected provider 'vertex'", detail)
 
     def test_provider_check_rejects_blank_expected_provider(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -209,13 +209,13 @@ class DoctorHealthTests(unittest.TestCase):
             profile.mkdir()
             executable = root / "fake-claude"
             executable.write_text(
-                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'vertex'}))\n",
+                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'anthropic'}))\n",
                 encoding="utf-8",
             )
             executable.chmod(0o755)
-            status, detail = doctor.provider_health(str(executable), str(profile), "anthropic")
+            status, detail = doctor.provider_health(str(executable), str(profile), "vertex")
             self.assertEqual("fail", status)
-            self.assertIn("expected 'anthropic'", detail)
+            self.assertIn("expected 'vertex'", detail)
 
     def test_health_endpoint_requires_ok_true(self):
         HealthHandler.payload = {"ok": True}

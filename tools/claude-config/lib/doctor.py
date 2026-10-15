@@ -73,7 +73,7 @@ def run_bounded(command: list[str], timeout: float = 2.0, text: bool = True, env
 def provider_health(
     claude: str | None,
     profile: str | None,
-    expected_provider: str = "anthropic",
+    expected_provider: str = "vertex",
     timeout: float = 3.0,
     *,
     environ: Mapping[str, str] | None = None,
@@ -265,7 +265,7 @@ def main(config: DoctorConfig | None = None) -> int:
                   "settings validator is missing from this checkout")
 
     provider_profile = profile_value
-    expected_provider = environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
+    expected_provider = environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex")
     (provider_status, provider_detail), provider_duration = timed_call(
         lambda: provider_health(claude, provider_profile, expected_provider, environ=environ, home=config.home)
     )

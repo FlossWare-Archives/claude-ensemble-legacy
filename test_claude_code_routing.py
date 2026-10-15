@@ -19,7 +19,7 @@ class FakeProcess:
         return json.dumps(self.payload), ""
 
 
-def make_payload(upstream="anthropic"):
+def make_payload(upstream="vertex"):
     return {
         "is_error": False,
         "subtype": "success",
@@ -45,7 +45,7 @@ def test_registry_routes_only_configured_models(monkeypatch):
 
 def test_expected_provider_is_accepted(monkeypatch):
     monkeypatch.setattr("providers.claude_code.shutil.which", lambda _: "/fake/claude")
-    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    provider = ClaudeCodeProvider(expected_provider="vertex")
     monkeypatch.setattr(provider, "_verify_upstream_provider_before_invocation", lambda _: None)
     monkeypatch.setattr(provider, "_start_process", lambda _: FakeProcess(make_payload()))
 
@@ -54,13 +54,13 @@ def test_expected_provider_is_accepted(monkeypatch):
 
 def test_unexpected_provider_is_rejected(monkeypatch):
     monkeypatch.setattr("providers.claude_code.shutil.which", lambda _: "/fake/claude")
-    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    provider = ClaudeCodeProvider(expected_provider="vertex")
     monkeypatch.setattr(provider, "_verify_upstream_provider_before_invocation", lambda _: None)
     monkeypatch.setattr(
-        provider, "_start_process", lambda _: FakeProcess(make_payload("vertex"))
+        provider, "_start_process", lambda _: FakeProcess(make_payload("anthropic"))
     )
 
-    with pytest.raises(RuntimeError, match="expected 'anthropic'"):
+    with pytest.raises(RuntimeError, match="expected 'vertex'"):
         provider.generate(ModelRequest(prompt="test"))
 
 
@@ -68,7 +68,7 @@ def test_missing_provider_metadata_is_rejected(monkeypatch):
     monkeypatch.setattr("providers.claude_code.shutil.which", lambda _: "/fake/claude")
     data = make_payload()
     data["modelUsage"]["model-x"].pop("provider")
-    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    provider = ClaudeCodeProvider(expected_provider="vertex")
     monkeypatch.setattr(provider, "_verify_upstream_provider_before_invocation", lambda _: None)
     monkeypatch.setattr(provider, "_start_process", lambda _: FakeProcess(data))
 
@@ -82,13 +82,13 @@ def test_blank_expected_provider_is_rejected(monkeypatch):
         ClaudeCodeProvider()
 
 
-def test_preflight_rejects_vertex_before_invocation(monkeypatch):
+def test_preflight_rejects_anthropic_before_invocation(monkeypatch):
     monkeypatch.setattr("providers.claude_code.shutil.which", lambda _: "/fake/claude")
-    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    provider = ClaudeCodeProvider(expected_provider="vertex")
 
     class Status:
         returncode = 0
-        stdout = json.dumps({"loggedIn": True, "apiProvider": "vertex"})
+        stdout = json.dumps({"loggedIn": True, "apiProvider": "anthropic"})
         stderr = ""
 
     monkeypatch.setattr("providers.claude_code.subprocess.run", lambda *args, **kwargs: Status())
@@ -102,9 +102,9 @@ def test_preflight_rejects_vertex_before_invocation(monkeypatch):
 
 
 def test_mixed_model_upstream_metadata_is_rejected():
-    payload = make_payload("anthropic")
+    payload = make_payload("vertex")
     payload["modelUsage"]["second-model"] = {
-        "provider": "vertex",
+        "provider": "anthropic",
         "inputTokens": 1,
         "outputTokens": 1,
     }

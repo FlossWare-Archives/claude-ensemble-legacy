@@ -22,14 +22,14 @@ def _with_provider_metadata(payload: dict[str, object]) -> dict[str, object]:
     if not isinstance(model_usage, dict) or not model_usage:
         payload["modelUsage"] = {
             "claude-sonnet-test": {
-                "provider": "anthropic",
+                "provider": "vertex",
                 "inputTokens": 1,
                 "outputTokens": 1,
             }
         }
     else:
         payload["modelUsage"] = {
-            key: ({**value, "provider": "anthropic"} if isinstance(value, dict) else value)
+            key: ({**value, "provider": "vertex"} if isinstance(value, dict) else value)
             for key, value in model_usage.items()
         }
     return payload
@@ -41,7 +41,7 @@ def _mock_auth_status(monkeypatch: pytest.MonkeyPatch) -> None:
     result = subprocess.CompletedProcess(
         args=["claude", "auth", "status"],
         returncode=0,
-        stdout=json.dumps({"loggedIn": True, "apiProvider": "anthropic"}),
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "vertex"}),
         stderr="",
     )
     monkeypatch.setattr(
@@ -113,7 +113,7 @@ def test_parses_success_and_usage_metadata() -> None:
     assert response.thinking_tokens == 7
     assert response.cost_usd == 0.0123
     assert response.raw_metadata["result"] == payload["result"]
-    assert response.raw_metadata["modelUsage"]["claude-sonnet-test"]["provider"] == "anthropic"
+    assert response.raw_metadata["modelUsage"]["claude-sonnet-test"]["provider"] == "vertex"
 
     args = popen.call_args.args[0]
     assert args[:3] == ["/usr/bin/claude", "--print", "--output-format=json"]

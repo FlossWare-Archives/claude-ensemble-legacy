@@ -75,6 +75,12 @@ def test_registry_does_not_eagerly_construct_default_provider() -> None:
     assert registry.providers == {}
 
 
+def test_registry_defaults_expected_upstream_to_vertex(monkeypatch) -> None:
+    monkeypatch.delenv("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", raising=False)
+    registry = ProviderRegistry()
+    assert registry._configured_provider == "vertex"
+
+
 def test_credential_status_does_not_expose_api_key_accounts() -> None:
     registry = ProviderRegistry()
     assert registry.credential_status("anthropic") == []
