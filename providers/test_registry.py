@@ -28,22 +28,44 @@ def test_multi_model_client_uses_claude_code_runtime_for_claude_model() -> None:
     assert provider.generate.call_args.args[0].model == "claude-sonnet-test"
 
 
-def test_legacy_model_labels_use_the_single_runtime() -> None:
+@pytest.mark.parametrize(
+    "model",
+    ["gemini", "gemini-2.5-flash", "gpt-4", "cursor", "ollama-local"],
+)
+def test_explicit_legacy_model_labels_use_sonnet(model: str) -> None:
     registry = ProviderRegistry()
-    for model in ("gemini-2.5-flash", "gpt-4", "cursor", "ollama-local"):
-        provider_name, canonical = registry.resolve_model(model)
-        assert provider_name == "claude-code"
-        assert canonical == "sonnet"
+    provider_name, canonical = registry.resolve_model(model)
+    assert provider_name == "claude-code"
+    assert canonical == "sonnet"
 
 
 @pytest.mark.parametrize(
     ("model", "expected"),
-    [("haiku", "haiku"), ("sonnet", "sonnet"), ("opus", "opus"),
-     ("claude-sonnet-test", "claude-sonnet-test")],
+    [
+        ("haiku", "haiku"),
+        ("sonnet", "sonnet"),
+        ("opus", "opus"),
+        ("claude-sonnet-test", "claude-sonnet-test"),
+        ("claude-opus-4-1", "claude-opus-4-1"),
+    ],
 )
 def test_claude_model_names_are_preserved(model: str, expected: str) -> None:
     registry = ProviderRegistry()
     assert registry.resolve_model(model) == ("claude-code", expected)
+
+
+@pytest.mark.parametrize("model", ["sonett", "gpt-999", "gemini-typo", "unknown-model"])
+def test_unknown_model_labels_are_rejected(model: str) -> None:
+    registry = ProviderRegistry()
+    with pytest.raises(ValueError, match="Unsupported model label"):
+        registry.resolve_model(model)
+
+
+@pytest.mark.parametrize("model", ["", "   "])
+def test_blank_model_labels_are_rejected(model: str) -> None:
+    registry = ProviderRegistry()
+    with pytest.raises(ValueError, match="non-empty string"):
+        registry.resolve_model(model)
 
 
 def test_only_claude_code_runtime_can_be_injected() -> None:
