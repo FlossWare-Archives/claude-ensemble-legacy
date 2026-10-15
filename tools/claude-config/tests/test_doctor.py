@@ -209,7 +209,7 @@ class DoctorHealthTests(unittest.TestCase):
             profile.mkdir()
             executable = root / "fake-claude"
             executable.write_text(
-                "#!/usr/bin/env python3\\nimport json\\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'anthropic'}))\\n",
+                "#!/usr/bin/env python3\nimport json\nprint(json.dumps({'loggedIn': True, 'apiProvider': 'anthropic'}))\n",
                 encoding="utf-8",
             )
             executable.chmod(0o755)
