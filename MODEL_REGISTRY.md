@@ -28,9 +28,9 @@ credentials as part of model routing. Before a request is sent, CE checks
 `claude auth status` against `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER`, then
 validates the provider metadata returned by the CLI.
 
-The default expected provider is `anthropic`. For Red Hat internal code, keep
-the expected provider set to `anthropic`; do not route internal code through
-Vertex or another upstream. If Claude Code reports a different upstream, CE
+The default expected provider is `vertex`. For Red Hat internal code, keep
+the expected provider set to `vertex`; do not route internal code through
+Anthropic or another upstream. If Claude Code reports a different upstream, CE
 fails closed rather than sending the prompt.
 
 ## Systems retained
