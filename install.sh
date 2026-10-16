@@ -189,6 +189,28 @@ if [ -f "$CLAUDE_ENSEMBLE_SOURCE" ]; then
     echo "   ℹ Users can create their own ~/.claude/CLAUDE.md with additional practices"
 fi
 
+# Step 4d: Install the CE Jira-backed review skill. Preserve custom skill files
+# and symlinked skill locations rather than overwriting or following them.
+echo ""
+echo "4d. Installing CE Jira review skill..."
+CE_SKILL_INSTALLER="$REPO_PATH/tools/install-ce-jira-review-skill.sh"
+CE_SKILL_SOURCE="$REPO_PATH/claude-code-skills/ce-jira-review/SKILL.md"
+CE_SKILL_DEST="$CLAUDE_HOME/skills/ce-jira-review/SKILL.md"
+if [ -L "$CLAUDE_HOME/skills" ] || [ -L "$CLAUDE_HOME/skills/ce-jira-review" ]; then
+    echo "   ! Preserved symlinked skills location; install CE Jira review skill manually after reviewing the target."
+elif [ -e "$CE_SKILL_DEST" ] || [ -L "$CE_SKILL_DEST" ]; then
+    if [ -f "$CE_SKILL_DEST" ] && cmp -s "$CE_SKILL_SOURCE" "$CE_SKILL_DEST"; then
+        ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" bash "$CE_SKILL_INSTALLER"
+    else
+        echo "   ! Preserved existing custom skill at $CE_SKILL_DEST; no content was changed."
+    fi
+elif [ -f "$CE_SKILL_INSTALLER" ] && [ -f "$CE_SKILL_SOURCE" ]; then
+    ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" bash "$CE_SKILL_INSTALLER"
+else
+    echo "ERROR: CE Jira review skill installer or source is missing." >&2
+    exit 1
+fi
+
 # Step 5: Install GA parameter evolution link
 echo ""
 echo "5. Installing GA parameter evolution..."
