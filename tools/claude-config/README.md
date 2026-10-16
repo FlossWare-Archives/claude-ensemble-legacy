@@ -10,6 +10,8 @@ CLI:
   tools/claude-config/bin/claude-config plan
   tools/claude-config/bin/claude-config verify
   tools/claude-config/bin/claude-config doctor
+  tools/claude-config/bin/claude-config doctor --verbose
+  tools/claude-config/bin/claude-config doctor --json
 
 TUI:
   tools/claude-config/tui.sh
@@ -17,7 +19,10 @@ TUI:
 Safety:
 - preserve existing Claude configuration
 - merge UserPromptSubmit hooks
-- track managed files in ~/.claude/.flossware-claude-config/manifest.json
+- resolve settings, hooks, manifest, backups, and lock under the selected Claude profile
+- require an explicit profile for profile-scoped operations, selected with ENSEMBLE_CLAUDE_CODE_CONFIG_DIR (preferred for CE) or CLAUDE_CONFIG_DIR; without one, mutation and verification commands fail closed rather than inspect or modify ~/.claude
+- refuse symlinked hooks directories, settings files, or installer state directories to prevent writes escaping the selected profile
+- track managed files in <selected-profile>/.flossware-claude-config/manifest.json
 - back up before mutation
 - refuse unknown hook conflicts unless --force is supplied
 - fail open when Memory REST is unavailable
@@ -32,7 +37,11 @@ The `/memory/search` contract returns JSON with `ok: true` and a `results` array
 
 Integration version: 0.2.
 
-The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports gateway deployment state (systemd unit active/inactive) separately from gateway HTTP health (`/api/v1/health` reachable/unreachable). Override the diagnostic URL with `ENSEMBLE_GATEWAY_URL`; these checks are informational and do not confuse hook verification with gateway availability.
+The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports configuration/runtime findings, including gateway deployment state, Memory health, gateway health, capability health, provider policy, and managed hook registration. Use `--verbose` to show passing checks or `--json` for machine-readable output. Override the gateway URL with `ENSEMBLE_GATEWAY_URL`; Memory uses `FLOSSWARE_MEMORY_URL`.
+
+**Doctor exit semantics:** exit code `1` means one or more checks have status `fail`; exit code `0` means no checks failed. Warnings (`warn`) and skipped checks (`skip`) are reported but do not change the exit code. Warnings commonly mean an optional service or systemd unit is unavailable, while failures identify a configured requirement that is not satisfied. In JSON output, inspect `ok`, `summary`, and each check's `status` and `remediation`. A skipped provider-policy check is informational and has no remediation because no dedicated CE profile was explicitly selected.
+
+To check CE profile configuration and provider policy without inspecting a separately managed default profile, set `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` to the dedicated CE profile directory (or set `CLAUDE_CONFIG_DIR` in the CE service environment) and optionally set `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` (defaults to `vertex`; a blank value is rejected). **Without an explicitly selected profile, all profile-scoped checks are skipped**: doctor does not stat, read, validate, or otherwise inspect the default `~/.claude` directory or its files. The check runs `claude auth status` only against the explicitly configured profile and never sends a model prompt. HTTP health checks read at most 64 KiB plus one detection byte; responses larger than 64 KiB fail with an explicit size-limit diagnostic rather than being parsed as truncated JSON.
 
 
 ## Workflow outcome integration

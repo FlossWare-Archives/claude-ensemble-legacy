@@ -12,7 +12,7 @@ case "$cmd" in
   install) install "$@";;
   upgrade) upgrade "$@";;
   verify) verify;;
-  doctor) doctor;;
+  doctor) doctor "$@";;
   uninstall) uninstall;;
   outcome) exec python3 "$CC_REPO_ROOT/tools/record_workflow_outcome.py";;
   *) cat <<'EOF'

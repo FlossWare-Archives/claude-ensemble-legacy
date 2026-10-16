@@ -5,9 +5,12 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export FLOSSWARE_MEMORY_URL="http://127.0.0.1:9"
-mkdir -p "$HOME/.claude"
+# Keep the disposable CE profile outside the default ~/.claude tree.
+CLAUDE_HOME="$HOME/ce-profile"
+export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME"
+mkdir -p "$CLAUDE_HOME"
 
-cat > "$HOME/.claude/settings.json" <<'JSON'
+cat > "$CLAUDE_HOME/settings.json" <<'JSON'
 {
   "permissions": {"allow": ["Bash(git status:*)"]},
   "hooks": {
@@ -19,32 +22,32 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
 JSON
 
 # Legacy repository hook symlink must be replaced without modifying its target.
-rm -f "$HOME/.claude/hooks/memory-search-on-prompt.js"
+rm -f "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 legacy_target="$TMP/legacy-claude-ensemble/hooks"
-mkdir -p "$legacy_target" "$HOME/.claude/hooks" "$HOME/.claude/.flossware-claude-config"
+mkdir -p "$legacy_target" "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/.flossware-claude-config"
 cp "$ROOT/../../hooks/memory-search-on-prompt.js" "$legacy_target/memory-search-on-prompt.js"
-ln -s "$legacy_target/memory-search-on-prompt.js" "$HOME/.claude/hooks/memory-search-on-prompt.js"
+ln -s "$legacy_target/memory-search-on-prompt.js" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 legacy_before="$(sha256sum "$legacy_target/memory-search-on-prompt.js" | awk '{print $1}')"
-python3 "$ROOT/lib/json_tool.py" manifest   "$HOME/.claude/.flossware-claude-config/manifest.json"   "legacy"   "$HOME/.claude/hooks/memory-search-on-prompt.js"   "$legacy_before"
+python3 "$ROOT/lib/json_tool.py" manifest   "$CLAUDE_HOME/.flossware-claude-config/manifest.json"   "legacy"   "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"   "$legacy_before"
 bash "$ROOT/install.sh" --non-interactive
-test -f "$HOME/.claude/hooks/session-end-memory-capture.js"
-python3 - "$HOME/.claude/settings.json" "$HOME/.claude/hooks/session-end-memory-capture.js" <<'PY'
+test -f "$CLAUDE_HOME/hooks/session-end-memory-capture.js"
+python3 - "$CLAUDE_HOME/settings.json" "$CLAUDE_HOME/hooks/session-end-memory-capture.js" <<'PY'
 import json,sys,shlex
 settings=json.load(open(sys.argv[1],encoding="utf-8"))
 command=sys.argv[2]
 registered=[h.get("command") for g in settings["hooks"]["SessionEnd"] for h in g.get("hooks",[])]
 assert command in registered or shlex.quote(command) in registered, registered
 PY
-test ! -L "$HOME/.claude/hooks/memory-search-on-prompt.js"
-test -f "$HOME/.claude/hooks/memory-search-on-prompt.js"
+test ! -L "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
+test -f "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 test "$(sha256sum "$legacy_target/memory-search-on-prompt.js" | awk '{print $1}')" = "$legacy_before"
 
 # Known deployed legacy prompt hooks are migrated by ownership hash.
-legacy_user="$HOME/.claude/hooks/user-prompt-submit.sh"
-legacy_ingest="$HOME/.claude/hooks/ingest-prompt"
+legacy_user="$CLAUDE_HOME/hooks/user-prompt-submit.sh"
+legacy_ingest="$CLAUDE_HOME/hooks/ingest-prompt"
 cp "$ROOT/tests/fixtures/legacy-user-prompt-submit.sh" "$legacy_user"
 cp "$ROOT/tests/fixtures/legacy-ingest-prompt" "$legacy_ingest"
-python3 - "$HOME/.claude/settings.json" "$legacy_user" "$legacy_ingest" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_user" "$legacy_ingest" <<'PY'
 import json,sys,shlex
 p,user,ingest=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -52,7 +55,7 @@ d["hooks"]["UserPromptSubmit"]=[{"matcher":".*","hooks":[{"type":"command","comm
 json.dump(d,open(p,"w",encoding="utf-8"),indent=2)
 PY
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" "$legacy_user" "$legacy_ingest" "$HOME/.claude/hooks/memory-search-on-prompt.js" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_user" "$legacy_ingest" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,os,shlex
 p,user,ingest,canonical=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -63,9 +66,9 @@ assert os.path.exists(user) and os.path.exists(ingest)
 PY
 
 # Exact known legacy SessionEnd scripts are unregistered without deleting their files.
-legacy_session="$HOME/.claude/hooks/session-end-comprehensive-capture.sh"
+legacy_session="$CLAUDE_HOME/hooks/session-end-comprehensive-capture.sh"
 cp "$ROOT/../../hooks/session-end-comprehensive-capture.sh" "$legacy_session"
-python3 - "$HOME/.claude/settings.json" "$legacy_session" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_session" <<'PY'
 import json,sys,shlex
 p,legacy=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -73,7 +76,7 @@ d.setdefault("hooks",{})["SessionEnd"]=[{"hooks":[{"type":"command","command":sh
 json.dump(d,open(p,"w",encoding="utf-8"),indent=2)
 PY
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" "$legacy_session" "$HOME/.claude/hooks/session-end-memory-capture.js" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_session" "$CLAUDE_HOME/hooks/session-end-memory-capture.js" <<'PY'
 import json,sys,shlex,os
 p,legacy,canonical=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -84,17 +87,17 @@ assert os.path.isfile(legacy), "migration must preserve the legacy script file"
 PY
 
 # A modified same-named script is not owned and must remain registered.
-modified_user="$HOME/.claude/hooks/user-prompt-submit.sh"
+modified_user="$CLAUDE_HOME/hooks/user-prompt-submit.sh"
 cp "$ROOT/tests/fixtures/modified-legacy-user-prompt-submit.sh" "$modified_user"
-python3 - "$HOME/.claude/settings.json" "$modified_user" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$modified_user" <<'PY'
 import json,sys,shlex
 p,user=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"]=[{"matcher":".*","hooks":[{"type":"command","command":shlex.quote(user)}]}]
 json.dump(d,open(p,"w",encoding="utf-8"),indent=2)
 PY
-python3 "$ROOT/lib/json_tool.py" migrate-legacy "$HOME/.claude/settings.json" >/dev/null
-python3 - "$HOME/.claude/settings.json" "$modified_user" <<'PY'
+python3 "$ROOT/lib/json_tool.py" migrate-legacy "$CLAUDE_HOME/settings.json" >/dev/null
+python3 - "$CLAUDE_HOME/settings.json" "$modified_user" <<'PY'
 import json,sys,shlex
 p,user=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -110,14 +113,14 @@ cp "$ROOT/../../hooks/memory-search-on-prompt.js" "$legacy_settings_target/memor
 foreign_hook="$TMP/foreign/hooks/memory-search-on-prompt.js"
 mkdir -p "$(dirname "$foreign_hook")"
 printf '%s\n' '#!/bin/sh' 'echo unrelated' > "$foreign_hook"
-python3 - "$HOME/.claude/settings.json" "$legacy_settings_target/memory-search-on-prompt.js" "$foreign_hook" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$legacy_settings_target/memory-search-on-prompt.js" "$foreign_hook" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys
-p,legacy,foreign=sys.argv[1:]
+p,legacy,foreign,managed_alias=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
     {"type":"command","command":legacy,"timeout":3},
-    {"type":"command","command":"~/.claude/hooks/memory-search-on-prompt.js","timeout":3}
+    {"type":"command","command":managed_alias,"timeout":3}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
     {"type":"command","command":foreign,"timeout":3},
@@ -127,7 +130,7 @@ d["hooks"]["UserPromptSubmit"] = [
 json.dump(d,open(p,"w",encoding="utf-8"),indent=2)
 PY
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" "$foreign_hook" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$foreign_hook" <<'PY'
 import json,sys,os
 p,foreign=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
@@ -145,7 +148,7 @@ assert managed_group["matcher"] == "Remember|recall", managed_group
 PY
 
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1],encoding="utf-8"))
 hooks=d["hooks"]["UserPromptSubmit"]
@@ -155,7 +158,7 @@ assert d["permissions"]["allow"]
 PY
 
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" <<'PY'
 import json,sys,os
 d=json.load(open(sys.argv[1],encoding="utf-8"))
 hooks=d["hooks"]["UserPromptSubmit"]
@@ -165,8 +168,8 @@ assert len(matches)==1, matches
 PY
 
 # Foreign hook conflict must refuse without --force.
-rm -f "$HOME/.claude/hooks/memory-search-on-prompt.js"
-printf '%s\n' '#!/bin/sh' 'echo foreign' > "$HOME/.claude/hooks/memory-search-on-prompt.js"
+rm -f "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
+printf '%s\n' '#!/bin/sh' 'echo foreign' > "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 if bash "$ROOT/install.sh" --non-interactive; then
   echo "expected foreign hook conflict" >&2
   exit 1
@@ -174,38 +177,38 @@ fi
 
 # --force replaces the foreign hook, with a backup created.
 bash "$ROOT/install.sh" --non-interactive --force
-grep -q "Canonical Claude Code context retrieval hook." "$HOME/.claude/hooks/memory-search-on-prompt.js" || { echo "installed memory hook marker missing" >&2; exit 1; }
-backup="$(find "$HOME/.claude/.flossware-claude-config/backups" -name 'memory-search-on-prompt.js' -print -quit)"
+grep -q "Canonical Claude Code context retrieval hook." "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" || { echo "installed memory hook marker missing" >&2; exit 1; }
+backup="$(find "$CLAUDE_HOME/.flossware-claude-config/backups" -name 'memory-search-on-prompt.js' -print -quit)"
 test -n "$backup" || { echo "expected memory hook backup missing" >&2; exit 1; }
 
 # Lock must prevent concurrent mutation.
-mkdir "$HOME/.claude/.flossware-claude-config/install.lock"
+mkdir "$CLAUDE_HOME/.flossware-claude-config/install.lock"
 if bash "$ROOT/install.sh" --non-interactive; then
   echo "expected lock failure" >&2
   exit 1
 fi
-rmdir "$HOME/.claude/.flossware-claude-config/install.lock"
+rmdir "$CLAUDE_HOME/.flossware-claude-config/install.lock"
 
 # Uninstall must refuse a modified managed hook.
-printf '%s\n' '// modified' >> "$HOME/.claude/hooks/memory-search-on-prompt.js"
+printf '%s\n' '// modified' >> "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 if bash "$ROOT/uninstall.sh"; then
   echo "expected modified-hook uninstall refusal" >&2
   exit 1
 fi
 
 # A clean uninstall succeeds.
-cp "$ROOT/../../hooks/memory-search-on-prompt.js" "$HOME/.claude/hooks/memory-search-on-prompt.js"
+cp "$ROOT/../../hooks/memory-search-on-prompt.js" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 bash "$ROOT/install.sh" --non-interactive
 bash "$ROOT/uninstall.sh"
-test ! -e "$HOME/.claude/hooks/memory-search-on-prompt.js"
-test ! -e "$HOME/.claude/hooks/session-end-memory-capture.js"
-test ! -e "$HOME/.claude/.flossware-claude-config/manifest.json"
+test ! -e "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
+test ! -e "$CLAUDE_HOME/hooks/session-end-memory-capture.js"
+test ! -e "$CLAUDE_HOME/.flossware-claude-config/manifest.json"
 
 # Rollback must restore an existing manifest instead of deleting it.
 bash "$ROOT/install.sh" --non-interactive
-manifest_before="$(cat "$HOME/.claude/.flossware-claude-config/manifest.json")"
-cp "$HOME/.claude/settings.json" "$TMP/install-settings.before"
-cp "$HOME/.claude/hooks/memory-search-on-prompt.js" "$TMP/install-hook.before"
+manifest_before="$(cat "$CLAUDE_HOME/.flossware-claude-config/manifest.json")"
+cp "$CLAUDE_HOME/settings.json" "$TMP/install-settings.before"
+cp "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" "$TMP/install-hook.before"
 mkdir -p "$TMP/fakebin"
 cat > "$TMP/fakebin/node" <<'SH'
 #!/bin/sh
@@ -220,7 +223,7 @@ exit 1
 SH
 chmod +x "$TMP/fakebin/node"
 export FLOSSWARE_EXPECTED_MEMORY_HOOK="$(cd "$ROOT/../../hooks" && pwd)/memory-search-on-prompt.js"
-export FLOSSWARE_INSTALLED_MEMORY_HOOK="$HOME/.claude/hooks/memory-search-on-prompt.js"
+export FLOSSWARE_INSTALLED_MEMORY_HOOK="$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 export FLOSSWARE_NODE_SOURCE_VALIDATED="$TMP/node-source-validated"
 rm -f "$FLOSSWARE_NODE_SOURCE_VALIDATED"
 if PATH="$TMP/fakebin:/usr/bin:/bin" bash "$ROOT/install.sh" --non-interactive; then
@@ -228,16 +231,16 @@ if PATH="$TMP/fakebin:/usr/bin:/bin" bash "$ROOT/install.sh" --non-interactive; 
   exit 1
 fi
 test -f "$FLOSSWARE_NODE_SOURCE_VALIDATED"
-test -f "$HOME/.claude/.flossware-claude-config/manifest.json"
-test "$(cat "$HOME/.claude/.flossware-claude-config/manifest.json")" = "$manifest_before"
-cmp "$HOME/.claude/settings.json" "$TMP/install-settings.before"
-cmp "$HOME/.claude/hooks/memory-search-on-prompt.js" "$TMP/install-hook.before"
+test -f "$CLAUDE_HOME/.flossware-claude-config/manifest.json"
+test "$(cat "$CLAUDE_HOME/.flossware-claude-config/manifest.json")" = "$manifest_before"
+cmp "$CLAUDE_HOME/settings.json" "$TMP/install-settings.before"
+cmp "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" "$TMP/install-hook.before"
 
 # Uninstall must roll back hook, settings, and manifest if settings removal fails.
 bash "$ROOT/install.sh" --non-interactive
-cp "$HOME/.claude/settings.json" "$TMP/uninstall-settings.before"
-cp "$HOME/.claude/hooks/memory-search-on-prompt.js" "$TMP/uninstall-hook.before"
-cp "$HOME/.claude/.flossware-claude-config/manifest.json" "$TMP/uninstall-manifest.before"
+cp "$CLAUDE_HOME/settings.json" "$TMP/uninstall-settings.before"
+cp "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" "$TMP/uninstall-hook.before"
+cp "$CLAUDE_HOME/.flossware-claude-config/manifest.json" "$TMP/uninstall-manifest.before"
 cat > "$TMP/fakebin/python3" <<'SH'
 #!/bin/sh
 if [ "$2" = "remove-hook" ]; then
@@ -251,13 +254,13 @@ if PATH="$TMP/fakebin:$PATH" bash "$ROOT/uninstall.sh"; then
   echo "expected uninstall failure" >&2
   exit 1
 fi
-cmp "$HOME/.claude/settings.json" "$TMP/uninstall-settings.before"
-cmp "$HOME/.claude/hooks/memory-search-on-prompt.js" "$TMP/uninstall-hook.before"
-cmp "$HOME/.claude/.flossware-claude-config/manifest.json" "$TMP/uninstall-manifest.before"
+cmp "$CLAUDE_HOME/settings.json" "$TMP/uninstall-settings.before"
+cmp "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" "$TMP/uninstall-hook.before"
+cmp "$CLAUDE_HOME/.flossware-claude-config/manifest.json" "$TMP/uninstall-manifest.before"
 rm -f "$TMP/fakebin/python3"
 # A modified managed hook must not be overwritten without --force.
 bash "$ROOT/install.sh" --non-interactive
-printf '%s\n' '// user modification' >> "$HOME/.claude/hooks/memory-search-on-prompt.js"
+printf '%s\n' '// user modification' >> "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 if bash "$ROOT/install.sh" --non-interactive; then
   echo "expected modified managed hook conflict" >&2
   exit 1
@@ -265,7 +268,7 @@ fi
 bash "$ROOT/install.sh" --non-interactive --force
 
 # Uninstall must fail closed on malformed or incomplete ownership manifests.
-manifest="$HOME/.claude/.flossware-claude-config/manifest.json"
+manifest="$CLAUDE_HOME/.flossware-claude-config/manifest.json"
 cp "$manifest" "$TMP/valid-manifest.json"
 printf '%s\n' '{"product":"flossware-claude-config"}' > "$manifest"
 if bash "$ROOT/uninstall.sh"; then
@@ -287,11 +290,13 @@ fi
 cp "$TMP/valid-manifest.json" "$manifest"
 
 # Hook commands must remain valid when HOME contains spaces.
-rm -rf "$HOME/.claude"
+rm -rf "$CLAUDE_HOME"
 export HOME="$TMP/home with spaces"
-mkdir -p "$HOME/.claude"
+CLAUDE_HOME="$TMP/ce profile with spaces"
+export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME"
+mkdir -p "$CLAUDE_HOME"
 bash "$ROOT/install.sh" --non-interactive
-python3 - "$HOME/.claude/settings.json" "$HOME/.claude/hooks/memory-search-on-prompt.js" <<'PY'
+python3 - "$CLAUDE_HOME/settings.json" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,shlex
 settings=json.load(open(sys.argv[1],encoding="utf-8"))
 command=next(h["command"] for g in settings["hooks"]["UserPromptSubmit"] for h in g["hooks"])
@@ -305,10 +310,10 @@ python3 "$ROOT/tests/test-memory-sync.py"
 
 # SessionEnd capture must always have an unconditional matcher-free registration.
 session_settings="$TMP/session-end-settings.json"
-session_hook="$HOME/.claude/hooks/session-end-memory-capture.js"
+session_hook="$CLAUDE_HOME/hooks/session-end-memory-capture.js"
 session_source="$ROOT/../../hooks/session-end-memory-capture.js"
 assert_session_coverage() {
-  python3 "$ROOT/lib/json_tool.py" validate-settings "$1" "$HOME/.claude/hooks/memory-search-on-prompt.js" "$session_hook" >/dev/null
+  python3 "$ROOT/lib/json_tool.py" validate-settings "$1" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" "$session_hook" >/dev/null
   python3 - "$1" "$session_hook" <<'PY'
 import json,sys,shlex
 settings=json.load(open(sys.argv[1],encoding="utf-8"))
@@ -320,7 +325,7 @@ assert "matcher" not in matches[0], matches[0]
 PY
 }
 # Existing canonical registration under a restricted matcher must be widened.
-python3 - "$session_settings" "$session_hook" "$HOME/.claude/hooks/memory-search-on-prompt.js" <<'PY'
+python3 - "$session_settings" "$session_hook" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,shlex
 p,command,prompt=sys.argv[1:]
 json.dump({"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":prompt}]}],"SessionEnd":[{"matcher":"clear","hooks":[{"type":"command","command":shlex.quote(command)}]}]}},open(p,"w",encoding="utf-8"))
@@ -329,7 +334,7 @@ python3 "$ROOT/lib/json_tool.py" install-session-end-hook "$session_settings" "$
 assert_session_coverage "$session_settings"
 # A restricted registration followed by an unconditional one must not cause
 # deduplication to preserve the restricted group.
-python3 - "$session_settings" "$session_hook" "$HOME/.claude/hooks/memory-search-on-prompt.js" <<'PY'
+python3 - "$session_settings" "$session_hook" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,shlex
 p,command,prompt=sys.argv[1:]
 quoted=shlex.quote(command)
@@ -339,7 +344,7 @@ python3 "$ROOT/lib/json_tool.py" install-session-end-hook "$session_settings" "$
 assert_session_coverage "$session_settings"
 # A mixed group keeps the unrelated handler and its matcher, while canonical
 # capture moves to its own unconditional group.
-python3 - "$session_settings" "$session_hook" "$HOME/.claude/hooks/memory-search-on-prompt.js" <<'PY'
+python3 - "$session_settings" "$session_hook" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,shlex
 p,command,prompt=sys.argv[1:]
 json.dump({"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":prompt}]}],"SessionEnd":[{"matcher":"clear","hooks":[{"type":"command","command":shlex.quote(command)},{"type":"command","command":"/tmp/user-session-end-hook"}]}]}},open(p,"w",encoding="utf-8"))
@@ -352,5 +357,61 @@ settings=json.load(open(sys.argv[1],encoding="utf-8"))
 group=next(g for g in settings["hooks"]["SessionEnd"] if any(h.get("command")=="/tmp/user-session-end-hook" for h in g.get("hooks",[]) if isinstance(h,dict)))
 assert group.get("matcher")=="clear", group
 PY
+
+
+# Explicit Claude profile selection must isolate install from the real default HOME/.claude.
+default_profile="$HOME/.claude"
+mkdir -p "$default_profile"
+printf '%s\n' '{"sentinel":"work-managed default profile"}' > "$default_profile/settings.json"
+default_settings="$default_profile/settings.json"
+default_before="$(sha256sum "$default_settings" | awk '{print $1}')"
+ce_profile="$TMP/dedicated CE profile"
+mkdir -p "$ce_profile"
+ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ce_profile" CLAUDE_CONFIG_DIR="$ce_profile" bash "$ROOT/install.sh" --non-interactive
+test -f "$ce_profile/settings.json"
+test -f "$ce_profile/hooks/memory-search-on-prompt.js"
+test -f "$ce_profile/hooks/session-end-memory-capture.js"
+test -f "$ce_profile/.flossware-claude-config/manifest.json"
+test "$(sha256sum "$default_settings" | awk '{print $1}')" = "$default_before"
+test ! -e "$default_profile/hooks"
+
+# A hooks-directory symlink must be rejected before any write can escape the profile.
+unsafe_profile="$TMP/unsafe CE profile"
+outside_hooks="$TMP/outside hooks"
+mkdir -p "$unsafe_profile" "$outside_hooks"
+printf '%s\n' '{"permissions":{}}' > "$unsafe_profile/settings.json"
+ln -s "$outside_hooks" "$unsafe_profile/hooks"
+unsafe_settings_before="$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')"
+if ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$unsafe_profile" CLAUDE_CONFIG_DIR="$unsafe_profile" bash "$ROOT/install.sh" --non-interactive; then
+  echo "expected symlinked hooks-directory refusal" >&2
+  exit 1
+fi
+test "$(sha256sum "$unsafe_profile/settings.json" | awk '{print $1}')" = "$unsafe_settings_before"
+test ! -e "$outside_hooks/memory-search-on-prompt.js"
+test ! -e "$outside_hooks/session-end-memory-capture.js"
+
+# Installer must fail closed without an explicitly selected CE profile.
+no_profile_home="$TMP/no-profile-home"
+mkdir -p "$no_profile_home/.claude"
+printf '%s\n' '{"sentinel":"must remain untouched"}' > "$no_profile_home/.claude/settings.json"
+if env -u ENSEMBLE_CLAUDE_CODE_CONFIG_DIR -u CLAUDE_CONFIG_DIR HOME="$no_profile_home" bash "$ROOT/install.sh" --non-interactive; then
+  echo "expected install without an explicit profile to fail" >&2
+  exit 1
+fi
+test ! -e "$no_profile_home/.claude/hooks"
+grep -q 'must remain untouched' "$no_profile_home/.claude/settings.json"
+
+# Installer must refuse a symlinked hooks directory and leave its target intact.
+linked_profile="$TMP/linked-profile"
+external_hooks="$TMP/external-hooks"
+mkdir -p "$linked_profile" "$external_hooks"
+printf '%s\n' '{"sentinel":"external hook target"}' > "$external_hooks/memory-search-on-prompt.js"
+ln -s "$external_hooks" "$linked_profile/hooks"
+if ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$linked_profile" HOME="$TMP/linked-home" bash "$ROOT/install.sh" --non-interactive --force; then
+  echo "expected symlinked hooks directory to be refused" >&2
+  exit 1
+fi
+grep -q 'external hook target' "$external_hooks/memory-search-on-prompt.js"
+test ! -e "$linked_profile/settings.json"
 
 echo "claude-config tests passed"
