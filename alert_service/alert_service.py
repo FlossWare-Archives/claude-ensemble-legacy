@@ -346,7 +346,7 @@ class AlertService:
         self.socket.bind(str(self.socket_path))
         self.socket.listen(5)
         # Wake periodically to check whether the service-owned monitoring interval elapsed.
-        self.socket.settimeout(1.0)
+        self.socket.settimeout(min(1.0, self.check_interval_seconds))
 
         logger.info(
             "Listening on %s; scheduled alert checks every %.0f seconds",
