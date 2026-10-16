@@ -25,6 +25,7 @@ export const meta = {
 
 import crypto from 'node:crypto'
 import { compressDiff } from '../shared/compression-bridge.js'
+import { recordEvidenceGatedOutcome } from '../shared/learning-outcome-bridge.js'
 import CachingBridge from '../shared/caching-bridge.js'
 
 function generateRequestId(prefix = 'skill_pr_review') {
@@ -57,27 +58,22 @@ print(c.select_model(data['task_type'], required_capability=0.7, request_id=data
   }
 }
 
-async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId) {
+async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId, evidence) {
   try {
-        const jsonPayload = JSON.stringify({ task_id: taskId, task_type: taskType, model, rating, tokens, cost, request_id: requestId })
-    execSync(`python3 -c "
-import sys
-import json
-sys.path.insert(0, '../learning')
-from learning_client import LearningClient
-data = json.loads('${jsonPayload.replace(/'/g, "\\'")}')
-c = LearningClient()
-c.process_outcome(data['task_id'], data['task_type'], data['model'], data['rating'], data['tokens'], data['cost'], data['request_id'])
-"`, {
-      cwd: process.env.PWD,
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+    const response = recordEvidenceGatedOutcome({
+      runId: requestId,
+      taskId,
+      taskType,
+      model,
+      rating,
+      tokens,
+      cost,
+      evidence,
     })
-    log(`[Learning] Recorded: ${taskId} (${model}, rating=${rating}, ${tokens} tokens, $${cost.toFixed(4)})`)
+    log(`[Learning] Acknowledged: ${taskId} (${model}, rating=${rating})`)
     return true
   } catch (err) {
-    log(`⚠️ Learning recording failed (non-blocking): ${err.message}`)
+    log(`⚠️ Learning recording skipped/failed (non-blocking): ${err.message}`)
     return false
   }
 }
@@ -187,7 +183,7 @@ async function fetchPR(agent, platform, prNumber) {
   const result = await agent(`Fetch PR #${prNumber} details.
 
 Execute:
-${platform.cli} pr view ${prNumber} --json number,title,author,body,headRefName,baseRefName,state
+${platform.cli} pr view ${prNumber} --json number,title,author,body,headRefName,baseRefName,state,url
 
 Return PR information.`, {
     label: `Fetch PR #${prNumber}`,
@@ -200,7 +196,8 @@ Return PR information.`, {
         body: { type: 'string' },
         head_branch: { type: 'string' },
         base_branch: { type: 'string' },
-        state: { type: 'string' }
+        state: { type: 'string' },
+        url: { type: 'string' }
       }
     }
   })
@@ -790,7 +787,12 @@ export default async function run({ agent, log, phase, workflow, args }) {
       qualityRating,
       estimatedTokens,
       estimatedCost,
-      prRequestId
+      prRequestId,
+      {
+        kind: 'review-decision',
+        reference: pr.url || pr.html_url || pr.web_url || '',
+        summary: `Arbiter decision ${decision.final_decision}; action ${autoAction}; quality score ${Math.round(avgQuality)}/100; risk ${impact.risk_level}; breaking changes ${impact.breaking_changes.length}.`
+      }
     )
   
     return {
@@ -803,7 +805,8 @@ export default async function run({ agent, log, phase, workflow, args }) {
       impact_risk: impact.risk_level,
       breaking_changes: impact.breaking_changes.length,
       approved: autoAction === 'APPROVE',
-      rejected: autoAction === 'REJECT'
+      rejected: autoAction === 'REJECT',
+      pr_url: pr.url || pr.html_url || pr.web_url || ''
     }
   }
   
@@ -873,20 +876,7 @@ export default async function run({ agent, log, phase, workflow, args }) {
     request_id: workflowRequestId
   }
   
-  // INTEGRATION POINT 3: Record workflow outcome to Learning service
-  const workflowQuality = validResults.length === prsThisRun.length ? 4 : validResults.length >= prsThisRun.length * 0.8 ? 3 : 2
-  const workflowTokens = validResults.reduce((sum, r) => sum + (r.quality_score ? 300 : 0), 0) + 500
-  const workflowCost = calculateCost('opus', 200, workflowTokens)
-  
-  await recordOutcomeToLearning(
-    workflowRequestId,
-    'code-pr-review-workflow',
-    'opus',
-    workflowQuality,
-    workflowTokens,
-    workflowCost,
-    workflowRequestId
-  )
+  // Per-PR outcomes above are the learning units; do not double-count the batch summary.
   
   // Extract learnings
   try {

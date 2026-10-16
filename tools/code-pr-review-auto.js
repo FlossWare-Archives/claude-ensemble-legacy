@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import { getSkillArbiter, getSkillModels, loadUserModelConfig } from '../shared/model-config-loader.js'
 import { authorizePRMutation } from '../shared/pr-mutation-policy.js'
 import { getTrustedPRContext } from '../shared/trusted-pr-context.js'
+import { recordEvidenceGatedOutcome } from '../shared/learning-outcome-bridge.js'
 
 export const meta = {
   name: 'code-pr-review-auto',
@@ -56,28 +57,22 @@ print(c.select_model(data['task_type'], required_capability=0.7, request_id=data
   }
 }
 
-async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId) {
+async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId, evidence) {
   try {
-    const { execSync } = require('child_process')
-    const jsonPayload = JSON.stringify({ task_id: taskId, task_type: taskType, model, rating, tokens, cost, request_id: requestId })
-    execSync(`python3 -c "
-import sys
-import json
-sys.path.insert(0, '../learning')
-from learning_client import LearningClient
-data = json.loads('${jsonPayload.replace(/'/g, "\\'")}')
-c = LearningClient()
-c.process_outcome(data['task_id'], data['task_type'], data['model'], data['rating'], data['tokens'], data['cost'], data['request_id'])
-"`, {
-      cwd: process.env.PWD,
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+    const response = recordEvidenceGatedOutcome({
+      runId: requestId,
+      taskId,
+      taskType,
+      model,
+      rating,
+      tokens,
+      cost,
+      evidence,
     })
-    log(`[Learning] Recorded: ${taskId} (${model}, rating=${rating})`)
+    log(`[Learning] Acknowledged: ${taskId} (${model}, rating=${rating})`)
     return true
   } catch (err) {
-    log(`⚠️ Learning recording failed (non-blocking): ${err.message}`)
+    log(`⚠️ Learning recording skipped/failed (non-blocking): ${err.message}`)
     return false
   }
 }
@@ -165,7 +160,7 @@ async function fetchPR(agent, platform, prNumber) {
   const result = await agent(`Fetch PR #${prNumber} details.
 
 Execute:
-${platform.cli} pr view ${prNumber} --json number,title,author,body,headRefName,baseRefName,state
+${platform.cli} pr view ${prNumber} --json number,title,author,body,headRefName,baseRefName,state,url
 
 Return PR information, including repository owner and repository name.`, {
     label: `Fetch PR #${prNumber}`,
@@ -179,6 +174,7 @@ Return PR information, including repository owner and repository name.`, {
         head_branch: { type: 'string' },
         base_branch: { type: 'string' },
         state: { type: 'string' },
+        url: { type: 'string' },
         repo_owner: { type: 'string' },
         repo_name: { type: 'string' }
       }
@@ -731,6 +727,7 @@ ${platform.cli} pr review ${prNum} --request-changes --body "⚠️ Changes requ
 
   return {
     pr_number: prNum,
+    pr_url: pr.url || pr.html_url || pr.web_url || '',
     title: pr.title,
     quality_score: Math.round(avgQuality),
     ai_decision: decision.final_decision,
@@ -810,7 +807,12 @@ await recordOutcomeToLearning(
   autoQuality,
   autoTokens,
   autoCost,
-  workflowRequestId
+  workflowRequestId,
+  {
+    kind: 'review-batch-result',
+    reference: validResults.map(item => item.pr_url).filter(Boolean).slice(0, 3).join(','),
+    summary: `Automated review processed ${validResults.length}/${prsThisRun.length} pull requests; approved ${validResults.filter(item => item.approved).length}, changes requested ${validResults.filter(item => item.rejected).length}; aggregate quality ${autoQuality}/5. Decisions: ${validResults.slice(0, 10).map(item => `#${item.pr_number} ${item.auto_action} quality=${item.quality_score} risk=${item.impact_risk}`).join('; ')}.`
+  }
 )
 
 // Extract learnings

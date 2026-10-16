@@ -30,7 +30,7 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 - **Release Notes** (`code-release-notes`) — Generate from commits with multi-AI consensus
 - **Autonomous Variants** (`code-pr-review-auto`, `code-doc-auto`) — Run without user confirmation
 
-All skills feed outcomes into Thompson — models learn task-specific performance over time.
+Workflow outcomes pass through the Learning service only when they have durable, evidence-backed evaluation artifacts. Learning owns persistence, deduplication, and Thompson updates; generic session completion is never treated as a quality rating.
 
 ### Capabilities  
 - **Compression** — 64.6% token reduction via recursive text compression
