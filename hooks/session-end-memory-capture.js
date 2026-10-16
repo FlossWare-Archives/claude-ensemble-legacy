@@ -5,7 +5,8 @@
  *
  * Captures only stable, non-transcript session metadata. It never reads the
  * transcript, triggers Learning, mutates learner state, or promotes Knowledge.
- * Delivery is idempotent through Memory's append-once endpoint.
+ * Memory delivery is idempotent through append-once; a metadata-only session
+ * event is also published to Messenger for other CE sessions.
  */
 
 const MEMORY_URL = process.env.FLOSSWARE_MEMORY_URL || 'http://127.0.0.1:8767';
