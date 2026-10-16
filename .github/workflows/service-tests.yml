@@ -78,7 +78,7 @@ jobs:
             arbitration/test_orchestrator.py \
             collaboration/test_orchestrator.py \
             providers/test_claude_code.py \
-            providers/test_registry.py
+            providers/test_registry.py \\
             providers/test_google.py \
             providers/test_http_deadline.py \
             memory-service/test_memory_service.py \
