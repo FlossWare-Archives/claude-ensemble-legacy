@@ -202,3 +202,37 @@
 }
 ```
 
+## 2026-10-16T16:01:01.138556+00:00
+
+```json
+{
+  "timestamp": "2026-10-16T16:01:01.138556+00:00",
+  "run_id": "ga-20261016_120100-5821bb30ce25",
+  "parameters": {
+    "compression": {
+      "compression_level": 3.1971339922894186,
+      "target_reduction": 0.21250537761133348
+    },
+    "thompson": {
+      "alpha_prior": 0.7318646084503697,
+      "beta_prior": 0.6095245056996593,
+      "cost_weight": 0.4087730598528384
+    },
+    "caching": {
+      "ttl_seconds": 210.8480603248924,
+      "cache_threshold": 0.4648627785100006
+    },
+    "matrix": {
+      "domain_weight": 0.1843931374345306,
+      "complexity_weight": 0.5771638857340218,
+      "task_weight": 0.4505470505890675
+    },
+    "dashboard": {
+      "learning_rate": 0.19122502622900522,
+      "exploration_decay": 0.9726194116529472,
+      "alert_threshold": 0.4668245432257449
+    }
+  }
+}
+```
+
