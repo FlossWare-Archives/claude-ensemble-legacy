@@ -22,7 +22,6 @@
             "type": "command",
             "command": "~/.claude/hooks/memory-search-on-prompt.js",
             "statusMessage": "Searching Claude Ensemble context...",
-            "async": true
           }
         ]
       }
