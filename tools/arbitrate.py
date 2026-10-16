@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
+from tools.pr_context import load_pull_request_context
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def _prepare_review_context(
         if not number.isdigit():
             raise ValueError(f"Invalid pull request target: {target}")
         repo_path = _git_root(Path.cwd())
-        _load_pull_request_context(orch, repo_path, number)
+        load_pull_request_context(orch, repo_path, number)
         subject = f"PR #{number} in {repo_path.name}"
     else:
         target_path = Path(target).expanduser().resolve()
