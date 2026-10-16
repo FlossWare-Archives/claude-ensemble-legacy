@@ -447,8 +447,9 @@ RH AI Toolkit Monitoring
         """Deduplicate one alert type per local day, preventing 30-minute alert spam."""
         day = datetime.now().date().isoformat()
         alert_type = str(alert.get("alert_type", "unknown"))
-        digest = hashlib.sha256(f"{day}:{alert_type}".encode("utf-8")).hexdigest()[:16]
-        return f"{day}:{alert_type}:{digest}"
+        severity = str(alert.get("severity", "unknown"))
+        digest = hashlib.sha256(f"{day}:{alert_type}:{severity}".encode("utf-8")).hexdigest()[:16]
+        return f"{day}:{alert_type}:{severity}:{digest}"
 
     def _has_alert_id(self, alert_id: str) -> bool:
         return any(
