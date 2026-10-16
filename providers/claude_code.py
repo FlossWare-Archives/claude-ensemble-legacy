@@ -63,6 +63,13 @@ class ClaudeCodeProvider(ModelProvider):
         if request.system_prompt:
             command.extend(["--system-prompt", request.system_prompt])
 
+        # Claude Code can fail to consume stdin-only prompts in some runtime
+        # configurations. Keep the full task on stdin, and provide a short
+        # positional instruction telling the CLI to process that input.
+        command.append(
+            "Follow the complete task supplied on standard input and respond to it directly."
+        )
+
         if self.expected_provider:
             self._verify_upstream_provider_before_invocation(executable)
 
