@@ -24,7 +24,7 @@ class InstalledHookSmokeTests(unittest.TestCase):
         (self.hook_dir / "memory-search-on-prompt.js").write_text("// fixture")
         self.correlation_id = "test-correlation"
 
-    def run_smoke(self, stdout: str, stderr: str = "", *, require_context: bool = False):
+    def run_smoke(self, stdout: str, stderr: str = "", *, require_context: bool = False, require_knowledge: bool = False):
         completed = type("Completed", (), {
             "returncode": 0,
             "stdout": stdout,
@@ -37,6 +37,7 @@ class InstalledHookSmokeTests(unittest.TestCase):
             return ce_diagnose.installed_hook_smoke(
                 self.hook_dir, self.correlation_id, 1.0,
                 require_context=require_context,
+                require_knowledge=require_knowledge,
             )[0]
 
     def test_empty_retrieval_is_warning_not_false_success(self) -> None:
@@ -77,6 +78,39 @@ class InstalledHookSmokeTests(unittest.TestCase):
         self.assertIn("Memory=2", result["detail"])
         self.assertIn("Knowledge=1", result["detail"])
         self.assertIn("Graph=3", result["detail"])
+
+    def test_prompt_context_acceptance_fails_when_knowledge_is_missing(self) -> None:
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": "Relevant Claude Ensemble Context with an operational event",
+                "contextRetrieval": {
+                    "memoryCount": 9,
+                    "knowledgeCount": 0,
+                    "graphCount": 0,
+                },
+            },
+        }
+        result = self.run_smoke(json.dumps(payload), require_context=True, require_knowledge=True)
+        self.assertEqual(result["status"], "fail")
+        self.assertIn("no Knowledge documents", result["detail"])
+        self.assertIn("knowledge-sync --root /path/to/project", result["remediation"])
+
+    def test_prompt_context_acceptance_passes_with_knowledge(self) -> None:
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": "Relevant Claude Ensemble Context",
+                "contextRetrieval": {
+                    "memoryCount": 9,
+                    "knowledgeCount": 1,
+                    "graphCount": 0,
+                },
+            },
+        }
+        result = self.run_smoke(json.dumps(payload), require_context=True, require_knowledge=True)
+        self.assertEqual(result["status"], "pass")
+        self.assertIn("Knowledge=1", result["detail"])
 
 
 if __name__ == "__main__":
