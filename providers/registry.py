@@ -102,7 +102,7 @@ class ProviderRegistry:
             self._provider("google")
             return "google", _DEFAULT_GEMINI_MODEL
 
-        if lowered.startswith(("gemini-", "gemini_", "models/gemini-")):
+        if lowered.startswith(("gemini-", "models/gemini-")):
             self._require_google_authorized(allow_external_data)
             self._provider("google")
             return "google", lowered.removeprefix("models/")
