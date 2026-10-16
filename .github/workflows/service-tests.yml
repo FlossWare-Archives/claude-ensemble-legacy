@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   integration-tests:
@@ -79,6 +78,8 @@ jobs:
             collaboration/test_orchestrator.py \
             providers/test_claude_code.py \
             providers/test_registry.py \
+            providers/test_google.py \
+            providers/test_http_deadline.py \
             memory-service/test_memory_service.py \
             alert_service/test_alert_service.py \
             graph-service/test_graph_service.py \

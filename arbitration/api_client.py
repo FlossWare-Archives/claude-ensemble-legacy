@@ -108,6 +108,7 @@ class MultiModelClient:
         worker: str | None = None,
         route: str | None = None,
         task_type: str | None = None,
+        allow_external_data: bool = False,
     ) -> ModelResponse:
         """Call a selected model and return the normalized provider response."""
         execution_id = execution_id or str(uuid4())
@@ -115,8 +116,8 @@ class MultiModelClient:
         provider_name: str | None = None
         canonical_model: str | None = model
         try:
-            _, canonical_model = self.registry.resolve_model(model)
-            provider = self.registry.resolve(model)
+            _, canonical_model = self.registry.resolve_model(model, allow_external_data=allow_external_data)
+            provider = self.registry.resolve(model, allow_external_data=allow_external_data)
             provider_name = getattr(provider, "name", None) or getattr(provider, "provider_name", None)
             response = provider.generate(
                 ModelRequest(

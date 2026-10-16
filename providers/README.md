@@ -1,47 +1,47 @@
-# Model Runtime
+# Model Providers
 
-Claude Ensemble now has one active model runtime: the installed Claude Code CLI.
-Memory, Learning, Thompson, GA, Graph, Alert, Messenger, arbitration, and
-collaboration remain independent systems; they are not provider implementations
-and are not removed by this simplification.
+Claude Ensemble uses a provider-neutral `ModelProvider` contract and explicit
+model-to-provider routing.
 
-## Runtime contract
+## Supported runtimes
 
-`MultiModelClient` and `ModelRequest` / `ModelResponse` remain as compatibility
-interfaces so existing orchestration, metrics, and learning code does not need
-to be rewritten. `ProviderRegistry` sends every model invocation through
-`ClaudeCodeProvider`. It does not dispatch to direct Anthropic, Google, Cursor,
-OpenAI, or local-model APIs.
+- **Claude models** (`haiku`, `sonnet`, `opus`, and explicit `claude-*`
+  model IDs) run through the installed Claude Code CLI. The CLI auth status and
+  response metadata must match `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER`, which
+  defaults to `vertex`. A mismatch fails closed before the prompt is sent.
+- **Google Gemini** (`gemini` and `gemini-*`) uses the Google Generative
+  Language API and `GOOGLE_API_KEY`. It is disabled by default because it sends
+  request content to Google. Enable it only for workloads approved to send data
+  to Google by setting `ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true` in the service
+  environment. Do not enable it for restricted/internal-code workloads.
 
-Claude model aliases `haiku`, `sonnet`, and `opus` pass through to Claude Code.
-Legacy non-Claude model labels are temporarily mapped to `sonnet` so old worker
-lists still execute during migration. This is a compatibility fallback, not
-multi-model diversity. Update routing/configuration to use Claude model aliases.
+There is no implicit fallback between these providers. A Gemini request cannot
+run on Sonnet, and an unknown model label fails clearly. Legacy labels such as
+`gpt-4`, `cursor`, and `ollama-local` are rejected until their real adapters
+are implemented and configured.
 
-## Authentication and data policy
+## Credentials
 
-Claude Code owns authentication. CE does not read or copy credentials from the
-Claude configuration directory. The CLI inherits the service process
-environment unless an explicit provider environment is supplied.
+Google credentials can be supplied with `GOOGLE_API_KEY`, numbered environment
+variables, or `ENSEMBLE_CREDENTIALS_FILE`. Credential status endpoints return
+account names and states only, never secret values. Protect credential files
+with mode 0600.
 
-Before sending a prompt, the adapter runs `claude auth status` and requires
-`apiProvider` to match `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER`. If status cannot
-be read or does not match, the prompt is not sent. The adapter also checks the
-provider metadata reported in the response. The default expectation is
-`vertex`; set an explicit value only when the target data is authorized for
-that upstream. **For Red Hat internal code, keep the expected provider set to
-`vertex`; do not route that code through Anthropic or another upstream.**
+## Contracts and deadlines
 
-Do not change the user's existing `~/.claude` authentication configuration as
-part of installing CE. Profile and hook installation are separate from model
-runtime selection.
+All adapters implement `ModelProvider.generate(ModelRequest)` and return a
+normalized `ModelResponse`. Provider HTTP calls use the standard-library
+transport with an overall deadline and process cleanup. The compatibility
+facade in `arbitration/api_client.py` retains `MultiModelClient`.
 
-## Smoke test
+## Safety boundary
 
-With Claude Code installed and authenticated to the permitted upstream:
+Provider support does not mean every workload may use every provider. Keep the
+Claude Code expected-upstream setting aligned with the deployment policy, and
+keep Google API routing disabled unless the data owner has approved that
+destination. External reviewer services are a separate configuration surface.
 
-```bash
-python -c 'from arbitration.api_client import MultiModelClient; print(MultiModelClient().call_model("sonnet", "Reply with one word."))'
-```
 
-The automated tests mock Claude Code and do not require live credentials.
+### Per-request external-data authorization
+
+The `ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true` service flag alone does not authorize sending prompts to Google. A trusted internal caller must also pass `allow_external_data=True` for that specific `MultiModelClient.call_model_response` call. The public REST `/api/v1/models/invoke` endpoint does not accept client-supplied authorization flags. Keep Google disabled for restricted/internal-code workloads.
