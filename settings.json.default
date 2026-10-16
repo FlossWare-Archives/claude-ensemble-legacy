@@ -21,7 +21,7 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/memory-search-on-prompt.js",
-            "statusMessage": "Searching memory...",
+            "statusMessage": "Searching Claude Ensemble context...",
             "async": true
           }
         ]
@@ -33,9 +33,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/session-end-comprehensive-capture.sh",
-            "statusMessage": "Capturing session data...",
-            "async": false
+            "command": "node ~/.claude/hooks/session-end-memory-capture.js",
+            "statusMessage": "Capturing session event...",
+            "async": false,
+            "timeout": 3
           }
         ]
       }
