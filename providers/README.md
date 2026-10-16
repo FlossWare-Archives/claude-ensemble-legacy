@@ -14,9 +14,10 @@ to be rewritten. `ProviderRegistry` sends every model invocation through
 OpenAI, or local-model APIs.
 
 Claude model aliases `haiku`, `sonnet`, and `opus` pass through to Claude Code.
-Legacy non-Claude model labels are temporarily mapped to `sonnet` so old worker
-lists still execute during migration. This is a compatibility fallback, not
-multi-model diversity. Update routing/configuration to use Claude model aliases.
+Unsupported labels such as `gemini`, `gpt-4`, `cursor`, and `ollama-local`
+are rejected. CE never silently substitutes Sonnet for a different requested
+provider. Gemini routing, when available on a later explicit-routing branch,
+must remain opt-in and policy-gated.
 
 ## Authentication and data policy
 
