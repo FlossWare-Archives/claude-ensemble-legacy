@@ -195,7 +195,8 @@ def unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
 
 
 def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
-                        include_session_end: bool = False) -> list[dict[str, Any]]:
+                        include_session_end: bool = False,
+                        require_context: bool = False) -> list[dict[str, Any]]:
     """Run the installed prompt hook; optionally run metadata-only SessionEnd capture."""
     results: list[dict[str, Any]] = []
     node = shutil.which("node")
@@ -218,6 +219,8 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
     env.setdefault("FLOSSWARE_GRAPH_URL", "http://127.0.0.1:8766")
     env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = str(int(timeout * 1000))
     env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = str(int(timeout * 1000))
+    if require_context:
+        env["FLOSSWARE_CE_HOOK_DIAGNOSTICS"] = "1"
     env.setdefault("CLAUDE_MESSENGER_SOCKET",
                    os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") +
                    "/claude-messenger/claude-messenger.sock")
@@ -237,18 +240,51 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
         )
         elapsed = round((time.monotonic() - started) * 1000)
         failed = result.returncode != 0 or "Memory search unavailable:" in result.stderr or "Graph context unavailable" in result.stderr
+        context_emitted = False
+        retrieval: dict[str, Any] = {}
         if not failed and result.stdout.strip():
             try:
                 payload = json.loads(result.stdout)
                 output = payload.get("hookSpecificOutput", {})
-                failed = not isinstance(output, dict) or output.get("hookEventName") != "UserPromptSubmit" or not isinstance(output.get("additionalContext"), str)
+                failed = (
+                    not isinstance(output, dict)
+                    or output.get("hookEventName") != "UserPromptSubmit"
+                    or not isinstance(output.get("additionalContext"), str)
+                    or not output.get("additionalContext", "").strip()
+                )
+                if not failed:
+                    context_emitted = True
+                    raw_retrieval = output.get("contextRetrieval", {})
+                    retrieval = raw_retrieval if isinstance(raw_retrieval, dict) else {}
             except (json.JSONDecodeError, AttributeError):
                 failed = True
-        record(results, "hooks.user_prompt_submit", "fail" if failed else "pass",
-               "installed prompt hook failed its live service contract" if failed
-               else "installed prompt hook completed without Memory/Graph errors",
+        diagnostic_events = []
+        for line in result.stderr.splitlines():
+            prefix = "CE_HOOK_DIAGNOSTICS "
+            if line.startswith(prefix):
+                try:
+                    diagnostic_events.append(json.loads(line[len(prefix):]))
+                except json.JSONDecodeError:
+                    pass
+        completed = next((event for event in reversed(diagnostic_events)
+                          if event.get("event") == "completed"), {})
+        no_context = not failed and not context_emitted
+        if require_context and no_context:
+            failed = True
+        detail = (
+            "installed prompt hook failed its live service contract"
+            if failed else
+            f"installed prompt hook emitted context (Memory={retrieval.get('memoryCount', '?')}, "
+            f"Knowledge={retrieval.get('knowledgeCount', '?')}, Graph={retrieval.get('graphCount', '?')})"
+            if context_emitted else
+            f"hook ran but emitted no context (Memory status={completed.get('memoryStatus', 'unknown')}, "
+            f"results={completed.get('memoryResultCount', 'unknown')}, Graph status={completed.get('graphStatus', 'unknown')}); "
+            "service health alone does not prove relevant context exists"
+        )
+        status = "fail" if failed else ("warn" if no_context else "pass")
+        record(results, "hooks.user_prompt_submit", status, detail,
                elapsed, str(prompt_hook),
-               "Check installed hook path and live Memory/Graph service configuration." if failed else "")
+               "Check the selected hook path, Memory search results, and live Memory/Graph service configuration." if failed or no_context else "")
     except (OSError, subprocess.TimeoutExpired) as exc:
         elapsed = round((time.monotonic() - started) * 1000)
         record(results, "hooks.user_prompt_submit", "fail",
@@ -289,6 +325,8 @@ def main() -> int:
                         help="exercise read-only Memory/Graph/Decision operations and the isolated Learning-to-Thompson pipeline")
     parser.add_argument("--hook-smoke", action="store_true",
                         help="run the installed UserPromptSubmit hook against live Memory/Graph services")
+    parser.add_argument("--prompt-context-smoke", action="store_true",
+                        help="require the selected installed prompt hook to emit non-empty context; does not invoke Claude or prove model receipt")
     parser.add_argument("--session-end-smoke", action="store_true",
                         help="also run SessionEnd; writes one metadata-only event to production Memory and publishes a transient Messenger event")
     parser.add_argument("--allow-memory-write", action="store_true",
@@ -305,7 +343,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.session_end_smoke and not args.allow_memory_write:
         parser.error("--session-end-smoke requires --allow-memory-write because it appends a synthetic metadata event to Memory")
-    if args.session_end_smoke:
+    if args.session_end_smoke or args.prompt_context_smoke:
         args.hook_smoke = True
     if not 0.1 <= args.timeout <= 10:
         parser.error("--timeout must be between 0.1 and 10 seconds")
@@ -413,17 +451,20 @@ def main() -> int:
         results.extend(installed_hook_smoke(
             Path(args.hook_dir).expanduser(), correlation_id, args.timeout,
             include_session_end=args.session_end_smoke,
+            require_context=args.prompt_context_smoke,
         ))
 
     failures = [item for item in results if item["status"] == "fail"]
+    warnings = [item for item in results if item["status"] == "warn"]
     summary = {
         "ok": not failures,
         "correlation_id": correlation_id,
         "checks": len(results),
         "passed": sum(item["status"] == "pass" for item in results),
         "failed": len(failures),
+        "warnings": len(warnings),
         "skipped": 0,
-        "mode": "hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard")),
+        "mode": "prompt-context-smoke" if args.prompt_context_smoke else ("hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"))),
         "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
         "results": results,
     }
@@ -432,13 +473,15 @@ def main() -> int:
     else:
         print(f"CE diagnostic correlation_id={correlation_id} mode={summary['mode']}")
         for item in results:
-            mark = "✓" if item["status"] == "pass" else "✗"
+            mark = "✓" if item["status"] == "pass" else ("!" if item["status"] == "warn" else "✗")
             print(f"{mark} {item['step']}: {item['detail']} ({item['duration_ms']} ms)")
             if item["status"] != "pass" and item["remediation"]:
                 print(f"    Fix: {item['remediation']}")
-        print(f"Summary: {summary['passed']} passed, {summary['failed']} failed")
+        print(f"Summary: {summary['passed']} passed, {summary['warnings']} warnings, {summary['failed']} failed")
         if args.session_end_smoke:
             print("SessionEnd smoke writes one metadata-only Memory event and publishes a transient Messenger event.")
+        elif args.prompt_context_smoke:
+            print("Prompt-context smoke is read-only and invokes the hook directly; it does not prove Claude Code delivered this context to a model.")
         elif args.hook_smoke:
             print("Hook smoke is read-only; it does not invoke a model or submit a learning outcome.")
         else:
