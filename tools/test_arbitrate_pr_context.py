@@ -37,7 +37,7 @@ class PullRequestContextTests(unittest.TestCase):
         load_pull_request_context(orch, Path("/tmp/repo"), "12")
         self.assertEqual(orch.context_manager.git_diff, "diff --git a/app.py b/app.py\n+return True\n")
         self.assertEqual(orch.context_manager.files, {"PR_HEAD:abc123:app.py": source})
-        self.assertIn("ref=abc123", run.call_args_list[2].args[0])
+        self.assertIn("?ref=abc123", run.call_args_list[2].args[0])
         self.assertNotIn("app.py", str(run.call_args_list[2].kwargs.get("cwd", "")))
 
     @patch("tools.arbitrate.subprocess.run")
