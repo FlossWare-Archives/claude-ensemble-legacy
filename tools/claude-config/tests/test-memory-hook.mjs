@@ -10,11 +10,11 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const hook = path.join(root, 'hooks', 'memory-search-on-prompt.js');
 
-function runHook({ url, input, inputChunks, env = {}, hookPath = hook, cwd = root }) {
+function runHook({ url, graphUrl, input, inputChunks, env = {}, hookPath = hook, cwd = root }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [hookPath], {
       cwd,
-      env: { ...process.env, ...env, FLOSSWARE_MEMORY_URL: url },
+      env: { ...process.env, ...env, FLOSSWARE_MEMORY_URL: url, ...(graphUrl ? { FLOSSWARE_GRAPH_URL: graphUrl } : {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -90,6 +90,27 @@ const server = http.createServer((req, res) => {
 });
 
 const port = await listen(server);
+const graphRequests = [];
+const graphServer = http.createServer((req, res) => {
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+    graphRequests.push({ url: req.url, body });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    const request = JSON.parse(body);
+    if (req.url === '/graph/query' && request.properties?.name === 'graph-project') {
+      res.end(JSON.stringify({ ok: true, nodes: [{ id: 'project-1', type: 'Project', properties: { name: 'graph-project' } }] }));
+      return;
+    }
+    if (req.url === '/graph/traverse') {
+      res.writeHead(503, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'fixture traversal failure' }));
+      return;
+    }
+    res.end(JSON.stringify({ ok: true, nodes: [] }));
+  });
+});
+const graphPort = await listen(graphServer);
 try {
   const result = await runHook({
     url: `http://127.0.0.1:${port}/`,
@@ -246,8 +267,36 @@ try {
   assert.equal(unavailable.code, 0);
   assert.equal(unavailable.stdout, '');
   assert.match(unavailable.stderr, /Memory search unavailable/);
+  const noProjectMatch = await runHook({
+    url: 'http://127.0.0.1:' + port + '/',
+    graphUrl: 'http://127.0.0.1:' + graphPort + '/',
+    input: { hook_event_name: 'UserPromptSubmit', prompt: 'graph no match', cwd: '/tmp/absent-project' },
+    env: { FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1' },
+  });
+  const noMatchDiagnostic = noProjectMatch.stderr
+    .split('\n')
+    .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
+    .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
+    .find(item => item.event === 'completed');
+  assert.equal(noMatchDiagnostic.graphStatus, 'no_project_match');
+  assert.equal(noMatchDiagnostic.graphCount, 0);
+
+  const traversalFailure = await runHook({
+    url: 'http://127.0.0.1:' + port + '/',
+    graphUrl: 'http://127.0.0.1:' + graphPort + '/',
+    input: { hook_event_name: 'UserPromptSubmit', prompt: 'graph traversal failure', cwd: '/tmp/graph-project' },
+    env: { FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1' },
+  });
+  const traversalDiagnostic = traversalFailure.stderr
+    .split('\n')
+    .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
+    .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
+    .find(item => item.event === 'completed');
+  assert.equal(traversalDiagnostic.graphStatus, 'error');
+  assert.equal(traversalDiagnostic.graphCount, 1);
 } finally {
   await close(server);
+  await close(graphServer);
 }
 
 console.log('memory hook REST tests passed');
