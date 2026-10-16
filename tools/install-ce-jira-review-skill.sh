@@ -15,8 +15,8 @@ fi
 
 mkdir -p "$DEST_DIR"
 if [[ -e "$DEST" || -L "$DEST" ]]; then
-  if [[ -L "$DEST" && "$(readlink -f -- "$DEST")" == "$(readlink -f -- "$SOURCE")" ]]; then
-    printf 'CE Jira review skill already installed: %s\n' "$DEST"
+  if [[ -f "$DEST" ]] && cmp -s -- "$SOURCE" "$DEST"; then
+    printf 'CE Jira review skill is already current: %s\n' "$DEST"
     exit 0
   fi
   printf 'ERROR: Refusing to overwrite existing skill: %s\n' "$DEST" >&2
@@ -24,6 +24,6 @@ if [[ -e "$DEST" || -L "$DEST" ]]; then
   exit 2
 fi
 
-ln -s "$SOURCE" "$DEST"
+install -m 600 -- "$SOURCE" "$DEST"
 printf 'Installed CE Jira review skill: %s\n' "$DEST"
 printf 'Restart Claude Code, then invoke /ce-jira-review from the target repository.\n'
