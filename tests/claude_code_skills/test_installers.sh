@@ -10,7 +10,7 @@ export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/claude-profile"
 
-for name in review jira-review status memory learning; do
+for name in review jira-review status diagnose memory learning ga solve; do
   installer="$ROOT/tools/install-ce-$name-skill.sh"
   source_file="$ROOT/claude-code-skills/ce-$name/SKILL.md"
   destination="$ENSEMBLE_CLAUDE_CODE_CONFIG_DIR/skills/ce-$name/SKILL.md"
@@ -41,5 +41,12 @@ else
   [[ "$status" -eq 2 ]] || { printf 'unexpected conflict exit status: %s\n' "$status" >&2; exit 1; }
 fi
 [[ "$(cat "$CONFLICT_PROFILE/skills/ce-status/SKILL.md")" == 'user-owned skill' ]]
+
+# The aggregate installer must be idempotent and install every supported CE skill.
+export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/claude-profile"
+bash "$ROOT/tools/install-ce-skills.sh"
+for name in review jira-review status diagnose memory learning ga solve; do
+  [[ -f "$ENSEMBLE_CLAUDE_CODE_CONFIG_DIR/skills/ce-$name/SKILL.md" ]]
+done
 
 printf 'All CE skill installer tests passed.\n'
