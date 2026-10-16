@@ -811,7 +811,7 @@ await recordOutcomeToLearning(
   {
     kind: 'review-batch-result',
     reference: validResults.map(item => item.pr_url).filter(Boolean).slice(0, 3).join(','),
-    summary: `Automated review processed ${validResults.length}/${prsThisRun.length} pull requests; approved ${validResults.filter(item => item.approved).length}, changes requested ${validResults.filter(item => item.rejected).length}; aggregate quality ${autoQuality}/5.`
+    summary: `Automated review processed ${validResults.length}/${prsThisRun.length} pull requests; approved ${validResults.filter(item => item.approved).length}, changes requested ${validResults.filter(item => item.rejected).length}; aggregate quality ${autoQuality}/5. Decisions: ${validResults.slice(0, 10).map(item => `#${item.pr_number} ${item.auto_action} quality=${item.quality_score} risk=${item.impact_risk}`).join('; ')}.`
   }
 )
 
