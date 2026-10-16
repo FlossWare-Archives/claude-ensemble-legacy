@@ -1,4 +1,5 @@
 import copy
+from unittest.mock import patch
 
 from ga_tuner import GAConfig, GeneticAlgorithm, Individual
 
@@ -231,3 +232,17 @@ def test_run_evaluates_final_offspring_before_saving(tmp_path):
     for individual in ga.population:
         assert individual.fitness == individual.parameters["x"]
         assert individual.fitness is not None
+
+
+def test_default_seed_is_generated_per_run(tmp_path):
+    with patch("ga_tuner.secrets.randbits", side_effect=[101, 202]):
+        first = GeneticAlgorithm(GAConfig(output_dir=str(tmp_path / "first")))
+        second = GeneticAlgorithm(GAConfig(output_dir=str(tmp_path / "second")))
+    assert first.seed == 101
+    assert second.seed == 202
+
+
+def test_explicit_seed_remains_reproducible(tmp_path):
+    first = GeneticAlgorithm(GAConfig(seed=42, output_dir=str(tmp_path / "first")))
+    second = GeneticAlgorithm(GAConfig(seed=42, output_dir=str(tmp_path / "second")))
+    assert first.seed == second.seed == 42
