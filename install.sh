@@ -232,6 +232,19 @@ else
     exit 1
 fi
 
+# Step 4f: Install the complete CE slash-command skill set. Individual installers
+# preserve custom skills; conflicts are reported and skipped without aborting the
+# remainder of the install.
+echo ""
+echo "4f. Installing CE slash-command skills..."
+CE_SKILLS_INSTALLER="$REPO_PATH/tools/install-ce-skills.sh"
+if [ -f "$CE_SKILLS_INSTALLER" ]; then
+    ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" bash "$CE_SKILLS_INSTALLER"
+else
+    echo "ERROR: CE skills installer is missing: $CE_SKILLS_INSTALLER" >&2
+    exit 1
+fi
+
 # Step 5: Install GA parameter evolution link
 echo ""
 echo "5. Installing GA parameter evolution..."

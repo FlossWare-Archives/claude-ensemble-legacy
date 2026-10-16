@@ -18,6 +18,11 @@ if [[ ! -f "$SOURCE" ]]; then
   exit 1
 fi
 
+if [[ -L "$PROFILE_DIR" || -L "$PROFILE_DIR/skills" || -L "$DEST_DIR" ]]; then
+  printf 'ERROR: Refusing to install through a symlinked profile or skills directory.\n' >&2
+  exit 2
+fi
+
 mkdir -p "$DEST_DIR"
 if [[ -e "$DEST" || -L "$DEST" ]]; then
   if [[ -f "$DEST" ]] && cmp -s -- "$SOURCE" "$DEST"; then
