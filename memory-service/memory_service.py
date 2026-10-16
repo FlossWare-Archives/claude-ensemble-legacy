@@ -759,7 +759,15 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                     return
                 self._send(200, {"ok": True, **result})
                 return
-            if operation=="search_semantic": body.setdefault("top_k",body.get("limit",10))
+            requested_source = None
+            requested_limit = body.get("limit", 10)
+            if operation=="search_semantic":
+                requested_source = body.pop("source", None)
+                if requested_source not in (None, "memory", "claude-code"):
+                    raise ValueError("source must be 'memory' or 'claude-code'")
+                # Filter after ranking a wider candidate set so a relevant
+                # Knowledge document is not crowded out by operational Memory.
+                body["top_k"] = max(50, requested_limit) if requested_source else requested_limit
             if operation=="ingest_claude_markdown":
                 result = self.server.memory_service.store.ingest_claude_markdown(
                     body.get("path", ""), body.get("content", ""), body.get("sha256", ""), body.get("metadata", {})
@@ -777,10 +785,18 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 enriched=[]
                 for item in result.get("results",[]):
                     item=dict(item)
+                    is_knowledge = str(item.get("file", "")).startswith("claude-code-")
+                    if requested_source == "claude-code" and not is_knowledge:
+                        continue
+                    if requested_source == "memory" and is_knowledge:
+                        continue
                     content=self.server.memory_service.store.read_file(item["file"])
-                    if content is not None: item["content"]=content
+                    if content is not None:
+                        item["content"]=content
+                        if is_knowledge:
+                            item["source"]="claude-code"
                     enriched.append(item)
-                result["results"]=enriched
+                result["results"]=enriched[:requested_limit]
             if result.get("ok") is False:
                 if result.get("error_type") == "validation":
                     status = 400
