@@ -436,3 +436,51 @@ def test_follow_up_without_configured_reviewer_escalates_without_second_arbiter_
     assert len(arbiter.requests) == 1
     assert result.adjudication["human_decision_required"] is True
     assert any(item["event"] == "targeted_follow_ups_unavailable" for item in loop.state.audit)
+
+def test_failed_follow_up_reviewer_escalates_without_second_arbiter_call():
+    class FailingReviewer(FakeReviewer):
+        def review(self, **kwargs):
+            raise RuntimeError("reviewer unavailable")
+
+    arbiter = FakeProvider(
+        {
+            "arbiter": [
+                adjudication(
+                    complete=False,
+                    blocking_concerns=["security assumption"],
+                    follow_ups=[
+                        {
+                            "reviewer": "grok",
+                            "candidate_id": "r1-sonnet",
+                            "question": "verify the security assumption",
+                        }
+                    ],
+                ),
+                adjudication(complete=True, rationale="should not be reached"),
+            ]
+        }
+    )
+    loop = CollaborationOrchestrator(
+        "Review it.",
+        solvers={"sonnet": FakeProvider({"sonnet": "solution"})},
+        arbiter=arbiter,
+        reviewers={"grok": FailingReviewer("grok")},
+        max_rounds=1,
+        max_arbiter_calls=3,
+    )
+
+    result = loop.run()
+
+    assert result.status == "needs_human"
+    assert len(arbiter.requests) == 1
+    assert result.adjudication["human_decision_required"] is True
+    assert any(
+        "no usable review evidence" in item
+        for item in result.adjudication["blocking_concerns"]
+    )
+    assert loop.state.reviews[-1].status == "failed"
+    assert any(
+        item["event"] == "targeted_follow_ups_unavailable"
+        for item in loop.state.audit
+    )
+
