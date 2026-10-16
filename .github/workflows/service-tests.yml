@@ -92,6 +92,7 @@ jobs:
             test/test_architecture_integration.py \
             test/test_end_to_end_execution.py \
             shared/test_operational_memory_endpoint.py \
+            test_decision_provenance_immutability.py \
             -v
 
       - name: Run hook lifecycle contract tests
