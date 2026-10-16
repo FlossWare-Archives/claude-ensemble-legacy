@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ $# -eq 0 ]]; then
+  cat <<'EOF'
+Claude Ensemble diagnostics
+  tools/ce doctor [--verbose|--json]
+  tools/ce diagnose [--deep] [--service NAME] [--json]
+EOF
+  exit 0
+fi
+command="$1"
+shift
+case "$command" in
+  doctor)
+    exec "$ROOT/tools/claude-config/bin/claude-config" doctor "$@"
+    ;;
+  diagnose)
+    exec python3 "$ROOT/scripts/ce-diagnose.py" "$@"
+    ;;
+  *)
+    echo "Unknown command: $command" >&2
+    echo "Use tools/ce doctor or tools/ce diagnose." >&2
+    exit 2
+    ;;
+esac
