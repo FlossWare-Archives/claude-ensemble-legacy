@@ -32,11 +32,10 @@ def test_multi_model_client_uses_claude_code_runtime_for_claude_model() -> None:
     "model",
     ["gemini", "gemini-2.5-flash", "gpt-4", "cursor", "ollama-local"],
 )
-def test_explicit_legacy_model_labels_use_sonnet(model: str) -> None:
+def test_unsupported_provider_labels_are_rejected(model: str) -> None:
     registry = ProviderRegistry()
-    provider_name, canonical = registry.resolve_model(model)
-    assert provider_name == "claude-code"
-    assert canonical == "sonnet"
+    with pytest.raises(ValueError, match="Unsupported model label"):
+        registry.resolve_model(model)
 
 
 @pytest.mark.parametrize(
@@ -88,7 +87,7 @@ def test_string_api_remains_backward_compatible() -> None:
     )
     registry = ProviderRegistry({"claude-code": provider})
 
-    assert MultiModelClient(registry=registry).call_model("gemini-2.5-flash", "hello") == "hello"
+    assert MultiModelClient(registry=registry).call_model("sonnet", "hello") == "hello"
     assert provider.generate.call_args.args[0].model == "sonnet"
 
 
