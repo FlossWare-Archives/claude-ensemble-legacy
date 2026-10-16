@@ -1,132 +1,193 @@
 #!/usr/bin/env python3
-"""
-Arbitration CLI Tool
+"""Arbitration CLI for local code reviews and file analysis."""
 
-Usage:
-  arbitrate code-review <repo_path> [--target-branch main] [--phases 3]
-  arbitrate bug-analysis <code_files...> [--phases 2]
-  arbitrate security-audit <code_files...> [--phases 3]
-"""
+from __future__ import annotations
 
-import sys
 import argparse
 import logging
+import subprocess
+import sys
 from pathlib import Path
 
-# Add parent to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
-from arbitration.api_client import MultiModelClient
 
-logging.basicConfig(level=logging.INFO, format='%(name)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def cmd_code_review(args):
-    """Run arbitration on code changes"""
-    repo_path = Path(args.repo_path)
-
-    if not repo_path.exists():
-        logger.error(f"Repository not found: {repo_path}")
-        sys.exit(1)
-
-    orch = ArbitrationOrchestrator(
-        TaskType.CODE_REVIEW,
-        f"Review changes in {repo_path.name} against {args.target_branch}"
+def _git_root(path: Path) -> Path:
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
     )
+    if result.returncode != 0:
+        raise RuntimeError(f"Not inside a Git repository: {path}")
+    return Path(result.stdout.strip()).resolve()
 
-    # Load git diff AND full changed files
-    orch.context_manager.load_git_diff(repo_path, args.target_branch)
 
-    # Load related context (imports, dependencies)
+def _load_pull_request_context(orch: ArbitrationOrchestrator, repo_path: Path, number: str) -> None:
+    diff = subprocess.run(
+        ["gh", "pr", "diff", number],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if diff.returncode != 0:
+        detail = (diff.stderr or diff.stdout).strip()
+        raise RuntimeError(f"Unable to fetch local GitHub CLI PR diff for #{number}: {detail}")
+
+    files = subprocess.run(
+        ["gh", "pr", "view", number, "--json", "files", "--jq", ".files[].path"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if files.returncode != 0:
+        detail = (files.stderr or files.stdout).strip()
+        raise RuntimeError(f"Unable to list files for PR #{number}: {detail}")
+
+    orch.context_manager.git_diff = diff.stdout
+    orch.context_manager.changed_files = [
+        repo_path / name for name in files.stdout.splitlines() if name
+    ]
+    orch.context_manager.load_files(orch.context_manager.changed_files)
     if orch.context_manager.changed_files:
-        orch.context_manager.load_related_context(repo_path, orch.context_manager.changed_files)
-
-    # Optionally load entire module context
-    if args.context_dir:
-        orch.context_manager.load_directory(Path(args.context_dir), max_files=30)
-
-    # Auto-generate phases
-    orch.auto_phases(num_phases=args.phases)
-
-    # Run
-    orch.run()
-    print(orch.report())
+        orch.context_manager.load_related_context(
+            repo_path, orch.context_manager.changed_files
+        )
 
 
-def cmd_bug_analysis(args):
-    """Run arbitration on bug analysis"""
-    files = [Path(f) for f in args.files]
+def _prepare_review_context(
+    orch: ArbitrationOrchestrator,
+    target: str,
+    target_branch: str,
+    context_dir: str | None,
+) -> tuple[Path, str]:
+    if target.startswith("PR#"):
+        number = target[3:]
+        if not number.isdigit():
+            raise ValueError(f"Invalid pull request target: {target}")
+        repo_path = _git_root(Path.cwd())
+        _load_pull_request_context(orch, repo_path, number)
+        subject = f"PR #{number} in {repo_path.name}"
+    else:
+        target_path = Path(target).expanduser().resolve()
+        if not target_path.exists():
+            raise FileNotFoundError(f"Review target does not exist: {target_path}")
+        is_file = target_path.is_file()
+        repo_path = _git_root(target_path.parent if is_file else target_path)
+        if is_file:
+            try:
+                relative = target_path.relative_to(repo_path).as_posix()
+            except ValueError as exc:
+                raise ValueError(f"Review file must be inside its Git repository: {target_path}") from exc
+            orch.context_manager.load_git_diff(repo_path, target_branch, paths=[relative])
+            # Include the complete requested file even if it has no diff against the target.
+            orch.context_manager.load_files([target_path])
+            subject = f"file {relative} in {repo_path.name}"
+        else:
+            orch.context_manager.load_git_diff(repo_path, target_branch)
+            subject = f"changes in {repo_path.name} against {target_branch}"
+            if not orch.context_manager.changed_files:
+                raise ValueError(
+                    f"No changes found between the worktree and {target_branch}. "
+                    "Check the target branch or select a changed file."
+                )
+            orch.context_manager.load_related_context(
+                repo_path, orch.context_manager.changed_files
+            )
 
-    orch = ArbitrationOrchestrator(
-        TaskType.BUG_ANALYSIS,
-        f"Analyze bug across {len(files)} files"
-    )
+    if context_dir:
+        directory = Path(context_dir).expanduser().resolve()
+        orch.context_manager.load_directory(directory, max_files=30)
+    return repo_path, subject
 
-    # Load files
+
+def cmd_code_review(args: argparse.Namespace) -> None:
+    """Run one or more worker/arbiter review tiers."""
+    prior_report = ""
+    for tier in range(1, args.tiers + 1):
+        orch = ArbitrationOrchestrator(
+            TaskType.CODE_REVIEW,
+            (
+                f"Review {args.repo_path} for correctness, security, performance, "
+                f"and test coverage. Tier {tier} of {args.tiers}."
+                + (
+                    "\n\nCritically re-review the previous tier's report. Verify each "
+                    "finding against the supplied source; reject unsupported claims.\n\n"
+                    + prior_report
+                    if prior_report
+                    else ""
+                )
+            ),
+        )
+        _, subject = _prepare_review_context(
+            orch, args.repo_path, args.target_branch, args.context_dir
+        )
+        logger.info("Starting code review tier %s/%s: %s", tier, args.tiers, subject)
+        orch.auto_phases(num_phases=args.phases)
+        orch.run()
+        prior_report = orch.report()
+        print(f"\n=== REVIEW TIER {tier}/{args.tiers} ===\n")
+        print(prior_report)
+
+
+def _run_file_analysis(args: argparse.Namespace, task_type: TaskType, description: str) -> None:
+    files = [Path(name).expanduser().resolve() for name in args.files]
+    missing = [str(path) for path in files if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("Input file(s) not found: " + ", ".join(missing))
+    orch = ArbitrationOrchestrator(task_type, description.format(count=len(files)))
     orch.context_manager.load_files(files)
-
-    # Auto-generate phases
     orch.auto_phases(num_phases=args.phases)
-
-    # Run
     orch.run()
     print(orch.report())
 
 
-def cmd_security_audit(args):
-    """Run security-focused arbitration"""
-    files = [Path(f) for f in args.files]
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Multi-phase model arbitration")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    orch = ArbitrationOrchestrator(
-        TaskType.SECURITY_AUDIT,
-        f"Security audit of {len(files)} files"
-    )
+    review = subparsers.add_parser("code-review", help="Review a repository, file, or PR#N")
+    review.add_argument("repo_path", help="Git repository directory, file path, or PR#123")
+    review.add_argument("--target-branch", default="main", help="Base branch for local changes")
+    review.add_argument("--context-dir", help="Additional directory context")
+    review.add_argument("--phases", type=int, default=1, help="Worker/arbiter phases per tier")
+    review.add_argument("--tiers", type=int, default=1, help="Number of review/re-review tiers")
+    review.set_defaults(func=cmd_code_review)
 
-    # Load files
-    orch.context_manager.load_files(files)
+    bug = subparsers.add_parser("bug-analysis", help="Analyze bugs across files")
+    bug.add_argument("files", nargs="+", help="Code files to analyze")
+    bug.add_argument("--phases", type=int, default=2)
+    bug.set_defaults(func=lambda args: _run_file_analysis(
+        args, TaskType.BUG_ANALYSIS, "Analyze bug across {count} files"
+    ))
 
-    # Auto-generate phases with security focus
-    orch.auto_phases(num_phases=args.phases)
-
-    # Run
-    orch.run()
-    print(orch.report())
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Multi-phase model arbitration')
-    subparsers = parser.add_subparsers(dest='command')
-
-    # Code review
-    review_parser = subparsers.add_parser('code-review', help='Arbitrate on code changes')
-    review_parser.add_argument('repo_path', help='Repository path')
-    review_parser.add_argument('--target-branch', default='main', help='Target branch for diff')
-    review_parser.add_argument('--context-dir', help='Load entire module/package for context (e.g., src/mymodule)')
-    review_parser.add_argument('--phases', type=int, default=3, help='Number of phases')
-    review_parser.set_defaults(func=cmd_code_review)
-
-    # Bug analysis
-    bug_parser = subparsers.add_parser('bug-analysis', help='Arbitrate on bug analysis')
-    bug_parser.add_argument('files', nargs='+', help='Code files to analyze')
-    bug_parser.add_argument('--phases', type=int, default=2, help='Number of phases')
-    bug_parser.set_defaults(func=cmd_bug_analysis)
-
-    # Security audit
-    sec_parser = subparsers.add_parser('security-audit', help='Arbitrate on security')
-    sec_parser.add_argument('files', nargs='+', help='Code files to audit')
-    sec_parser.add_argument('--phases', type=int, default=3, help='Number of phases')
-    sec_parser.set_defaults(func=cmd_security_audit)
+    audit = subparsers.add_parser("security-audit", help="Run a security-focused audit")
+    audit.add_argument("files", nargs="+", help="Code files to audit")
+    audit.add_argument("--phases", type=int, default=3)
+    audit.set_defaults(func=lambda args: _run_file_analysis(
+        args, TaskType.SECURITY_AUDIT, "Security audit of {count} files"
+    ))
 
     args = parser.parse_args()
+    if getattr(args, "phases", 1) < 1:
+        parser.error("--phases must be at least 1")
+    if getattr(args, "tiers", 1) < 1:
+        parser.error("--tiers must be at least 1")
 
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
+    try:
+        args.func(args)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        logger.error("%s", exc)
+        raise SystemExit(1) from exc
 
-    args.func(args)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
