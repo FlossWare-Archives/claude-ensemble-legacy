@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import yaml from 'js-yaml'
 import { execSync } from 'node:child_process'
+import { recordEvidenceGatedOutcome } from '../shared/learning-outcome-bridge.js'
 export const meta = {
   name: 'code-doc',
   description: 'Interactive documentation generation - prompts before creating docs',
@@ -57,27 +58,22 @@ print(c.select_model(data['task_type'], required_capability=0.7, request_id=data
   }
 }
 
-async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId) {
+async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId, evidence) {
   try {
-        const jsonPayload = JSON.stringify({ task_id: taskId, task_type: taskType, model, rating, tokens, cost, request_id: requestId })
-    execSync(`python3 -c "
-import sys
-import json
-sys.path.insert(0, '../learning')
-from learning_client import LearningClient
-data = json.loads('${jsonPayload.replace(/'/g, "\\'")}')
-c = LearningClient()
-c.process_outcome(data['task_id'], data['task_type'], data['model'], data['rating'], data['tokens'], data['cost'], data['request_id'])
-"`, {
-      cwd: process.env.PWD,
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+    const response = recordEvidenceGatedOutcome({
+      runId: requestId,
+      taskId,
+      taskType,
+      model,
+      rating,
+      tokens,
+      cost,
+      evidence,
     })
-    log(`[Learning] Recorded: ${taskId} (${model}, rating=${rating})`)
+    log(`[Learning] Acknowledged: ${taskId} (${model}, rating=${rating})`)
     return true
   } catch (err) {
-    log(`⚠️ Learning recording failed (non-blocking): ${err.message}`)
+    log(`⚠️ Learning recording skipped/failed (non-blocking): ${err.message}`)
     return false
   }
 }
@@ -577,7 +573,12 @@ c.log_call(data['model'], data['input_tokens'], data['output_tokens'], data['tas
     docQuality,
     docTokens,
     docCost,
-    workflowRequestId
+    workflowRequestId,
+    {
+      kind: 'documentation-coverage-report',
+      reference: prResult.pr_url || '',
+      summary: `Documentation workflow generated ${undocumented.undocumented.length} documentation items from ${undocumented.total} identified items; reported coverage ${result.coverage}% and created PR ${prResult.pr_number}.`
+    }
   )
   
   // Extract learnings
