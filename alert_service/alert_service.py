@@ -451,11 +451,31 @@ RH AI Toolkit Monitoring
         digest = hashlib.sha256(f"{day}:{alert_type}:{severity}".encode("utf-8")).hexdigest()[:16]
         return f"{day}:{alert_type}:{severity}:{digest}"
 
-    def _has_alert_id(self, alert_id: str) -> bool:
-        return any(
-            existing.get("alert_id") == alert_id
-            for existing in self.store.get_recent_alerts(days=2)
-        )
+    def _find_existing_alert(self, alert_id: str) -> Optional[Dict[str, Any]]:
+        for existing in self.store.get_recent_alerts(days=2):
+            if existing.get("alert_id") == alert_id:
+                return existing
+        return None
+
+    def _has_successful_messenger_delivery(self, alert_id: str) -> bool:
+        delivery_log = self.alert_dir / "delivery_log.jsonl"
+        if not delivery_log.exists():
+            return False
+        try:
+            for line in delivery_log.read_text(encoding="utf-8").splitlines():
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    entry.get("alert_id") == alert_id
+                    and entry.get("method") == "messenger"
+                    and entry.get("success") is True
+                ):
+                    return True
+        except OSError as exc:
+            logger.warning("Could not inspect Messenger delivery history: %s", exc)
+        return False
 
     def _publish_messenger_alert(self, alert: Dict[str, Any], source: str) -> bool:
         """Publish a bounded alert payload to Messenger; local persistence remains primary."""
@@ -512,9 +532,15 @@ RH AI Toolkit Monitoring
 
             alert = dict(raw_alert)
             alert_id = self._make_alert_id(alert)
-            if self._has_alert_id(alert_id):
-                logger.info("Suppressing duplicate alert %s for today's interval", alert_id)
+            existing = self._find_existing_alert(alert_id)
+            if existing is not None:
+                # If Messenger was unavailable during the original trigger,
+                # retry delivery on the next scheduled/manual check.
+                if not self._has_successful_messenger_delivery(alert_id):
+                    self._publish_messenger_alert(existing, source)
+                logger.info("Suppressing duplicate alert record %s", alert_id)
                 continue
+
             alert["alert_id"] = alert_id
             if not self.store.save_alert(alert):
                 logger.error("Failed to persist alert %s", alert_id)
