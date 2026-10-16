@@ -126,8 +126,8 @@ p,legacy,foreign,managed_alias=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
-    {"type":"command","command":legacy,"timeout":3},
-    {"type":"command","command":managed_alias,"timeout":3}
+    {"type":"command","command":legacy,"timeout":3,"async":true},
+    {"type":"command","command":managed_alias,"timeout":3,"async":true}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
     {"type":"command","command":foreign,"timeout":3},
@@ -152,6 +152,8 @@ assert foreign_group["matcher"] == "UserPromptSubmit", foreign_group
 assert any(h.get("command")=="/custom/existing-hook" for h in foreign_group["hooks"])
 managed_group=next(g for g in groups if any(h is managed[0] for h in g["hooks"]))
 assert managed_group["matcher"] == "Remember|recall", managed_group
+assert managed[0].get("async") is not True, managed
+assert int(managed[0].get("timeout", 3)) >= 1, managed
 PY
 
 bash "$ROOT/install.sh" --non-interactive
