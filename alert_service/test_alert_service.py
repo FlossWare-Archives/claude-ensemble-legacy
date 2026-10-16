@@ -13,7 +13,7 @@ import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -102,6 +102,42 @@ class AlertServiceTest(unittest.TestCase):
             # Verify alert content
             saved_alert = json.loads(alert_files[0].read_text())
             self.assertEqual(saved_alert["alert_type"], "cost_spike")
+
+    def test_quality_alert_reads_canonical_and_legacy_learning_outcomes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from alert_service.alert_service import AlertManager
+
+            repo_root = Path(temp_dir)
+            canonical_dir = repo_root / "learning" / "autonomous_outcomes"
+            legacy_dir = repo_root / "learning" / "post_task_outcomes"
+            canonical_dir.mkdir(parents=True)
+            legacy_dir.mkdir(parents=True)
+            now = datetime.now(timezone.utc).isoformat()
+
+            (canonical_dir / "one.json").write_text(json.dumps({
+                "task_id": "task-one", "rating": 2, "timestamp": now,
+            }))
+            (canonical_dir / "two.json").write_text(json.dumps({
+                "task_id": "task-two", "rating": 2, "timestamp": now,
+            }))
+            # The legacy copy of task-one must not double-count or override the
+            # canonical outcome's rating.
+            (legacy_dir / "one-legacy.json").write_text(json.dumps({
+                "task_id": "task-one",
+                "outcome": {"timestamp": now},
+                "comparison": {"final_rating": 5},
+            }))
+
+            manager = AlertManager.__new__(AlertManager)
+            manager.repo_root = repo_root
+            manager.alert_dir = repo_root / "alerts"
+            alert = manager.check_quality_drop(rating_threshold=3.0, window_days=7)
+
+            self.assertIsNotNone(alert)
+            self.assertEqual(alert["alert_type"], "quality_drop")
+            self.assertEqual(alert["metrics"]["sample_size"], 2)
+            self.assertEqual(alert["metrics"]["avg_rating"], 2.0)
 
     def test_scheduled_checks_run_when_due_and_deduplicate_same_day_alerts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
