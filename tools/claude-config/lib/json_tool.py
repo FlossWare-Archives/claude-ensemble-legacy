@@ -142,6 +142,12 @@ def install_hook(path,command,source):
                 if not managed:
                     replacement=dict(h)
                     replacement["command"]=shlex.quote(command)
+                    # UserPromptSubmit must finish synchronously to return
+                    # hookSpecificOutput.additionalContext to Claude Code.
+                    # Preserve other handler settings, but repair legacy async
+                    # registrations when normalizing this CE-owned hook.
+                    replacement.pop("async", None)
+                    replacement.setdefault("timeout", 3)
                     handlers.append(replacement)
                     managed=True
                     group_managed=True
