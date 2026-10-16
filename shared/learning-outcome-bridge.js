@@ -8,6 +8,7 @@
  * or invent an outcome from successful process exit alone.
  */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -32,9 +33,14 @@ export function recordEvidenceGatedOutcome({
     throw new TypeError('evidence is required; completion alone is not a learning signal')
   }
 
+  // The caller's request IDs are often generated per process. Derive the
+  // Learning identity from stable evidence so retrying the same evaluated
+  // result cannot apply the same Thompson update twice.
+  const identity = JSON.stringify({ taskType, evidence })
+  const stableRunId = `ce-outcome-${createHash('sha256').update(identity).digest('hex')}`
   const payload = {
-    run_id: runId,
-    task_id: taskId,
+    run_id: stableRunId,
+    task_id: stableRunId,
     task_type: taskType,
     model,
     rating,
