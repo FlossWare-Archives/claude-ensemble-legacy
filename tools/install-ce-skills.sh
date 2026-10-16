@@ -10,6 +10,12 @@ case "$PROFILE_DIR" in
   "~/"*) PROFILE_DIR="$HOME/${PROFILE_DIR#\~/}" ;;
 esac
 
+if [[ -L "$PROFILE_DIR" || -L "$PROFILE_DIR/skills" ]]; then
+  printf 'WARNING: Refusing to install CE skills through a symlinked profile or skills directory: %s\\n' "$PROFILE_DIR" >&2
+  printf 'No CE skills were installed; review the symlink target and install manually if intended.\\n' >&2
+  exit 0
+fi
+
 skills=(review jira-review status diagnose memory learning ga solve)
 conflicts=0
 for name in "${skills[@]}"; do
