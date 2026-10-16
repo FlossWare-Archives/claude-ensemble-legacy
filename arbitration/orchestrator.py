@@ -519,7 +519,7 @@ class ArbitrationOrchestrator:
             "Return your actual analysis. Do not claim to have inspected evidence "
             "that is not present in the supplied context."
         )
-        return ModelRequest(prompt=prompt, model=model)
+        return ModelRequest(prompt=prompt, model=model, timeout=120.0)
 
     def _run_one_worker(
         self, phase_config: PhaseConfig, model: str, context: str
