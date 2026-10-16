@@ -35,7 +35,7 @@ def test_gemini_alias_is_blocked_by_default(monkeypatch):
 def test_gemini_routes_to_google_only_after_explicit_opt_in(monkeypatch, model, expected):
     monkeypatch.setenv("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", "true")
     registry = ProviderRegistry({"google": MagicMock()})
-    assert registry.resolve_model(model) == ("google", expected)
+    assert registry.resolve_model(model, allow_external_data=True) == ("google", expected)
 
 
 @pytest.mark.parametrize("model", ["gpt-4", "cursor", "ollama-local", "unknown-model"])
@@ -53,7 +53,7 @@ def test_multi_model_client_uses_selected_provider(monkeypatch):
     )
     registry = ProviderRegistry({"google": provider})
     response = MultiModelClient(registry=registry).call_model_response(
-        model="gemini", prompt="hello"
+        model="gemini", prompt="hello", allow_external_data=True
     )
     assert response.text == "hello"
     provider.generate.assert_called_once()
@@ -76,3 +76,31 @@ def test_credential_status_never_exposes_secrets(monkeypatch):
     status = ProviderRegistry().credential_status("google")
     assert status
     assert "must-not-leak" not in repr(status)
+
+
+def test_google_requires_per_request_external_data_authorization(monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", "true")
+    registry = ProviderRegistry({"google": MagicMock()})
+    with pytest.raises(ValueError, match="per-request external-data authorization"):
+        registry.resolve_model("gemini")
+    with pytest.raises(ValueError, match="per-request external-data authorization"):
+        MultiModelClient(registry=registry).call_model_response(
+            model="gemini", prompt="restricted source"
+        )
+
+
+def test_google_model_prefix_and_identifier_are_case_normalized(monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", "true")
+    registry = ProviderRegistry({"google": MagicMock()})
+    assert registry.resolve_model(
+        "Models/Gemini-2.5-Flash", allow_external_data=True
+    ) == ("google", "gemini-2.5-flash")
+
+
+def test_invalid_google_credentials_file_does_not_break_claude(monkeypatch, tmp_path):
+    invalid = tmp_path / "credentials.yaml"
+    invalid.write_text("not: [valid", encoding="utf-8")
+    monkeypatch.setenv("ENSEMBLE_CREDENTIALS_FILE", str(invalid))
+    monkeypatch.delenv("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", raising=False)
+    registry = ProviderRegistry()
+    assert registry.resolve_model("sonnet") == ("claude-code", "sonnet")
