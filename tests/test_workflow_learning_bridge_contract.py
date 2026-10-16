@@ -46,7 +46,7 @@ class WorkflowLearningBoundaryTests(unittest.TestCase):
     def test_shared_bridge_invokes_only_the_canonical_adapter(self) -> None:
         source = (ROOT / "shared/learning-outcome-bridge.js").read_text(encoding="utf-8")
         self.assertIn("tools', 'record_workflow_outcome.py", source)
-        self.assertIn("runId", source)
+        self.assertIn("stableRunId", source)
         self.assertIn("evidence", source)
         self.assertNotIn("LearningClient", source)
         self.assertNotIn("ThompsonClient", source)
