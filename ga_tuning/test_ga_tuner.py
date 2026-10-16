@@ -1,7 +1,7 @@
 import copy
 from unittest.mock import patch
 
-from ga_tuner import GAConfig, GeneticAlgorithm, Individual
+from ga_tuner import GAConfig, GeneticAlgorithm, Individual, load_config
 
 
 class FakeEvaluator:
@@ -246,3 +246,15 @@ def test_explicit_seed_remains_reproducible(tmp_path):
     first = GeneticAlgorithm(GAConfig(seed=42, output_dir=str(tmp_path / "first")))
     second = GeneticAlgorithm(GAConfig(seed=42, output_dir=str(tmp_path / "second")))
     assert first.seed == second.seed == 42
+
+
+def test_load_config_reads_shipped_schema_without_passing_documentation_fields(tmp_path):
+    config_file = tmp_path / "ga_config.yaml"
+    config_file.write_text(
+        "population_size: 20\\ngenerations: 4\\nseed: null\\nsystems:\\n  matrix: {}\\n",
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+    assert config.population_size == 20
+    assert config.generations == 4
+    assert config.seed is None
