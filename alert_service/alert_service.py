@@ -321,11 +321,11 @@ class AlertManager:
 class AlertService:
     """Alert service daemon - single-threaded socket listener"""
 
-    def __init__(self, socket_path: Path = SOCKET_PATH, alert_dir: Path = ALERT_DIR):
+    def __init__(self, socket_path: Path = SOCKET_PATH, alert_dir: Path = ALERT_DIR, manager: AlertManager | None = None):
         self.socket_path = Path(socket_path)
         self.alert_dir = Path(alert_dir)
         self.store = AlertStore(self.alert_dir)
-        self.manager = AlertManager()  # Initialize once
+        self.manager = manager if manager is not None else AlertManager()
         self.socket = None
         self.last_check_time = None
         try:
