@@ -16,7 +16,7 @@ def completed(stdout: str = "", returncode: int = 0, stderr: str = ""):
 
 
 class PullRequestContextTests(unittest.TestCase):
-    @patch("tools.arbitrate.subprocess.run")
+    @patch("tools.pr_context.subprocess.run")
     def test_loads_source_from_exact_head_sha_not_worktree(self, run):
         source = "def secure():\n    return True\n"
         payload = {
@@ -40,7 +40,7 @@ class PullRequestContextTests(unittest.TestCase):
         self.assertIn("?ref=abc123", run.call_args_list[2].args[0])
         self.assertNotIn("app.py", str(run.call_args_list[2].kwargs.get("cwd", "")))
 
-    @patch("tools.arbitrate.subprocess.run")
+    @patch("tools.pr_context.subprocess.run")
     def test_refuses_diff_only_when_source_cannot_be_loaded(self, run):
         run.side_effect = [
             completed("diff"),
