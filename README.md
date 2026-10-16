@@ -51,18 +51,18 @@ curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/inst
 This will:
 1. Clone the repository
 2. Install CE hooks and toolkit integration under `~/.claude/`
-3. Install `/ce-review` and `/ce-jira-review` unless different existing skills must be preserved
+3. Install the complete `/ce-*` skill set unless different existing skills must be preserved
 4. Set up credentials storage at `~/.FlossWare/secrets.env`
 5. Prompt you to configure which tools to enable
 
-The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. The `/ce-status` skill diagnoses profile wiring and service health; `/ce-memory` investigates Memory/Knowledge retrieval without guessing undocumented API contracts; `/ce-learning` inspects learning artifacts, Thompson routing, and GA tuning without confusing synthetic optimization with measured task quality. These skills default to read-only diagnosis. To install skills separately into an explicitly selected CE profile, run:
+The `/ce-review` skill runs the worker/arbiter code review without Jira; `/ce-jira-review` adds Jira acceptance criteria; `/ce-solve` investigates and implements a coding fix; `/ce-status` reports profile and service status; `/ce-diagnose` runs deeper diagnostics; `/ce-memory` distinguishes Memory from durable Knowledge; `/ce-learning` inspects learning and Thompson outcomes; and `/ce-ga` inspects genetic-algorithm tuning evidence. Diagnostic skills default to read-only. `/ce-solve` may edit the current repository but does not commit, push, merge, deploy, or perform destructive operations without authorization. All skills use the authenticated Claude Code runtime and must not send proprietary source to external reviewer providers. To install the full set into an explicitly selected CE profile, run:
 
 ```bash
 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profile" \
-  bash tools/install-ce-jira-review-skill.sh
+  bash tools/install-ce-skills.sh
 ```
 
-Replace the example profile path with the profile Claude Code actually uses. Install the other skills with `tools/install-ce-review-skill.sh`, `tools/install-ce-status-skill.sh`, `tools/install-ce-memory-skill.sh`, and `tools/install-ce-learning-skill.sh` as needed. The installers refuse to overwrite a different existing skill.
+Replace the example profile path with the profile Claude Code actually uses. Individual installers are available as `tools/install-ce-<name>-skill.sh`. The aggregate installer is idempotent, honors the selected profile, installs all eight skills, and preserves conflicting user-owned skill files with a warning.
 
 **See [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md)** for how to configure API tokens and credentials (auto-loaded in all sessions).
 
