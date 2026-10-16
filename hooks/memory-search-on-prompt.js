@@ -312,8 +312,10 @@ async function main() {
   const diagnostics = {
     queryHash,
     memoryStatus: memoryError ? 'error' : memoryPayload?.ok === true ? 'ok' : 'empty_or_invalid',
-    memoryResultCount: results.length,
+    memoryResultCount: memoryResults.length,
     memoryCount: memory.length,
+    knowledgeStatus: knowledgePayload?.ok === true ? 'ok' : 'error_or_empty',
+    knowledgeResultCount: knowledgeResults.length,
     knowledgeCount: knowledge.length,
     graphStatus: graphError ? 'error' : 'ok',
     graphCount: graphContext.length,
