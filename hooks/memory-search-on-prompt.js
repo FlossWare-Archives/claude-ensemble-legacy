@@ -190,15 +190,15 @@ async function graphRequest(route, payload) {
 }
 
 async function searchGraphContext(cwd) {
-  if (typeof cwd !== 'string' || !cwd.trim()) return [];
+  if (typeof cwd !== 'string' || !cwd.trim()) return { lines: [], status: 'skipped_no_cwd' };
   const projectName = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
-  if (!projectName || projectName === '.' || projectName === '..') return [];
+  if (!projectName || projectName === '.' || projectName === '..') return { lines: [], status: 'skipped_invalid_cwd' };
 
   const match = await graphRequest('/graph/query', { properties: { name: projectName } });
   const roots = Array.isArray(match?.nodes)
     ? match.nodes.filter(node => node && typeof node.id === 'string').slice(0, MAX_GRAPH_ROOTS)
     : [];
-  if (!roots.length) return [];
+  if (!roots.length) return { lines: [], status: 'no_project_match' };
 
   const nodes = new Map();
   for (const root of roots) nodes.set(root.id, { node: root, relationship: 'current project' });
@@ -212,6 +212,7 @@ async function searchGraphContext(cwd) {
       })
   ));
 
+  const failedTraversals = traversals.filter(traversal => traversal === null).length;
   for (const traversal of traversals) {
     for (const item of Array.isArray(traversal?.results) ? traversal.results : []) {
       const node = item?.node;
@@ -223,13 +224,18 @@ async function searchGraphContext(cwd) {
     }
   }
 
-  return [...nodes.values()]
+  const lines = [...nodes.values()]
     .slice(0, MAX_GRAPH_NODES)
     .map(({ node, relationship }) => formatGraphNode(node, relationship))
     .filter(Boolean)
     .join('\n')
     .slice(0, MAX_GRAPH_CONTEXT_CHARS)
-    .split('\n');
+    .split('\n')
+    .filter(Boolean);
+  return {
+    lines,
+    status: failedTraversals === traversals.length ? 'error' : failedTraversals ? 'partial_error' : 'ok',
+  };
 }
 
 async function searchContext(query) {
@@ -276,7 +282,7 @@ async function main() {
   emitDiagnostics('started', { queryHash, cwdPresent: Boolean(event.cwd) });
   let memoryError = null;
   let graphError = null;
-  const [payload, graphContext] = await Promise.all([
+  const [payload, graphResult] = await Promise.all([
     searchContext(query).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       memoryError = message;
@@ -287,10 +293,11 @@ async function main() {
       const message = error instanceof Error ? error.message : String(error);
       graphError = message;
       process.stderr.write(`Graph context unavailable: ${message}\n`);
-      return [];
+      return { lines: [], status: 'error' };
     }),
   ]);
 
+  const graphContext = graphResult.lines;
   const results = extractResults(payload);
   const { memory, knowledge } = partitionResults(results);
   const additionalContext = formatContext(query, payload, graphContext);
