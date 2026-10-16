@@ -73,6 +73,22 @@ On startup, `scripts/ensemble-init.sh` automatically:
   Autonomous learning: Thompson continuously improving from real tasks
 ```
 
+### Diagnose the running CE services
+
+Run a correlated health and integration check before testing a live Claude Code session:
+
+```bash
+bash tools/ce diagnose --deep --json
+```
+
+This probes the configured gateway, Memory, Graph, decision endpoint, Learning, Thompson, Messenger, and Alert service. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
+
+For a read-only service check without the isolated pipeline test:
+
+```bash
+bash tools/ce diagnose --json
+```
+
 ### Run Dashboards
 After doing real work, view your performance:
 
