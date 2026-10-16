@@ -244,36 +244,57 @@ class AlertManager:
     def check_quality_drop(
         self, rating_threshold: float = 3.0, window_days: int = 7
     ) -> Optional[Dict[str, Any]]:
-        """Alert if average rating < threshold in recent period"""
+        """Alert on low ratings in either the canonical or legacy Learning store."""
         try:
-            outcomes_dir = self.repo_root / "learning" / "post_task_outcomes"
-
-            if not outcomes_dir.exists():
-                return None
-
+            learning_dir = self.repo_root / "learning"
+            outcomes_dirs = (
+                learning_dir / "autonomous_outcomes",
+                learning_dir / "post_task_outcomes",
+            )
+            cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
             ratings = []
-            cutoff = (datetime.now() - timedelta(days=window_days)).isoformat()
+            seen_outcomes = set()
 
-            for outcome_file in outcomes_dir.glob("*.json"):
-                try:
-                    data = json.loads(outcome_file.read_text())
-                    if data.get("outcome", {}).get("timestamp", "") > cutoff:
-                        final = data.get("comparison", {}).get("final_rating")
-                        if final:
-                            ratings.append(final)
-                except Exception:
-                    pass
+            for outcomes_dir in outcomes_dirs:
+                if not outcomes_dir.exists():
+                    continue
+                for outcome_file in outcomes_dir.glob("*.json"):
+                    try:
+                        data = json.loads(outcome_file.read_text(encoding="utf-8"))
+                        outcome = data.get("outcome") if isinstance(data.get("outcome"), dict) else {}
+                        comparison = data.get("comparison") if isinstance(data.get("comparison"), dict) else {}
+                        timestamp_value = data.get("timestamp") or outcome.get("timestamp")
+                        if not isinstance(timestamp_value, str):
+                            continue
+                        outcome_time = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
+                        if outcome_time.tzinfo is None:
+                            outcome_time = outcome_time.replace(tzinfo=timezone.utc)
+                        if outcome_time < cutoff:
+                            continue
+
+                        rating = data.get("rating")
+                        if rating is None:
+                            rating = comparison.get("final_rating")
+                        if isinstance(rating, bool) or not isinstance(rating, (int, float)) or not 1 <= rating <= 5:
+                            continue
+
+                        identity = data.get("task_id") or data.get("run_id") or data.get("payload_sha256") or outcome_file.name
+                        if identity in seen_outcomes:
+                            continue
+                        seen_outcomes.add(identity)
+                        ratings.append(float(rating))
+                    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                        logger.debug("Skipping unreadable outcome %s: %s", outcome_file, exc)
 
             if not ratings:
                 return None
 
             avg_rating = sum(ratings) / len(ratings)
-
             if avg_rating < rating_threshold:
                 alert = {
                     'alert_type': 'quality_drop',
                     'severity': 'critical',
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
                     'message': f"Quality degradation: avg rating {avg_rating:.1f} < {rating_threshold}",
                     'metrics': {
                         'avg_rating': avg_rating,
@@ -283,12 +304,11 @@ class AlertManager:
                     },
                     'action_recommended': 'Review model selection; consider returning to previous settings',
                 }
-                logger.critical(f"Quality drop: {avg_rating:.1f} < {rating_threshold}")
+                logger.critical("Quality drop: %.1f < %.1f", avg_rating, rating_threshold)
                 return alert
-
             return None
-        except Exception as e:
-            logger.error(f"Error checking quality drop: {e}")
+        except Exception as exc:
+            logger.error("Error checking quality drop: %s", exc)
             return None
 
     def check_model_errors(self) -> Optional[Dict[str, Any]]:
