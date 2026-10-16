@@ -218,6 +218,54 @@ class SyncTests(unittest.TestCase):
                             sync_module.polling_watch(Path("/tmp/root"), 0.01, previous)
         self.assertEqual(len(calls), 2)
 
+    def test_project_knowledge_sync_indexes_docs_and_reconciles_selected_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            (root / "docs").mkdir(parents=True)
+            (root / "node_modules" / "package").mkdir(parents=True)
+            (root / "docs" / "lifecycle.md").write_text(
+                "SessionEnd captures metadata and does not assess task quality.",
+                encoding="utf-8",
+            )
+            (root / "node_modules" / "package" / "vendor.md").write_text(
+                "Do not index vendored documentation.", encoding="utf-8"
+            )
+            calls = []
+
+            def successful_post(path, body, **kwargs):
+                calls.append((path, body))
+                return {"ok": True, "status": "ingested", "count": 0}
+
+            with mock.patch.object(sync_module, "post", side_effect=successful_post):
+                self.assertEqual(sync_module.sync_knowledge_root(root), 0)
+
+            ingest_calls = [(path, body) for path, body in calls if path == "/memory/ingest"]
+            reconcile_calls = [(path, body) for path, body in calls if path == "/memory/reconcile"]
+            self.assertEqual(len(ingest_calls), 1)
+            self.assertEqual(ingest_calls[0][1]["metadata"]["scope"], str(root.resolve()))
+            self.assertEqual(ingest_calls[0][1]["metadata"]["relative_path"], "docs/lifecycle.md")
+            self.assertIn("does not assess task quality", ingest_calls[0][1]["content"])
+            self.assertEqual(len(reconcile_calls), 1)
+            self.assertEqual(reconcile_calls[0][1]["scope"], str(root.resolve()))
+            self.assertEqual(reconcile_calls[0][1]["paths"], [str((root / "docs" / "lifecycle.md").resolve())])
+
+    def test_project_knowledge_sync_does_not_reconcile_after_ingest_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "project"
+            root.mkdir()
+            (root / "guide.md").write_text("Durable project facts.", encoding="utf-8")
+            calls = []
+
+            def failing_post(path, body, **kwargs):
+                calls.append(path)
+                if path == "/memory/ingest":
+                    raise OSError("service unavailable")
+                return {"ok": True, "count": 0}
+
+            with mock.patch.object(sync_module, "post", side_effect=failing_post):
+                self.assertEqual(sync_module.sync_knowledge_root(root), 1)
+            self.assertEqual(calls, ["/memory/ingest"])
+
     def test_watch_performs_initial_sync(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self.make_root(tmp)
