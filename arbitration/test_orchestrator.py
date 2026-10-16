@@ -264,3 +264,47 @@ def test_worker_prompt_includes_original_task_and_current_phase_evidence() -> No
     )
     assert "Execution output: worker-a verified objective." in request.prompt
     assert "Current context: prior-stage state." in request.prompt
+
+
+
+def test_arbiter_parser_accepts_fenced_json_but_validates_schema() -> None:
+    parsed = ArbitrationOrchestrator._parse_arbiter_response(
+        "Here is the result:\n\n```json\n" + ARBITER_RESPONSE + "\n```"
+    )
+    assert parsed["adjudicated_result"] == "arbiter synthesis"
+
+    with pytest.raises(ValueError, match="adjudicated_result"):
+        ArbitrationOrchestrator._parse_arbiter_response(
+            '```json\n{"selected_worker": "sonnet"}\n```'
+        )
+
+
+def test_load_git_diff_includes_uncommitted_worktree_changes(tmp_path) -> None:
+    import subprocess
+    from pathlib import Path
+    from arbitration.orchestrator import ContextManager
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    git("init", "-b", "main")
+    git("config", "user.name", "CE Test")
+    git("config", "user.email", "ce-test@example.invalid")
+    target = tmp_path / "report.py"
+    target.write_text("def report():\n    return 'safe'\n", encoding="utf-8")
+    git("add", "report.py")
+    git("commit", "-m", "base")
+    git("checkout", "-b", "review")
+    target.write_text("def report():\n    return 'changed'\n", encoding="utf-8")
+
+    context = ContextManager(TaskType.CODE_REVIEW)
+    context.load_git_diff(Path(tmp_path), "main")
+
+    assert "changed" in (context.git_diff or "")
+    assert context.changed_files == [target]
+    assert str(target) in context.files
