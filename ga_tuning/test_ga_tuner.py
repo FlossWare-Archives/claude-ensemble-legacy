@@ -251,7 +251,12 @@ def test_explicit_seed_remains_reproducible(tmp_path):
 def test_load_config_reads_shipped_schema_without_passing_documentation_fields(tmp_path):
     config_file = tmp_path / "ga_config.yaml"
     config_file.write_text(
-        "population_size: 20\\ngenerations: 4\\nseed: null\\nsystems:\\n  matrix: {}\\n",
+        """population_size: 20
+generations: 4
+seed: null
+systems:
+  matrix: {}
+""",
         encoding="utf-8",
     )
     config = load_config(config_file)
