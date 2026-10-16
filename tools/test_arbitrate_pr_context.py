@@ -37,8 +37,8 @@ class PullRequestContextTests(unittest.TestCase):
         load_pull_request_context(orch, Path("/tmp/repo"), "12")
         self.assertEqual(orch.context_manager.git_diff, "diff --git a/app.py b/app.py\n+return True\n")
         self.assertEqual(orch.context_manager.files, {"PR_HEAD:abc123:app.py": source})
-        self.assertIn("?ref=abc123", run.call_args_list[2].args[0])
-        self.assertNotIn("app.py", str(run.call_args_list[2].kwargs.get("cwd", "")))
+        self.assertTrue(any("?ref=abc123" in arg for arg in run.call_args_list[2].args[0]))
+        self.assertIn("repos/owner/repo/contents/app.py?ref=abc123", run.call_args_list[2].args[0])
 
     @patch("tools.pr_context.subprocess.run")
     def test_refuses_diff_only_when_source_cannot_be_loaded(self, run):
