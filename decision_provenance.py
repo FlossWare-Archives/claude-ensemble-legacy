@@ -46,9 +46,9 @@ _SENSITIVE_KEYS = {
 
 def _deep_freeze(value: Any) -> Any:
     """Recursively freeze validated JSON data so records cannot change after validation."""
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return tuple(_deep_freeze(item) for item in value)
     return value
 
@@ -134,13 +134,22 @@ class DecisionRecord:
     execution_id: str
     decision_type: str
     selected: Any
-    alternatives: list[Any] = field(default_factory=list)
-    policy: dict[str, Any] = field(default_factory=dict)
-    strategy: dict[str, Any] = field(default_factory=dict)
-    evidence: list[dict[str, Any]] = field(default_factory=list)
+    alternatives: tuple[Any, ...] = field(default_factory=tuple)
+    policy: Mapping[str, Any] = field(default_factory=dict)
+    strategy: Mapping[str, Any] = field(default_factory=dict)
+    evidence: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
     created_at: str = ""
     schema: str = SCHEMA
     version: str = VERSION
+
+    def __post_init__(self) -> None:
+        # The public dataclass constructor must preserve the same snapshot
+        # immutability guarantee as create() and from_dict().
+        object.__setattr__(self, "selected", _deep_freeze(self.selected))
+        object.__setattr__(self, "alternatives", _deep_freeze(self.alternatives))
+        object.__setattr__(self, "policy", _deep_freeze(self.policy))
+        object.__setattr__(self, "strategy", _deep_freeze(self.strategy))
+        object.__setattr__(self, "evidence", _deep_freeze(self.evidence))
 
     @classmethod
     def create(
