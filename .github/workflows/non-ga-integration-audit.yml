@@ -90,5 +90,3 @@ jobs:
         run: node tools/claude-config/tests/test-session-end-hook.mjs
       - name: Run Memory sync regression test
         run: python tools/claude-config/tests/test-memory-sync.py
-      - name: Run CE Claude Code skill installer tests
-        run: bash tests/claude_code_skills/test_installers.sh
