@@ -196,7 +196,8 @@ def unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
 
 def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
                         include_session_end: bool = False,
-                        require_context: bool = False) -> list[dict[str, Any]]:
+                        require_context: bool = False,
+                        require_knowledge: bool = False) -> list[dict[str, Any]]:
     """Run the installed prompt hook; optionally run metadata-only SessionEnd capture."""
     results: list[dict[str, Any]] = []
     node = shutil.which("node")
@@ -269,11 +270,18 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
         completed = next((event for event in reversed(diagnostic_events)
                           if event.get("event") == "completed"), {})
         no_context = not failed and not context_emitted
-        if require_context and no_context:
+        knowledge_count = retrieval.get("knowledgeCount", 0)
+        missing_knowledge = (
+            not failed and context_emitted and require_knowledge
+            and (isinstance(knowledge_count, bool) or not isinstance(knowledge_count, int) or knowledge_count < 1)
+        )
+        if (require_context and no_context) or missing_knowledge:
             failed = True
         detail = (
             "installed prompt hook failed its live service contract"
-            if failed else
+            if failed and not missing_knowledge else
+            "context was emitted, but no Knowledge documents were retrieved; operational Memory alone does not prove durable project knowledge is available"
+            if missing_knowledge else
             f"installed prompt hook emitted context (Memory={retrieval.get('memoryCount', '?')}, "
             f"Knowledge={retrieval.get('knowledgeCount', '?')}, Graph={retrieval.get('graphCount', '?')})"
             if context_emitted else
@@ -282,9 +290,14 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
             "service health alone does not prove relevant context exists"
         )
         status = "fail" if failed else ("warn" if no_context else "pass")
+        remediation = (
+            "Index the intended project Markdown as Knowledge with python3 tools/claude-config/lib/memory_sync.py knowledge-sync --root /path/to/project, then rerun the prompt-context smoke."
+            if missing_knowledge else
+            "Check the selected hook path, Memory search results, and live Memory/Graph service configuration."
+            if failed or no_context else ""
+        )
         record(results, "hooks.user_prompt_submit", status, detail,
-               elapsed, str(prompt_hook),
-               "Check the selected hook path, Memory search results, and live Memory/Graph service configuration." if failed or no_context else "")
+               elapsed, str(prompt_hook), remediation)
     except (OSError, subprocess.TimeoutExpired) as exc:
         elapsed = round((time.monotonic() - started) * 1000)
         record(results, "hooks.user_prompt_submit", "fail",
@@ -326,7 +339,7 @@ def main() -> int:
     parser.add_argument("--hook-smoke", action="store_true",
                         help="run the installed UserPromptSubmit hook against live Memory/Graph services")
     parser.add_argument("--prompt-context-smoke", action="store_true",
-                        help="require the selected installed prompt hook to emit non-empty context; does not invoke Claude or prove model receipt")
+                        help="require the selected installed prompt hook to emit non-empty context and at least one Knowledge result; does not invoke Claude or prove model receipt")
     parser.add_argument("--session-end-smoke", action="store_true",
                         help="also run SessionEnd; writes one metadata-only event to production Memory and publishes a transient Messenger event")
     parser.add_argument("--allow-memory-write", action="store_true",
@@ -452,6 +465,7 @@ def main() -> int:
             Path(args.hook_dir).expanduser(), correlation_id, args.timeout,
             include_session_end=args.session_end_smoke,
             require_context=args.prompt_context_smoke,
+            require_knowledge=args.prompt_context_smoke,
         ))
 
     failures = [item for item in results if item["status"] == "fail"]
