@@ -14,19 +14,6 @@ from .claude_code import ClaudeCodeProvider
 from .model_provider import ModelProvider
 
 
-# Explicit migration aliases only. Unknown names must fail rather than silently
-# running a different model than the caller requested.
-_LEGACY_MODEL_LABELS = frozenset(
-    {
-        "gemini",
-        "gemini-2.5-flash",
-        "gpt-4",
-        "cursor",
-        "ollama-local",
-    }
-)
-
-
 class ProviderRegistry:
     """Compatibility facade that routes every model request through Claude Code."""
 
@@ -71,11 +58,9 @@ class ProviderRegistry:
         return self._provider()
 
     def resolve_model(self, model: str) -> tuple[str, str]:
-        """Normalize explicit legacy labels and preserve Claude model names.
+        """Preserve Claude model names and reject unsupported provider labels.
 
-        Only known historical non-Claude labels are mapped to Sonnet so old
-        worker lists continue to execute during migration. Unknown labels raise
-        ValueError to prevent accidental requests to a different model.
+        Never silently substitute another model for an unsupported request.
         """
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must be a non-empty string")
@@ -87,8 +72,6 @@ class ProviderRegistry:
             canonical = lowered
         elif lowered.startswith(("claude-", "claude_")):
             canonical = normalized
-        elif lowered in _LEGACY_MODEL_LABELS:
-            canonical = "sonnet"
         else:
             raise ValueError(f"Unsupported model label: {normalized!r}")
 
