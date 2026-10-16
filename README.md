@@ -55,14 +55,14 @@ This will:
 4. Set up credentials storage at `~/.FlossWare/secrets.env`
 5. Prompt you to configure which tools to enable
 
-The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. It uses the authenticated Claude Code runtime and does not send source to external reviewer providers. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. To install the skills separately into an explicitly selected CE profile, run:
+The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. The `/ce-status` skill diagnoses profile wiring and service health; `/ce-memory` investigates Memory/Knowledge retrieval without guessing undocumented API contracts. Both default to read-only diagnosis. To install skills separately into an explicitly selected CE profile, run:
 
 ```bash
 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profile" \
   bash tools/install-ce-jira-review-skill.sh
 ```
 
-Replace the example profile path with the profile Claude Code actually uses. The installer refuses to overwrite a different existing skill.
+Replace the example profile path with the profile Claude Code actually uses. Install the other skills with `tools/install-ce-review-skill.sh`, `tools/install-ce-status-skill.sh`, and `tools/install-ce-memory-skill.sh` as needed. The installers refuse to overwrite a different existing skill.
 
 **See [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md)** for how to configure API tokens and credentials (auto-loaded in all sessions).
 
