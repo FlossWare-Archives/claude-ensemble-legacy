@@ -31,14 +31,14 @@ const messengerServer = net.createServer(client => {
   let buffer = '';
   client.on('data', chunk => {
     buffer += chunk.toString('utf8');
-    const newline = buffer.indexOf('\\n');
+    const newline = buffer.indexOf('\n');
     if (newline < 0) return;
     try {
       const request = JSON.parse(buffer.slice(0, newline));
       messengerRequests.push(request);
-      client.end(JSON.stringify({ ok: true, delivered: 0 }) + '\\n');
+      client.end(JSON.stringify({ ok: true, delivered: 0 }) + '\n');
     } catch {
-      client.end(JSON.stringify({ ok: false, error: 'invalid request' }) + '\\n');
+      client.end(JSON.stringify({ ok: false, error: 'invalid request' }) + '\n');
     }
   });
 });
