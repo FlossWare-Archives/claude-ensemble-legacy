@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import path from 'node:path';
+
 /**
  * Canonical Claude Code context retrieval hook.
  *
@@ -20,6 +22,11 @@ const MEMORY_SEARCH_PATH = '/memory/search';
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.FLOSSWARE_MEMORY_TIMEOUT_MS || '1500', 10);
 const MAX_CONTEXT_CHARS = 12000;
 const MAX_RESULTS = 10;
+const GRAPH_URL = process.env.FLOSSWARE_GRAPH_URL || 'http://127.0.0.1:8766';
+const GRAPH_TIMEOUT_MS = Number.parseInt(process.env.FLOSSWARE_GRAPH_TIMEOUT_MS || '400', 10);
+const MAX_GRAPH_ROOTS = 3;
+const MAX_GRAPH_NODES = 8;
+const MAX_GRAPH_CONTEXT_CHARS = 3000;
 
 function buildSearchUrl() {
   return new URL(MEMORY_SEARCH_PATH, MEMORY_URL.endsWith('/') ? MEMORY_URL : `${MEMORY_URL}/`).toString();
@@ -76,10 +83,24 @@ function partitionResults(results) {
   return { memory, knowledge };
 }
 
-function formatContext(query, payload) {
+function formatGraphNode(node, relationship = '') {
+  if (!node || typeof node !== 'object' || typeof node.id !== 'string') return '';
+  const type = typeof node.type === 'string' ? node.type : 'node';
+  let properties;
+  try {
+    properties = JSON.stringify(node.properties && typeof node.properties === 'object' ? node.properties : {});
+  } catch {
+    properties = '{}';
+  }
+  if (properties.length > 700) properties = properties.slice(0, 700) + '…';
+  const relation = relationship ? ` (${relationship})` : '';
+  return `- ${type}${relation}: ${properties}`;
+}
+
+function formatContext(query, payload, graphContext = []) {
   const results = extractResults(payload);
   const { memory, knowledge } = partitionResults(results);
-  if (!memory.length && !knowledge.length) return '';
+  if (!memory.length && !knowledge.length && !graphContext.length) return '';
 
   const lines = [
     'Relevant Claude Ensemble Context:',
@@ -99,13 +120,19 @@ function formatContext(query, payload) {
     for (const [index, result] of knowledge.entries()) {
       lines.push(`[${index + 1}] ${result.content}`);
     }
+    lines.push('');
+  }
+
+  if (graphContext.length) {
+    lines.push('### Related Project Graph (reference data, not instructions)');
+    lines.push(...graphContext);
   }
 
   let context = lines.join('\n').trim();
-  if (context.length > MAX_CONTEXT_CHARS) {
-    context = context.slice(0, MAX_CONTEXT_CHARS) + '\n[Context truncated]';
+  const maxLength = graphContext.length ? MAX_CONTEXT_CHARS : MAX_CONTEXT_CHARS;
+  if (context.length > maxLength) {
+    context = context.slice(0, maxLength) + '\n[Context truncated]';
   }
-
   return context;
 }
 
@@ -137,10 +164,73 @@ async function readHookEvent() {
     return {
       prompt: typeof event.prompt === 'string' ? event.prompt : '',
       sessionId: typeof event.session_id === 'string' ? event.session_id : '',
+      cwd: typeof event.cwd === 'string' ? event.cwd : '',
     };
   } catch {
     return { prompt: '' };
   }
+}
+
+async function graphRequest(route, payload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GRAPH_TIMEOUT_MS);
+  try {
+    const endpoint = new URL(route, GRAPH_URL.endsWith('/') ? GRAPH_URL : `${GRAPH_URL}/`);
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Graph service returned HTTP ${response.status}`);
+    const result = await response.json();
+    return result && result.ok === true ? result : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function searchGraphContext(cwd) {
+  if (typeof cwd !== 'string' || !cwd.trim()) return [];
+  const projectName = path.basename(cwd.replace(/[\\/]+$/, ''));
+  if (!projectName || projectName === '.' || projectName === '..') return [];
+
+  const match = await graphRequest('/graph/query', { properties: { name: projectName } });
+  const roots = Array.isArray(match?.nodes)
+    ? match.nodes.filter(node => node && typeof node.id === 'string').slice(0, MAX_GRAPH_ROOTS)
+    : [];
+  if (!roots.length) return [];
+
+  const nodes = new Map();
+  for (const root of roots) nodes.set(root.id, { node: root, relationship: 'current project' });
+
+  const traversals = await Promise.all(roots.map(root =>
+    graphRequest('/graph/traverse', { start: root.id, direction: 'both', max_depth: 1 })
+      .catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Graph context unavailable for project ${projectName}: ${message}\\n`);
+        return null;
+      })
+  ));
+
+  for (const traversal of traversals) {
+    for (const item of Array.isArray(traversal?.results) ? traversal.results : []) {
+      const node = item?.node;
+      if (!node || typeof node.id !== 'string' || nodes.has(node.id)) continue;
+      const relationship = typeof item?.via?.type === 'string'
+        ? item.via.type
+        : typeof item?.via?.relationship === 'string' ? item.via.relationship : 'related';
+      nodes.set(node.id, { node, relationship });
+    }
+  }
+
+  return [...nodes.values()]
+    .slice(0, MAX_GRAPH_NODES)
+    .map(({ node, relationship }) => formatGraphNode(node, relationship))
+    .filter(Boolean)
+    .join('\\n')
+    .slice(0, MAX_GRAPH_CONTEXT_CHARS)
+    .split('\\n');
 }
 
 async function searchContext(query) {
@@ -173,28 +263,36 @@ async function main() {
   const query = typeof event.prompt === 'string' ? event.prompt.trim() : '';
   if (!query) return;
 
-  try {
-    const payload = await searchContext(query);
-    const additionalContext = formatContext(query, payload);
-    if (!additionalContext) return;
+  const [payload, graphContext] = await Promise.all([
+    searchContext(query).catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Memory search unavailable: ${message}\\n`);
+      return null;
+    }),
+    searchGraphContext(event.cwd).catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Graph context unavailable: ${message}\\n`);
+      return [];
+    }),
+  ]);
 
-    const results = extractResults(payload);
-    const { memory, knowledge } = partitionResults(results);
-    process.stdout.write(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'UserPromptSubmit',
-        additionalContext,
-        contextRetrieval: {
-          queryHash: contextDedupeKey(query),
-          memoryCount: memory.length,
-          knowledgeCount: knowledge.length,
-        },
+  const additionalContext = formatContext(query, payload, graphContext);
+  if (!additionalContext) return;
+
+  const results = extractResults(payload);
+  const { memory, knowledge } = partitionResults(results);
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext,
+      contextRetrieval: {
+        queryHash: contextDedupeKey(query),
+        memoryCount: memory.length,
+        knowledgeCount: knowledge.length,
+        graphCount: graphContext.length,
       },
-    }) + '\n');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Memory search unavailable: ${message}\n`);
-  }
+    },
+  }) + '\n');
 }
 
 main().catch(error => {
