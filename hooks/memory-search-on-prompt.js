@@ -257,35 +257,65 @@ async function searchContext(query) {
   }
 }
 
+function emitDiagnostics(eventName, details) {
+  if (process.env.FLOSSWARE_CE_HOOK_DIAGNOSTICS !== '1') return;
+  // Never log prompt text or retrieved content. The hash correlates one prompt
+  // across diagnostics without making the prompt itself observable.
+  process.stderr.write(`CE_HOOK_DIAGNOSTICS ${JSON.stringify({ event: eventName, ...details })}\n`);
+}
+
 async function main() {
   const event = await readHookEvent();
   const query = typeof event.prompt === 'string' ? event.prompt.trim() : '';
-  if (!query) return;
+  const queryHash = contextDedupeKey(query);
+  if (!query) {
+    emitDiagnostics('skipped', { reason: 'empty_prompt', queryHash });
+    return;
+  }
 
+  emitDiagnostics('started', { queryHash, cwdPresent: Boolean(event.cwd) });
+  let memoryError = null;
+  let graphError = null;
   const [payload, graphContext] = await Promise.all([
     searchContext(query).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
+      memoryError = message;
       process.stderr.write(`Memory search unavailable: ${message}\n`);
       return null;
     }),
     searchGraphContext(event.cwd).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
+      graphError = message;
       process.stderr.write(`Graph context unavailable: ${message}\n`);
       return [];
     }),
   ]);
 
-  const additionalContext = formatContext(query, payload, graphContext);
-  if (!additionalContext) return;
-
   const results = extractResults(payload);
   const { memory, knowledge } = partitionResults(results);
+  const additionalContext = formatContext(query, payload, graphContext);
+  const diagnostics = {
+    queryHash,
+    memoryStatus: memoryError ? 'error' : payload?.ok === true ? 'ok' : 'empty_or_invalid',
+    memoryResultCount: results.length,
+    memoryCount: memory.length,
+    knowledgeCount: knowledge.length,
+    graphStatus: graphError ? 'error' : 'ok',
+    graphCount: graphContext.length,
+    contextEmitted: Boolean(additionalContext),
+  };
+  if (!additionalContext) {
+    emitDiagnostics('completed', diagnostics);
+    return;
+  }
+
+  emitDiagnostics('completed', diagnostics);
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
       additionalContext,
       contextRetrieval: {
-        queryHash: contextDedupeKey(query),
+        queryHash,
         memoryCount: memory.length,
         knowledgeCount: knowledge.length,
         graphCount: graphContext.length,
@@ -293,7 +323,6 @@ async function main() {
     },
   }) + '\n');
 }
-
 main().catch(error => {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`Memory search unavailable: ${message}\n`);
