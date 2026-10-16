@@ -366,5 +366,142 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertNotIn("session-end-comprehensive-capture.sh", all_commands)
 
 
+    def test_end_to_end_prompt_outcome_and_session_end_workflow(self) -> None:
+        """Exercise production hooks and real Learning/Thompson handlers in one lifecycle."""
+        session_id = "e2e-session-contract-001"
+
+        # Stage 1: the actual UserPromptSubmit hook retrieves Memory, Knowledge, and Graph.
+        prompt = self.run_hook(
+            "memory-search-on-prompt.js",
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": session_id,
+                "cwd": "/tmp/demo-repo",
+                "prompt": "Implement the service boundary using the existing decision",
+            },
+        )
+        self.assertEqual(prompt.returncode, 0, prompt.stderr)
+        prompt_payload = json.loads(prompt.stdout)
+        context = prompt_payload["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Relevant prior decision", context)
+        self.assertIn("Current architecture fact", context)
+        self.assertIn("Use REST contracts", context)
+
+        # Stage 2: invoke the real Learning request handler and real Thompson service.
+        # All state, logs, and sockets are isolated in a temporary directory.
+        with tempfile.TemporaryDirectory(prefix="ce-workflow-e2e-") as temp_dir:
+            root = Path(temp_dir)
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(root / "home"),
+                "ENSEMBLE_LOG_DIR": str(root / "logs"),
+                "ENSEMBLE_LEARNING_DIR": str(root / "learning"),
+                "ENSEMBLE_RUNTIME_DIR": str(root / "runtime"),
+                "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
+                "ENSEMBLE_THOMPSON_STATE_FILE": str(root / "thompson-state.json"),
+            })
+            script = r\'''
+import json, socket, sys, tempfile, threading, time
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+root = Path(sys.argv[2])
+sys.path.insert(0, str(repo))
+sys.path.insert(0, str(repo / "learning-service"))
+sys.path.insert(0, str(repo / "thompson-service"))
+
+from learning_service import LearningService
+from thompson_service import ThompsonService
+from shared.thompson_client import ThompsonClient
+
+class IsolatedMemory:
+    def __init__(self): self.events = []
+    def write_event(self, **event):
+        self.events.append(event)
+        return True
+
+socket_path = root / "thompson.sock"
+state_path = root / "thompson-state.json"
+thompson = ThompsonService(socket_path, state_path)
+worker = threading.Thread(target=thompson.start, daemon=True)
+worker.start()
+deadline = time.monotonic() + 3
+while not socket_path.exists() and time.monotonic() < deadline: time.sleep(0.01)
+assert socket_path.exists(), "Thompson service failed to start"
+
+memory = IsolatedMemory()
+learning = LearningService(root / "learning.sock", root / "learning", memory)
+learning.thompson_client = ThompsonClient(socket_path=socket_path, timeout=1)
+task_id = sys.argv[3]
+request = {
+    "op": "process_outcome", "task_id": task_id,
+    "task_type": "claude-code-session", "model": "e2e-test-model",
+    "rating": 5, "tokens": 17, "cost": 0.0,
+}
+try:
+    client, service = socket.socketpair()
+    client.settimeout(5)
+    handler = threading.Thread(target=learning._handle_client, args=(service,), daemon=True)
+    handler.start()
+    client.sendall((json.dumps(request) + "\\n").encode())
+    response = bytearray()
+    while b"\\n" not in response and len(response) < 65536:
+        chunk = client.recv(4096)
+        if not chunk: break
+        response.extend(chunk)
+    client.close()
+    handler.join(timeout=2)
+    assert not handler.is_alive(), "Learning handler did not finish"
+    result = json.loads(bytes(response).split(b"\\n", 1)[0].decode())
+    assert result.get("ok") is True, result
+    assert result.get("thompson") is True, result
+    assert result.get("checkpoint_advanced") is True, result
+    assert learning.system.is_processed(task_id), "outcome checkpoint missing"
+    stats = thompson.state.get_state()["models"].get("e2e-test-model")
+    assert stats and stats["calls"] == 1 and stats["successes"] == 1, stats
+    print(json.dumps({"ok": True, "task_id": task_id, "learning": result,
+                      "thompson": stats, "memory_events": len(memory.events)}))
+finally:
+    thompson.stop()
+    worker.join(timeout=2)
+\'''
+            completed = subprocess.run(
+                [sys.executable, "-c", script, str(ROOT), str(root), session_id],
+                env=env, capture_output=True, text=True, timeout=15, check=False,
+            )
+            self.assertEqual(
+                0, completed.returncode,
+                msg=f"real Learning/Thompson path failed\\nstdout:\\n{completed.stdout}\\nstderr:\\n{completed.stderr}",
+            )
+            learning_result = json.loads(completed.stdout.strip().splitlines()[-1])
+            self.assertEqual(session_id, learning_result["task_id"])
+            self.assertEqual(1, learning_result["thompson"]["calls"])
+
+        # Stage 3: SessionEnd captures only the same stable ID; it must not leak
+        # transcript/project paths or independently award a learning outcome.
+        end = self.run_hook(
+            "session-end-memory-capture.js",
+            {
+                "hook_event_name": "SessionEnd",
+                "session_id": session_id,
+                "transcript_path": "/private/transcript.jsonl",
+                "cwd": "/private/project",
+                "reason": "user_exit",
+            },
+        )
+        self.assertEqual(end.returncode, 0, end.stderr)
+        capture = [payload for path, payload in FakeMemoryHandler.requests if path == "/memory/append-once"]
+        self.assertEqual(1, len(capture))
+        self.assertEqual(session_id, capture[0]["entry"]["session_id"])
+        self.assertEqual("claude_code.session_end", capture[0]["entry"]["event_type"])
+        self.assertNotIn("transcript_path", json.dumps(capture[0]))
+        self.assertNotIn("/private/", json.dumps(capture[0]))
+        self.assertEqual(session_id, self.messenger.requests[-1]["data"]["session_id"])
+        # SessionEnd is capture/event delivery only. Thompson was updated exactly
+        # once by the explicit, evidence-bearing process_outcome request above.
+        self.assertEqual(1, learning_result["thompson"]["calls"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
