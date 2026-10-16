@@ -30,7 +30,6 @@ def _git_root(path: Path) -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
-
 def _prepare_review_context(
     orch: ArbitrationOrchestrator,
     target: str,
