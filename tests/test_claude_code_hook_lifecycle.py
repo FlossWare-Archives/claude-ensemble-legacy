@@ -146,7 +146,7 @@ class FakeMessengerServer:
                 return
             with client:
                 data = b""
-                while b"\\n" not in data:
+                while b"\n" not in data:
                     chunk = client.recv(4096)
                     if not chunk:
                         break
@@ -154,11 +154,11 @@ class FakeMessengerServer:
                 if not data:
                     continue
                 try:
-                    request = json.loads(data.split(b"\\n", 1)[0])
+                    request = json.loads(data.split(b"\n", 1)[0])
                     self.requests.append(request)
-                    client.sendall(b'{"ok":true,"delivered":1}\\n')
+                    client.sendall(b'{"ok":true,"delivered":1}\n')
                 except (ValueError, json.JSONDecodeError):
-                    client.sendall(b'{"ok":false,"error":"bad request"}\\n')
+                    client.sendall(b'{"ok":false,"error":"bad request"}\n')
 
     def close(self) -> None:
         self.stop_event.set()
