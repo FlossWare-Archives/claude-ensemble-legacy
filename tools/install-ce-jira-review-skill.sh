@@ -5,7 +5,12 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 SOURCE="$REPO_ROOT/claude-code-skills/ce-jira-review/SKILL.md"
-DEST_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/ce-jira-review"
+PROFILE_DIR="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+case "$PROFILE_DIR" in
+  "~") PROFILE_DIR="$HOME" ;;
+  "~/"*) PROFILE_DIR="$HOME/${PROFILE_DIR#\~/}" ;;
+esac
+DEST_DIR="$PROFILE_DIR/skills/ce-jira-review"
 DEST="$DEST_DIR/SKILL.md"
 
 if [[ ! -f "$SOURCE" ]]; then
