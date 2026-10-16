@@ -74,3 +74,33 @@ def test_exported_dict_is_detached_from_record():
     assert record.to_dict()["selected"]["model"] == "sonnet"
     assert record.to_dict()["policy"]["allowed_models"] == ["sonnet"]
     assert "api_key" not in record.to_dict()["evidence"][0]
+
+
+
+def test_public_dataclass_constructor_also_freezes_nested_fields():
+    selected = {"model": "sonnet"}
+    policy = {"allowed_models": ["sonnet"]}
+    evidence = [{"source": "unit-test", "metric": "quality", "value": 0.9}]
+    record = DecisionRecord(
+        decision_id="decision-1",
+        execution_id="exec-direct",
+        decision_type="routing",
+        selected=selected,
+        alternatives=[{"model": "haiku"}],
+        policy=policy,
+        strategy={"name": "baseline"},
+        evidence=evidence,
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+
+    selected["model"] = "gpt-4"
+    policy["allowed_models"].append("gpt-4")
+    evidence[0]["source"] = "tampered"
+
+    assert record.to_dict()["selected"]["model"] == "sonnet"
+    assert record.to_dict()["policy"]["allowed_models"] == ["sonnet"]
+    assert record.to_dict()["evidence"][0]["source"] == "unit-test"
+    with pytest.raises(TypeError):
+        record.selected["model"] = "gpt-4"
+    with pytest.raises(AttributeError):
+        record.alternatives.append({"model": "gpt-4"})
