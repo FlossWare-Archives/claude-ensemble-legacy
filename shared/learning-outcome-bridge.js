@@ -16,6 +16,11 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(MODULE_DIR, '..')
 const ADAPTER = path.join(REPO_ROOT, 'tools', 'record_workflow_outcome.py')
 
+export function deriveStableOutcomeId(taskType, evidence) {
+  const identity = JSON.stringify({ taskType, evidence })
+  return `ce-outcome-${createHash('sha256').update(identity).digest('hex')}`
+}
+
 export function recordEvidenceGatedOutcome({
   taskType,
   model,
@@ -31,8 +36,7 @@ export function recordEvidenceGatedOutcome({
   // The caller's request IDs are often generated per process. Derive the
   // Learning identity from stable evidence so retrying the same evaluated
   // result cannot apply the same Thompson update twice.
-  const identity = JSON.stringify({ taskType, evidence })
-  const stableRunId = `ce-outcome-${createHash('sha256').update(identity).digest('hex')}`
+  const stableRunId = deriveStableOutcomeId(taskType, evidence)
   const payload = {
     run_id: stableRunId,
     task_id: stableRunId,
