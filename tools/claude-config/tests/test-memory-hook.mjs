@@ -96,7 +96,6 @@ const graphServer = http.createServer((req, res) => {
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     graphRequests.push({ url: req.url, body });
-    res.writeHead(200, { 'content-type': 'application/json' });
     const request = JSON.parse(body);
     if (req.url === '/graph/query' && request.properties?.name === 'graph-project') {
       res.end(JSON.stringify({ ok: true, nodes: [{ id: 'project-1', type: 'Project', properties: { name: 'graph-project' } }] }));
@@ -107,6 +106,7 @@ const graphServer = http.createServer((req, res) => {
       res.end(JSON.stringify({ ok: false, error: 'fixture traversal failure' }));
       return;
     }
+    res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, nodes: [] }));
   });
 });
