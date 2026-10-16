@@ -166,7 +166,19 @@ class AlertServiceTest(unittest.TestCase):
                 manager=manager,
             )
             published = []
-            service._publish_messenger_alert = lambda alert, source: published.append((dict(alert), source)) or True
+
+            def fake_publish(alert, source):
+                published.append((dict(alert), source))
+                service.store.append_delivery_log({
+                    "alert_id": alert["alert_id"],
+                    "alert_type": alert["alert_type"],
+                    "method": "messenger",
+                    "success": True,
+                    "delivered": 1,
+                })
+                return True
+
+            service._publish_messenger_alert = fake_publish
             service.check_interval_seconds = 30
             service.last_check_time = 100.0
 
@@ -255,6 +267,50 @@ class AlertServiceTest(unittest.TestCase):
             self.assertEqual(delivery_log["method"], "messenger")
             self.assertTrue(delivery_log["success"])
             self.assertEqual(delivery_log["delivered"], 2)
+
+    def test_failed_messenger_alert_delivery_is_retried_without_duplicate_storage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from alert_service.alert_service import AlertService
+
+            service = AlertService(
+                socket_path=Path(temp_dir) / "alert.sock",
+                alert_dir=Path(temp_dir) / "alerts",
+                manager=SimpleNamespace(trigger_check=lambda: []),
+            )
+            attempts = []
+
+            class FlakyMessengerClient:
+                def publish(self, topic, data, *, event_type=None):
+                    attempts.append((topic, data, event_type))
+                    if len(attempts) == 1:
+                        raise OSError("mock Messenger unavailable")
+                    return 1
+
+            alert = {
+                "alert_type": "model_error",
+                "severity": "high",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "message": "Model invocation failed",
+                "metrics": {"error_count": 3},
+                "action_recommended": "Check provider connectivity",
+            }
+            with patch.dict(sys.modules, {"messenger_client": SimpleNamespace(MessengerClient=FlakyMessengerClient)}):
+                first = service._process_alerts([alert], source="startup")
+                second = service._process_alerts([alert], source="scheduled")
+                third = service._process_alerts([alert], source="scheduled")
+
+            self.assertEqual(len(first), 1)
+            self.assertEqual(second, [])
+            self.assertEqual(third, [])
+            self.assertEqual(len(attempts), 2, "failed delivery retries once the broker becomes available")
+            alert_files = list((Path(temp_dir) / "alerts").glob("model_error_*.json"))
+            self.assertEqual(len(alert_files), 1, "retry must not duplicate the persisted alert")
+            delivery_entries = [
+                json.loads(line)
+                for line in (Path(temp_dir) / "alerts" / "delivery_log.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual([entry["success"] for entry in delivery_entries], [False, True])
 
     def test_email_delivery_is_never_reported_as_success_when_unimplemented(self):
         with tempfile.TemporaryDirectory() as temp_dir:
