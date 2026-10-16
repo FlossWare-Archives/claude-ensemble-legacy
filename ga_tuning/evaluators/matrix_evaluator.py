@@ -80,6 +80,17 @@ class MatrixEvaluator:
         'debugging': 'opus-5-5',
     }
 
+    # Known task difficulty for the labelled synthetic benchmark. Values near
+    # decision boundaries let the optimizer distinguish weight configurations.
+    SYNTHETIC_COMPLEXITY = {
+        "code_reading": 0.45,
+        "documentation": 0.15,
+        "simple_fixes": 0.25,
+        "code_review": 0.72,
+        "architecture": 0.90,
+        "debugging": 0.72,
+    }
+
     def __init__(self, rh_memory_dir: Path):
         # Markdown memory files are not labelled routing examples and cannot provide
         # ground truth for routing accuracy. Use an explicit labelled synthetic
@@ -269,12 +280,13 @@ class MatrixEvaluator:
         total = 0
 
         for filename, content in self.test_tasks[:100]:  # Use up to 100 tasks
-            # Estimate task properties
-            complexity = self._estimate_complexity(content)
             if filename.startswith("synthetic-") and "__task_" in filename:
-                # Synthetic benchmark labels are ground truth, not inferred labels.
+                # Synthetic benchmark labels and difficulty are ground truth, not
+                # guesses derived from an arbitrary memory document's length.
                 task_type = filename[len("synthetic-"):].split("__task_", 1)[0]
+                complexity = self.SYNTHETIC_COMPLEXITY[task_type]
             else:
+                complexity = self._estimate_complexity(content)
                 task_type = self._estimate_task_type(content)
 
             # Select model with current weights
