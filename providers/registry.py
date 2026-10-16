@@ -8,6 +8,7 @@ they are never silently substituted with another model.
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Mapping
 
 from .claude_code import ClaudeCodeProvider
@@ -30,7 +31,8 @@ class ProviderRegistry:
         unsupported = set(self.providers) - {"claude-code", "google"}
         if unsupported:
             raise ValueError(f"Unsupported provider(s): {', '.join(sorted(unsupported))}")
-        self.credentials = credentials or CredentialPool()
+        self._credentials = credentials
+        self._credentials_lock = threading.Lock()
         self._configured_provider = os.environ.get(
             "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex"
         ).strip().lower()
@@ -49,7 +51,7 @@ class ProviderRegistry:
                     expected_provider=self._configured_provider
                 )
             elif name == "google":
-                self.providers[name] = GoogleProvider(credentials=self.credentials)
+                self.providers[name] = GoogleProvider(credentials=self._get_credentials())
             else:
                 raise ValueError(f"Provider {name!r} is not registered")
         return self.providers[name]
@@ -59,11 +61,32 @@ class ProviderRegistry:
             raise ValueError(f"Unsupported provider: {name!r}")
         self.providers[name] = provider
 
-    def resolve(self, model: str) -> ModelProvider:
-        provider_name, _ = self.resolve_model(model)
+    def _get_credentials(self) -> CredentialPool:
+        """Load external-provider credentials only when that provider is used."""
+        if self._credentials is None:
+            with self._credentials_lock:
+                if self._credentials is None:
+                    self._credentials = CredentialPool()
+        return self._credentials
+
+    def resolve(self, model: str, *, allow_external_data: bool = False) -> ModelProvider:
+        provider_name, _ = self.resolve_model(
+            model, allow_external_data=allow_external_data
+        )
         return self._provider(provider_name)
 
-    def resolve_model(self, model: str) -> tuple[str, str]:
+    def _require_google_authorized(self, allow_external_data: bool) -> None:
+        if not self.google_api_enabled():
+            raise ValueError(
+                "Google model routing is disabled; set ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true "
+                "only for workloads approved to send data to Google"
+            )
+        if not allow_external_data:
+            raise ValueError(
+                "Google model routing requires explicit per-request external-data authorization"
+            )
+
+    def resolve_model(self, model: str, *, allow_external_data: bool = False) -> tuple[str, str]:
         """Resolve aliases without changing the requested model family."""
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must be a non-empty string")
@@ -75,22 +98,14 @@ class ProviderRegistry:
             return "claude-code", lowered if lowered in {"haiku", "sonnet", "opus"} else normalized
 
         if lowered == "gemini":
-            if not self.google_api_enabled():
-                raise ValueError(
-                    "Google model routing is disabled; set ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true "
-                    "only for workloads approved to send data to Google"
-                )
+            self._require_google_authorized(allow_external_data)
             self._provider("google")
             return "google", _DEFAULT_GEMINI_MODEL
 
         if lowered.startswith(("gemini-", "gemini_", "models/gemini-")):
-            if not self.google_api_enabled():
-                raise ValueError(
-                    "Google model routing is disabled; set ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true "
-                    "only for workloads approved to send data to Google"
-                )
+            self._require_google_authorized(allow_external_data)
             self._provider("google")
-            return "google", normalized.removeprefix("models/")
+            return "google", lowered.removeprefix("models/")
 
         raise ValueError(
             f"Unsupported model label: {normalized!r}; no provider fallback is performed"
@@ -100,6 +115,6 @@ class ProviderRegistry:
         if provider == "google" and not self.google_api_enabled():
             return []
         if provider == "google":
-            return self.credentials.status("google")
+            return self._get_credentials().status("google")
         # Claude Code owns its authentication; CE does not inspect its secrets.
         return []
