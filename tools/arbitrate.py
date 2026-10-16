@@ -30,37 +30,6 @@ def _git_root(path: Path) -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
-def _load_pull_request_context(orch: ArbitrationOrchestrator, repo_path: Path, number: str) -> None:
-    diff = subprocess.run(
-        ["gh", "pr", "diff", number],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if diff.returncode != 0:
-        detail = (diff.stderr or diff.stdout).strip()
-        raise RuntimeError(f"Unable to fetch local GitHub CLI PR diff for #{number}: {detail}")
-
-    files = subprocess.run(
-        ["gh", "pr", "view", number, "--json", "files", "--jq", ".files[].path"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if files.returncode != 0:
-        detail = (files.stderr or files.stdout).strip()
-        raise RuntimeError(f"Unable to list files for PR #{number}: {detail}")
-
-    orch.context_manager.git_diff = diff.stdout
-    # Keep PR context tied to the PR diff. Reading changed paths from the
-    # current checkout could silently supply base-branch contents when the PR
-    # branch is not checked out locally.
-    orch.context_manager.changed_files = [
-        repo_path / name for name in files.stdout.splitlines() if name
-    ]
-
 
 def _prepare_review_context(
     orch: ArbitrationOrchestrator,
