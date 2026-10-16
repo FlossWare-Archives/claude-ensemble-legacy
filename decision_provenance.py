@@ -7,7 +7,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 SCHEMA = "decision-provenance"
 VERSION = "0.1"
@@ -41,6 +42,24 @@ _SENSITIVE_KEYS = {
     "secret",
     "token",
 }
+
+
+def _deep_freeze(value: Any) -> Any:
+    """Recursively freeze validated JSON data so records cannot change after validation."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in value)
+    return value
+
+
+def _deep_thaw(value: Any) -> Any:
+    """Return detached JSON-compatible data for serialization and callers."""
+    if isinstance(value, Mapping):
+        return {key: _deep_thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_deep_thaw(item) for item in value]
+    return value
 
 
 def _object(value: Any, name: str) -> dict[str, Any]:
@@ -115,13 +134,22 @@ class DecisionRecord:
     execution_id: str
     decision_type: str
     selected: Any
-    alternatives: list[Any] = field(default_factory=list)
-    policy: dict[str, Any] = field(default_factory=dict)
-    strategy: dict[str, Any] = field(default_factory=dict)
-    evidence: list[dict[str, Any]] = field(default_factory=list)
+    alternatives: tuple[Any, ...] = field(default_factory=tuple)
+    policy: Mapping[str, Any] = field(default_factory=dict)
+    strategy: Mapping[str, Any] = field(default_factory=dict)
+    evidence: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
     created_at: str = ""
     schema: str = SCHEMA
     version: str = VERSION
+
+    def __post_init__(self) -> None:
+        # The public dataclass constructor must preserve the same snapshot
+        # immutability guarantee as create() and from_dict().
+        object.__setattr__(self, "selected", _deep_freeze(self.selected))
+        object.__setattr__(self, "alternatives", _deep_freeze(self.alternatives))
+        object.__setattr__(self, "policy", _deep_freeze(self.policy))
+        object.__setattr__(self, "strategy", _deep_freeze(self.strategy))
+        object.__setattr__(self, "evidence", _deep_freeze(self.evidence))
 
     @classmethod
     def create(
@@ -158,11 +186,11 @@ class DecisionRecord:
             decision_id=str(uuid.uuid4()),
             execution_id=execution_id,
             decision_type=decision_type,
-            selected=safe_selected,
-            alternatives=safe_alternatives,
-            policy=safe_policy,
-            strategy=safe_strategy,
-            evidence=safe_evidence,
+            selected=_deep_freeze(safe_selected),
+            alternatives=tuple(_deep_freeze(item) for item in safe_alternatives),
+            policy=_deep_freeze(safe_policy),
+            strategy=_deep_freeze(safe_strategy),
+            evidence=tuple(_deep_freeze(item) for item in safe_evidence),
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -207,11 +235,11 @@ class DecisionRecord:
             "decision_id": self.decision_id,
             "execution_id": self.execution_id,
             "decision_type": self.decision_type,
-            "selected": self.selected,
-            "alternatives": self.alternatives,
-            "policy": self.policy,
-            "strategy": self.strategy,
-            "evidence": self.evidence,
+            "selected": _deep_thaw(self.selected),
+            "alternatives": _deep_thaw(self.alternatives),
+            "policy": _deep_thaw(self.policy),
+            "strategy": _deep_thaw(self.strategy),
+            "evidence": _deep_thaw(self.evidence),
             "created_at": self.created_at,
         }
 
