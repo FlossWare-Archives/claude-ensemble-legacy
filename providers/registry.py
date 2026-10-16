@@ -1,102 +1,105 @@
-"""Single-runtime model routing for Claude Ensemble.
+"""Explicit model-to-provider routing for Claude Ensemble.
 
-All model work runs through the installed Claude Code CLI. Direct Anthropic and
-Google API adapters have been removed from this branch; the prior implementation
-is preserved on the archive branch.
+Claude models use the installed Claude Code runtime, whose upstream is checked
+against ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER (Vertex by default). Gemini
+requests use Google's API only after an explicit opt-in. Unknown labels fail;
+they are never silently substituted with another model.
 """
-
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
 
 from .claude_code import ClaudeCodeProvider
+from .credentials import CredentialPool
+from .google import GoogleProvider
 from .model_provider import ModelProvider
 
-
-# Explicit migration aliases only. Unknown names must fail rather than silently
-# running a different model than the caller requested.
-_LEGACY_MODEL_LABELS = frozenset(
-    {
-        "gemini",
-        "gemini-2.5-flash",
-        "gpt-4",
-        "cursor",
-        "ollama-local",
-    }
-)
+_DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 class ProviderRegistry:
-    """Compatibility facade that routes every model request through Claude Code."""
+    """Resolve requested model labels to an explicit, policy-gated provider."""
 
     def __init__(
         self,
         providers: Mapping[str, ModelProvider] | None = None,
-        credentials: object | None = None,
+        credentials: CredentialPool | None = None,
     ) -> None:
-        # Keep the old constructor shape for callers, but reject alternative
-        # runtimes instead of silently allowing multi-provider dispatch.
-        self.providers: dict[str, ModelProvider] = {}
-        for name, provider in (providers or {}).items():
-            if name != "claude-code":
-                raise ValueError(
-                    f"Only the 'claude-code' runtime is supported; got {name!r}"
-                )
-            self.providers[name] = provider
+        self.providers = dict(providers or {})
+        unsupported = set(self.providers) - {"claude-code", "google"}
+        if unsupported:
+            raise ValueError(f"Unsupported provider(s): {', '.join(sorted(unsupported))}")
+        self.credentials = credentials or CredentialPool()
         self._configured_provider = os.environ.get(
             "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex"
         ).strip().lower()
         if not self._configured_provider:
-            raise ValueError(
-                "ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER must not be blank"
-            )
+            raise ValueError("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER must not be blank")
 
-    def _provider(self) -> ModelProvider:
-        if "claude-code" not in self.providers:
-            self.providers["claude-code"] = ClaudeCodeProvider(
-                expected_provider=self._configured_provider
-            )
-        return self.providers["claude-code"]
+    @staticmethod
+    def google_api_enabled() -> bool:
+        """Google is an external data destination and remains disabled by default."""
+        return os.environ.get("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", "").strip().lower() == "true"
+
+    def _provider(self, name: str) -> ModelProvider:
+        if name not in self.providers:
+            if name == "claude-code":
+                self.providers[name] = ClaudeCodeProvider(
+                    expected_provider=self._configured_provider
+                )
+            elif name == "google":
+                self.providers[name] = GoogleProvider(credentials=self.credentials)
+            else:
+                raise ValueError(f"Provider {name!r} is not registered")
+        return self.providers[name]
 
     def register(self, name: str, provider: ModelProvider) -> None:
-        if name != "claude-code":
-            raise ValueError(
-                f"Only the 'claude-code' runtime is supported; got {name!r}"
-            )
+        if name not in {"claude-code", "google"}:
+            raise ValueError(f"Unsupported provider: {name!r}")
         self.providers[name] = provider
 
     def resolve(self, model: str) -> ModelProvider:
-        self.resolve_model(model)
-        return self._provider()
+        provider_name, _ = self.resolve_model(model)
+        return self._provider(provider_name)
 
     def resolve_model(self, model: str) -> tuple[str, str]:
-        """Normalize explicit legacy labels and preserve Claude model names.
-
-        Only known historical non-Claude labels are mapped to Sonnet so old
-        worker lists continue to execute during migration. Unknown labels raise
-        ValueError to prevent accidental requests to a different model.
-        """
+        """Resolve aliases without changing the requested model family."""
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must be a non-empty string")
         normalized = model.strip()
         lowered = normalized.lower()
 
-        aliases = {"haiku", "sonnet", "opus"}
-        if lowered in aliases:
-            canonical = lowered
-        elif lowered.startswith(("claude-", "claude_")):
-            canonical = normalized
-        elif lowered in _LEGACY_MODEL_LABELS:
-            canonical = "sonnet"
-        else:
-            raise ValueError(f"Unsupported model label: {normalized!r}")
+        if lowered in {"haiku", "sonnet", "opus"} or lowered.startswith(("claude-", "claude_")):
+            self._provider("claude-code")
+            return "claude-code", lowered if lowered in {"haiku", "sonnet", "opus"} else normalized
 
-        self._provider()
-        return "claude-code", canonical
+        if lowered == "gemini":
+            if not self.google_api_enabled():
+                raise ValueError(
+                    "Google model routing is disabled; set ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true "
+                    "only for workloads approved to send data to Google"
+                )
+            self._provider("google")
+            return "google", _DEFAULT_GEMINI_MODEL
+
+        if lowered.startswith(("gemini-", "gemini_", "models/gemini-")):
+            if not self.google_api_enabled():
+                raise ValueError(
+                    "Google model routing is disabled; set ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true "
+                    "only for workloads approved to send data to Google"
+                )
+            self._provider("google")
+            return "google", normalized.removeprefix("models/")
+
+        raise ValueError(
+            f"Unsupported model label: {normalized!r}; no provider fallback is performed"
+        )
 
     def credential_status(self, provider: str) -> list[dict[str, object]]:
-        """Return no API-key accounts; Claude Code owns authentication."""
-        if provider in {"claude-code", "anthropic", "google"}:
+        if provider == "google" and not self.google_api_enabled():
             return []
+        if provider == "google":
+            return self.credentials.status("google")
+        # Claude Code owns its authentication; CE does not inspect its secrets.
         return []
