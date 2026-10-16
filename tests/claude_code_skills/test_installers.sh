@@ -10,7 +10,7 @@ export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/claude-profile"
 
-for name in review jira-review status memory; do
+for name in review jira-review status memory learning; do
   installer="$ROOT/tools/install-ce-$name-skill.sh"
   source_file="$ROOT/claude-code-skills/ce-$name/SKILL.md"
   destination="$ENSEMBLE_CLAUDE_CODE_CONFIG_DIR/skills/ce-$name/SKILL.md"
