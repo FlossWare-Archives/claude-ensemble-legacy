@@ -423,7 +423,7 @@ def main() -> int:
         "failed": len(failures),
         "skipped": 0,
         "mode": "hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard")),
-        "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications")),
+        "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
         "results": results,
     }
     if args.json:
@@ -436,7 +436,12 @@ def main() -> int:
             if item["status"] != "pass" and item["remediation"]:
                 print(f"    Fix: {item['remediation']}")
         print(f"Summary: {summary['passed']} passed, {summary['failed']} failed")
-        print("Mode is read-only; this does not simulate Learning-to-Thompson outcome processing.")
+        if args.session_end_smoke:
+            print("SessionEnd smoke writes one metadata-only Memory event and publishes a transient Messenger event.")
+        elif args.hook_smoke:
+            print("Hook smoke is read-only; it does not invoke a model or submit a learning outcome.")
+        else:
+            print("This does not invoke a Claude model or create a production learning outcome.")
     return 1 if failures else 0
 
 
