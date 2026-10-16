@@ -35,6 +35,7 @@ class CompressionEvaluator:
 
     def __init__(self, rh_memory_dir: Path):
         self.rh_memory_dir = Path(rh_memory_dir)
+        self.synthetic_corpus = False
         self.test_files = self._load_test_files()
         self.tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken else None
 
@@ -48,8 +49,9 @@ class CompressionEvaluator:
         test_files = []
 
         if not self.rh_memory_dir.exists():
-            logger.warning(f"Memory directory not found: {self.rh_memory_dir}")
-            return test_files
+            logger.warning("Memory directory not found: %s; using a synthetic fixture corpus", self.rh_memory_dir)
+            self.synthetic_corpus = True
+            return self._synthetic_test_files()
 
         # Load markdown files
         for md_file in self.rh_memory_dir.glob('*.md'):
@@ -61,7 +63,33 @@ class CompressionEvaluator:
             except Exception as e:
                 logger.error(f"Error loading {md_file}: {e}")
 
+        if not test_files:
+            logger.warning("No usable Markdown files found; using a synthetic fixture corpus")
+            self.synthetic_corpus = True
+            return self._synthetic_test_files()
         return test_files
+
+    @staticmethod
+    def _synthetic_test_files() -> List[Tuple[str, str]]:
+        """Small deterministic corpus used only when no operational corpus is available."""
+        return [
+            ("architecture.md", "System architecture separates request handling from persistence. "
+             "The service validates input before updating durable state. "
+             "Failures are logged with enough context to diagnose the operation. "
+             "Retries are bounded so transient errors cannot create an infinite loop."),
+            ("testing.md", "Tests cover normal behavior and important failure cases. "
+             "A regression test reproduces the defect before verifying the fix. "
+             "Integration tests check that service boundaries agree on the contract. "
+             "Test results must distinguish synthetic evidence from production evidence."),
+            ("operations.md", "Operational procedures describe startup, health checks, and recovery. "
+             "Configuration changes are validated before they are applied. "
+             "Logs and metrics help operators identify slow or failed requests. "
+             "A rollback path limits the impact of an unsuccessful deployment."),
+            ("memory.md", "Memory stores durable facts that may be retrieved by later sessions. "
+             "Knowledge documents provide stable project guidance and architecture decisions. "
+             "Retrieval ranks relevant evidence and preserves its source information. "
+             "Synthetic evaluator scores do not establish real-world quality improvements."),
+        ]
 
     def _count_tokens(self, text: str) -> int:
         """Count tokens using tiktoken"""
