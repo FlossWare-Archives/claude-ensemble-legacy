@@ -129,7 +129,7 @@ function formatContext(query, payload, graphContext = []) {
   }
 
   let context = lines.join('\n').trim();
-  const maxLength = graphContext.length ? MAX_CONTEXT_CHARS : MAX_CONTEXT_CHARS;
+  const maxLength = MAX_CONTEXT_CHARS;
   if (context.length > maxLength) {
     context = context.slice(0, maxLength) + '\n[Context truncated]';
   }
@@ -208,7 +208,7 @@ async function searchGraphContext(cwd) {
     graphRequest('/graph/traverse', { start: root.id, direction: 'both', max_depth: 1 })
       .catch(error => {
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Graph context unavailable for project ${projectName}: ${message}\\n`);
+        process.stderr.write(`Graph context unavailable for project ${projectName}: ${message}\n`);
         return null;
       })
   ));
@@ -228,9 +228,9 @@ async function searchGraphContext(cwd) {
     .slice(0, MAX_GRAPH_NODES)
     .map(({ node, relationship }) => formatGraphNode(node, relationship))
     .filter(Boolean)
-    .join('\\n')
+    .join('\n')
     .slice(0, MAX_GRAPH_CONTEXT_CHARS)
-    .split('\\n');
+    .split('\n');
 }
 
 async function searchContext(query) {
@@ -266,12 +266,12 @@ async function main() {
   const [payload, graphContext] = await Promise.all([
     searchContext(query).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Memory search unavailable: ${message}\\n`);
+      process.stderr.write(`Memory search unavailable: ${message}\n`);
       return null;
     }),
     searchGraphContext(event.cwd).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Graph context unavailable: ${message}\\n`);
+      process.stderr.write(`Graph context unavailable: ${message}\n`);
       return [];
     }),
   ]);
