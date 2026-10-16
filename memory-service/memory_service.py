@@ -501,7 +501,7 @@ class MemoryStore:
             return 0.0
         return dot_product / (mag1 * mag2)
 
-    def search_semantic(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search memory with exact-phrase priority and local token similarity.
 
         This is a lightweight lexical search, not embedding-based semantic
@@ -511,6 +511,8 @@ class MemoryStore:
         if not isinstance(query, str) or not query.strip():
             return []
         if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 1:
+            return []
+        if source not in (None, "memory", "claude-code"):
             return []
 
         # Strip terminal prose punctuation before deciding whether a query
@@ -552,7 +554,12 @@ class MemoryStore:
         for md_file in self.memory_dir.glob("*.md"):
             try:
                 file_name = md_file.stem
-                if file_name.startswith("claude-code-") and self._active_ingest_entry(file_name) is None:
+                is_knowledge = file_name.startswith("claude-code-")
+                if source == "claude-code" and not is_knowledge:
+                    continue
+                if source == "memory" and is_knowledge:
+                    continue
+                if is_knowledge and self._active_ingest_entry(file_name) is None:
                     continue
                 chunks = self.chunk_document(file_name)
                 if not chunks:
@@ -759,7 +766,15 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                     return
                 self._send(200, {"ok": True, **result})
                 return
-            if operation=="search_semantic": body.setdefault("top_k",body.get("limit",10))
+            requested_source = None
+            requested_limit = body.get("limit", 10)
+            if operation=="search_semantic":
+                requested_source = body.get("source")
+                if requested_source not in (None, "memory", "claude-code"):
+                    raise ValueError("source must be 'memory' or 'claude-code'")
+                # The source filter is applied before ranking in MemoryStore,
+                # so unrelated Memory cannot crowd durable Knowledge out.
+                body["top_k"] = requested_limit
             if operation=="ingest_claude_markdown":
                 result = self.server.memory_service.store.ingest_claude_markdown(
                     body.get("path", ""), body.get("content", ""), body.get("sha256", ""), body.get("metadata", {})
@@ -777,10 +792,18 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 enriched=[]
                 for item in result.get("results",[]):
                     item=dict(item)
+                    is_knowledge = str(item.get("file", "")).startswith("claude-code-")
+                    if requested_source == "claude-code" and not is_knowledge:
+                        continue
+                    if requested_source == "memory" and is_knowledge:
+                        continue
                     content=self.server.memory_service.store.read_file(item["file"])
-                    if content is not None: item["content"]=content
+                    if content is not None:
+                        item["content"]=content
+                        if is_knowledge:
+                            item["source"]="claude-code"
                     enriched.append(item)
-                result["results"]=enriched
+                result["results"]=enriched[:requested_limit]
             if result.get("ok") is False:
                 if result.get("error_type") == "validation":
                     status = 400
@@ -1006,7 +1029,8 @@ class MemoryService:
             if operation == "search_semantic":
                 query = req_data.get("query", "")
                 top_k = req_data.get("top_k", 10)
-                results = self.store.search_semantic(query, top_k)
+                source = req_data.get("source")
+                results = self.store.search_semantic(query, top_k, source)
                 return json.dumps({"ok": True, "results": results})
 
             if operation == "search_hybrid":

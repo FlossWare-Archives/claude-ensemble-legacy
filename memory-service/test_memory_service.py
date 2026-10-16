@@ -181,6 +181,60 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_rest_search_can_filter_memory_and_durable_knowledge(self):
+        from memory_service import MemoryService, create_http_server
+
+        query = "Memory Knowledge SessionEnd task quality"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            for index in range(12):
+                service.store.write_file(
+                    f"operational-learning-artifact-{index}",
+                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result.",
+                )
+            knowledge_path = root / "project" / "CLAUDE.md"
+            knowledge_path.parent.mkdir()
+            knowledge_content = (
+                "# Lifecycle Contract\\n\\n"
+                "Memory is episodic experience; Knowledge is durable current facts. "
+                "SessionEnd captures metadata only and does not establish task quality."
+            )
+            import hashlib
+            service.store.ingest_claude_markdown(
+                str(knowledge_path),
+                knowledge_content,
+                hashlib.sha256(knowledge_content.encode("utf-8")).hexdigest(),
+                {"scope": str(knowledge_path.parent)},
+            )
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                def search(source):
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{server.server_address[1]}/memory/search",
+                        data=json.dumps({"query": query, "limit": 10, "source": source}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=3) as response:
+                        return json.loads(response.read().decode("utf-8"))
+
+                memory = search("memory")
+                knowledge = search("claude-code")
+                self.assertTrue(memory["ok"])
+                self.assertTrue(knowledge["ok"])
+                self.assertTrue(memory["results"])
+                self.assertTrue(knowledge["results"])
+                self.assertTrue(all(not item["file"].startswith("claude-code-") for item in memory["results"]))
+                self.assertTrue(all(item["file"].startswith("claude-code-") for item in knowledge["results"]))
+                self.assertIn("does not establish task quality", knowledge["results"][0]["content"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_identifier_prefix_does_not_match_longer_identifier(self):
         from memory_service import MemoryStore
 
