@@ -31,12 +31,19 @@ legacy_before="$(sha256sum "$legacy_target/memory-search-on-prompt.js" | awk '{p
 python3 "$ROOT/lib/json_tool.py" manifest   "$CLAUDE_HOME/.flossware-claude-config/manifest.json"   "legacy"   "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"   "$legacy_before"
 bash "$ROOT/install.sh" --non-interactive
 test -f "$CLAUDE_HOME/hooks/session-end-memory-capture.js"
-python3 - "$CLAUDE_HOME/settings.json" "$CLAUDE_HOME/hooks/session-end-memory-capture.js" <<'PY'
+# Context retrieval must run synchronously so Claude Code can consume its JSON
+# additionalContext output; legacy async registrations are normalized by install.
+python3 - "$CLAUDE_HOME/settings.json" "$CLAUDE_HOME/hooks/session-end-memory-capture.js" "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" <<'PY'
 import json,sys,shlex
 settings=json.load(open(sys.argv[1],encoding="utf-8"))
-command=sys.argv[2]
+session_command, prompt_command=sys.argv[2:]
 registered=[h.get("command") for g in settings["hooks"]["SessionEnd"] for h in g.get("hooks",[])]
-assert command in registered or shlex.quote(command) in registered, registered
+assert session_command in registered or shlex.quote(session_command) in registered, registered
+prompt_hooks=[h for g in settings["hooks"]["UserPromptSubmit"] for h in g.get("hooks",[])
+              if "memory-search-on-prompt.js" in h.get("command","")]
+assert len(prompt_hooks)==1, prompt_hooks
+assert prompt_hooks[0].get("async") is not True, prompt_hooks
+assert int(prompt_hooks[0].get("timeout", 3)) >= 1, prompt_hooks
 PY
 test ! -L "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
 test -f "$CLAUDE_HOME/hooks/memory-search-on-prompt.js"
@@ -119,8 +126,8 @@ p,legacy,foreign,managed_alias=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
-    {"type":"command","command":legacy,"timeout":3},
-    {"type":"command","command":managed_alias,"timeout":3}
+    {"type":"command","command":legacy,"timeout":3,"async":True},
+    {"type":"command","command":managed_alias,"timeout":3,"async":True}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
     {"type":"command","command":foreign,"timeout":3},
@@ -145,6 +152,8 @@ assert foreign_group["matcher"] == "UserPromptSubmit", foreign_group
 assert any(h.get("command")=="/custom/existing-hook" for h in foreign_group["hooks"])
 managed_group=next(g for g in groups if any(h is managed[0] for h in g["hooks"]))
 assert managed_group["matcher"] == "Remember|recall", managed_group
+assert managed[0].get("async") is not True, managed
+assert int(managed[0].get("timeout", 3)) >= 1, managed
 PY
 
 bash "$ROOT/install.sh" --non-interactive
