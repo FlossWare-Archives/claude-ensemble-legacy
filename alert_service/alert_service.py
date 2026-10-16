@@ -278,7 +278,7 @@ class AlertManager:
                         if isinstance(rating, bool) or not isinstance(rating, (int, float)) or not 1 <= rating <= 5:
                             continue
 
-                        identity = data.get("task_id") or data.get("run_id") or data.get("payload_sha256") or outcome_file.name
+                        identity = str(data.get("task_id") or data.get("run_id") or data.get("payload_sha256") or outcome_file.name)
                         if identity in seen_outcomes:
                             continue
                         seen_outcomes.add(identity)
