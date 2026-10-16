@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 from typing import Any
+from pathlib import Path
 
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
 DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
