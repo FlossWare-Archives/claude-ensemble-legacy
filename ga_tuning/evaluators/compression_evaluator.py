@@ -72,23 +72,15 @@ class CompressionEvaluator:
     @staticmethod
     def _synthetic_test_files() -> List[Tuple[str, str]]:
         """Small deterministic corpus used only when no operational corpus is available."""
+        common = (
+            "Service memory request state configuration validation recovery reliability "
+            "service memory request state configuration validation recovery reliability"
+        )
         return [
-            ("architecture.md", "System architecture separates request handling from persistence. "
-             "The service validates input before updating durable state. "
-             "Failures are logged with enough context to diagnose the operation. "
-             "Retries are bounded so transient errors cannot create an infinite loop."),
-            ("testing.md", "Tests cover normal behavior and important failure cases. "
-             "A regression test reproduces the defect before verifying the fix. "
-             "Integration tests check that service boundaries agree on the contract. "
-             "Test results must distinguish synthetic evidence from production evidence."),
-            ("operations.md", "Operational procedures describe startup, health checks, and recovery. "
-             "Configuration changes are validated before they are applied. "
-             "Logs and metrics help operators identify slow or failed requests. "
-             "A rollback path limits the impact of an unsuccessful deployment."),
-            ("memory.md", "Memory stores durable facts that may be retrieved by later sessions. "
-             "Knowledge documents provide stable project guidance and architecture decisions. "
-             "Retrieval ranks relevant evidence and preserves its source information. "
-             "Synthetic evaluator scores do not establish real-world quality improvements."),
+            ("architecture.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("testing.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("operations.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("memory.md", common + ". " + common + ". " + common + ". " + common + "."),
         ]
 
     def _count_tokens(self, text: str) -> int:
