@@ -790,11 +790,11 @@ def demo_autonomous_learning():
             'task_id': 'architecture_001',
             'task_type': 'architecture',
             'thompson_selected': 'sonnet',
-            'thompson_candidates': ['opus', 'sonnet', 'gemini-2.0-flash'],
+            'thompson_candidates': ['opus', 'sonnet'],
             'quality_score': 0.85,
             'latency_ms': 7200,
             'cost': 0.008,
-            'alternatives_tested': {'opus': 0.91, 'sonnet': 0.85, 'gemini-2.0-flash': 0.82}
+            'alternatives_tested': {'opus': 0.91, 'sonnet': 0.85}
         },
         {
             'task_id': 'bug_analysis_001',

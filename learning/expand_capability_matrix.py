@@ -6,10 +6,13 @@ No API calls - all scores are generated from task/domain markers.
 
 Output: Updated capability_matrix.json with:
 - 20+ tasks across 10 task types
-- 4 models (Haiku, Sonnet, Opus, Gemini)
+- 3 models (Haiku, Sonnet, Opus)
 - Multiple samples per entry (N >= 5)
 - Proper Bayesian credible intervals (95% CI)
 - JSON schema for GA evolution
+
+Note: Gemini removed as it is not supported through Claude Code or any
+implemented provider. See providers/README.md for supported models.
 """
 
 from __future__ import annotations
@@ -93,7 +96,7 @@ def build_expanded_matrix(
     Returns:
         Matrix dict matching JSON schema
     """
-    models = ["haiku", "sonnet", "opus", "gemini"]
+    models = ["haiku", "sonnet", "opus"]
 
     # All RH task types (matches scoring_function.py)
     task_types = [
@@ -172,7 +175,7 @@ def save_matrix(
         "description": "GA-evolvable capability matrix with synthetic scores",
         "statistics": {
             "total_entries": len(matrix),
-            "models": ["haiku", "sonnet", "opus", "gemini"],
+            "models": ["haiku", "sonnet", "opus"],
             "task_types": [
                 "code_review", "deployment", "release_notes",
                 "architecture_design", "security_review", "bug_diagnosis",
@@ -190,7 +193,7 @@ def save_matrix(
 
     print(f"Saved expanded matrix: {output_path}")
     print(f"  Total entries: {len(matrix)}")
-    print(f"  Models: 4 (Haiku, Sonnet, Opus, Gemini)")
+    print(f"  Models: 3 (Haiku, Sonnet, Opus)")
     print(f"  Task types: 10")
     print(f"  Samples per entry: 5")
     print(f"  Total data points: {len(matrix) * 5} = {len(matrix)} entries × 5 samples")
@@ -221,8 +224,10 @@ def main():
             scores_by_model[model] = []
         scores_by_model[model].append(entry["score"])
 
-    for model in ["haiku", "sonnet", "opus", "gemini"]:
-        scores = scores_by_model[model]
+    for model in ["haiku", "sonnet", "opus"]:
+        scores = scores_by_model.get(model, [])
+        if not scores:
+            continue
         mean = sum(scores) / len(scores)
         min_score = min(scores)
         max_score = max(scores)

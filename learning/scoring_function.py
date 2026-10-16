@@ -10,7 +10,9 @@ Models evaluated:
 - Haiku: Fast, good for simple tasks, lower on complex architecture
 - Sonnet: Balanced, medium on all tasks
 - Opus: Strongest reasoning, better on complex/security tasks
-- Gemini: Different reasoning style, comparable to Sonnet
+
+Note: Gemini support was removed as it is not available through Claude Code
+or any other implemented provider. See providers/README.md.
 """
 
 from __future__ import annotations
@@ -32,14 +34,12 @@ class ScoringWeights:
     complexity_haiku_penalty: float = 0.15  # Haiku loses points on complex tasks
     complexity_sonnet_neutral: float = 0.0  # Sonnet unaffected
     complexity_opus_bonus: float = 0.1      # Opus gains on complex
-    complexity_gemini_bonus: float = 0.08   # Gemini slightly better on complex
 
     # Domain expertise (markers like CPSEARCH, Solr, etc.)
     domain_knowledge_weight: float = 0.12
     domain_haiku_penalty: float = 0.10
     domain_sonnet_neutral: float = 0.0
     domain_opus_bonus: float = 0.12
-    domain_gemini_bonus: float = 0.05
 
     # File size effect (larger files harder)
     filesize_curve: float = 1.2  # Controls curvature (exponential vs linear)
@@ -50,16 +50,16 @@ class ScoringWeights:
     # Task-specific base scores
     base_scores: dict[str, dict[str, float]] = dataclasses.field(default_factory=lambda: {
         # Task type -> model -> base score
-        "code_review": {"haiku": 0.60, "sonnet": 0.78, "opus": 0.85, "gemini": 0.76},
-        "deployment": {"haiku": 0.55, "sonnet": 0.75, "opus": 0.82, "gemini": 0.73},
-        "release_notes": {"haiku": 0.68, "sonnet": 0.72, "opus": 0.74, "gemini": 0.70},
-        "architecture_design": {"haiku": 0.40, "sonnet": 0.72, "opus": 0.88, "gemini": 0.74},
-        "security_review": {"haiku": 0.35, "sonnet": 0.70, "opus": 0.90, "gemini": 0.68},
-        "bug_diagnosis": {"haiku": 0.58, "sonnet": 0.76, "opus": 0.87, "gemini": 0.75},
-        "alternative_review": {"haiku": 0.50, "sonnet": 0.75, "opus": 0.80, "gemini": 0.78},
-        "documentation": {"haiku": 0.72, "sonnet": 0.68, "opus": 0.65, "gemini": 0.66},
-        "testing": {"haiku": 0.65, "sonnet": 0.72, "opus": 0.75, "gemini": 0.70},
-        "refactoring": {"haiku": 0.58, "sonnet": 0.74, "opus": 0.80, "gemini": 0.72},
+        "code_review": {"haiku": 0.60, "sonnet": 0.78, "opus": 0.85},
+        "deployment": {"haiku": 0.55, "sonnet": 0.75, "opus": 0.82},
+        "release_notes": {"haiku": 0.68, "sonnet": 0.72, "opus": 0.74},
+        "architecture_design": {"haiku": 0.40, "sonnet": 0.72, "opus": 0.88},
+        "security_review": {"haiku": 0.35, "sonnet": 0.70, "opus": 0.90},
+        "bug_diagnosis": {"haiku": 0.58, "sonnet": 0.76, "opus": 0.87},
+        "alternative_review": {"haiku": 0.50, "sonnet": 0.75, "opus": 0.80},
+        "documentation": {"haiku": 0.72, "sonnet": 0.68, "opus": 0.65},
+        "testing": {"haiku": 0.65, "sonnet": 0.72, "opus": 0.75},
+        "refactoring": {"haiku": 0.58, "sonnet": 0.74, "opus": 0.80},
     })
 
 
@@ -84,7 +84,7 @@ class ScoringFunction:
         """Generate a score (0-1) for a model-task pair.
 
         Args:
-            model: "haiku", "sonnet", "opus", "gemini"
+            model: "haiku", "sonnet", "opus"
             task_type: "code_review", "architecture_design", etc.
             file_size_lines: Number of lines in the file
             domain_markers: {
@@ -125,9 +125,6 @@ class ScoringFunction:
         elif model == "opus":
             threshold = self.weights.filesize_opus_threshold
             penalty_per_threshold = -self.weights.complexity_opus_bonus  # Negative = bonus
-        elif model == "gemini":
-            threshold = self.weights.filesize_sonnet_threshold  # Similar to Sonnet
-            penalty_per_threshold = -self.weights.complexity_gemini_bonus
         else:
             return 0.0
 
@@ -154,9 +151,6 @@ class ScoringFunction:
             return self.weights.domain_sonnet_neutral
         elif model == "opus":
             bonus = self.weights.domain_opus_bonus * domain_weight
-            return bonus
-        elif model == "gemini":
-            bonus = self.weights.domain_gemini_bonus * domain_weight
             return bonus
         else:
             return 0.0
