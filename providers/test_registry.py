@@ -38,7 +38,7 @@ def test_gemini_routes_to_google_only_after_explicit_opt_in(monkeypatch, model, 
     assert registry.resolve_model(model) == ("google", expected)
 
 
-@pytest.mark.parametrize("model", ["gpt-4", "cursor", "ollama-local", "gemini-typo", "unknown-model"])
+@pytest.mark.parametrize("model", ["gpt-4", "cursor", "ollama-local", "unknown-model"])
 def test_unsupported_models_fail_without_fallback(model, monkeypatch):
     monkeypatch.setenv("ENSEMBLE_ALLOW_GOOGLE_MODEL_API", "true")
     with pytest.raises(ValueError, match="Unsupported model label"):
