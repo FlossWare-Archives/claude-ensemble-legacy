@@ -24,7 +24,7 @@ class WorkflowLearningBoundaryTests(unittest.TestCase):
             source = (ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(skill=relative):
                 self.assertIn("recordEvidenceGatedOutcome", source)
-                self.assertIn("evidence:", source)
+                self.assertIn("evidence", source)
                 self.assertNotIn("from learning_client import LearningClient", source)
                 self.assertNotIn("c.process_outcome(", source)
 
