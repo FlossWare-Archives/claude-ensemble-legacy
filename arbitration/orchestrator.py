@@ -546,12 +546,11 @@ class ArbitrationOrchestrator:
             )
 
     def _run_workers(self, phase_config: PhaseConfig, context: str) -> list[WorkerResult]:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(phase_config.workers)) as executor:
-            futures = [
-                executor.submit(self._run_one_worker, phase_config, model, context)
-                for model in phase_config.workers
-            ]
-            return [future.result() for future in futures]
+        """Run CLI-backed workers serially to avoid competing for one CLI runtime."""
+        results: list[WorkerResult] = []
+        for model in phase_config.workers:
+            results.append(self._run_one_worker(phase_config, model, context))
+        return results
 
     def _run_arbiter(
         self,
