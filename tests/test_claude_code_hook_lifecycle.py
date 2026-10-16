@@ -1,7 +1,8 @@
 """Mocked end-to-end tests for the Claude Code hook lifecycle.
 
-These tests execute the real Node hook scripts against an in-process fake Memory
-REST service. They require Node.js but never start CE daemons or call external APIs.
+These tests execute the real Node hook scripts against fake Memory and Graph REST
+services plus a fake Messenger Unix socket. They require Node.js but never start CE
+daemons or call external APIs.
 """
 from __future__ import annotations
 
