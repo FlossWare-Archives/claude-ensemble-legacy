@@ -77,6 +77,7 @@ const server = http.createServer((req, res) => {
     };
     try {
       const query = JSON.parse(body).query;
+      if (query === 'empty results') payload.results = [];
       if (query === 'bare string result') payload.results = ['Not canonical content'];
       if (query === 'summary only result') payload.results = [{ summary: 'Not canonical Memory content' }];
       if (query === 'invalid content result') payload.results = [{ content: 123 }];
@@ -197,6 +198,43 @@ try {
   assert.equal(ordinaryPrompt.code, 0);
   assert.equal(JSON.parse(requests.at(-1).body).query, 'Fix the failing test');
   assert.match(JSON.parse(ordinaryPrompt.stdout).hookSpecificOutput.additionalContext, /Relevant Claude Ensemble Context/);
+
+  // Empty retrieval is different from a hook that was never invoked. Opt-in
+  // diagnostics report the outcome to stderr without injecting noise into the
+  // user's prompt or exposing prompt text / retrieved content.
+  const emptyWithDiagnostics = await runHook({
+    url: `http://127.0.0.1:${port}/`,
+    input: { hook_event_name: 'UserPromptSubmit', prompt: 'empty results' },
+    env: { FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1' },
+  });
+  assert.equal(emptyWithDiagnostics.code, 0);
+  assert.equal(emptyWithDiagnostics.stdout, '');
+  const emptyDiagnostics = emptyWithDiagnostics.stderr
+    .split('\n')
+    .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
+    .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)));
+  assert.deepEqual(emptyDiagnostics.map(item => item.event), ['started', 'completed']);
+  assert.equal(emptyDiagnostics[1].memoryStatus, 'ok');
+  assert.equal(emptyDiagnostics[1].memoryResultCount, 0);
+  assert.equal(emptyDiagnostics[1].contextEmitted, false);
+  assert.equal(JSON.stringify(emptyDiagnostics).includes('empty results'), false);
+
+  const populatedWithDiagnostics = await runHook({
+    url: `http://127.0.0.1:${port}/`,
+    input: { hook_event_name: 'UserPromptSubmit', prompt: 'ordinary diagnostic prompt' },
+    env: { FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1' },
+  });
+  assert.equal(populatedWithDiagnostics.code, 0);
+  assert.ok(JSON.parse(populatedWithDiagnostics.stdout).hookSpecificOutput.additionalContext);
+  const populatedDiagnostic = populatedWithDiagnostics.stderr
+    .split('\n')
+    .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
+    .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
+    .find(item => item.event === 'completed');
+  assert.equal(populatedDiagnostic.contextEmitted, true);
+  assert.equal(populatedDiagnostic.memoryCount, 1);
+  assert.equal(populatedDiagnostic.knowledgeCount, 1);
+  assert.equal(JSON.stringify(populatedDiagnostic).includes('ordinary diagnostic prompt'), false);
 
   const unavailable = await runHook({
     url: 'http://127.0.0.1:1/',
