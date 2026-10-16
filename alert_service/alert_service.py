@@ -3,16 +3,16 @@
 Claude Ensemble Alert Service Daemon
 
 Central alert service for monitoring costs, quality, and errors.
-Runs as systemd user service, listens on Unix socket.
-Single-threaded with centralized alert logic (no duplicate checks or emails).
+Runs scheduled checks and serves requests over a Unix socket.
+Alerts are persisted locally and published through Messenger with per-type daily deduplication.
 
 Handles requests:
-- trigger_check() → run all checks, send emails via MCP Gmail, return alerts triggered
+- trigger_check() → run checks and publish newly triggered alerts
 - get_recent_alerts(days=7) → list recent alerts
 - acknowledge(alert_id) → mark alert as reviewed
 - get_config() → return alert thresholds
 
-Email sending uses MCP Gmail server configured in ~/.mcp.json.
+Email delivery is not implemented in this daemon and is never reported as successful.
 Delivery attempts are recorded in delivery_log.jsonl.
 """
 
