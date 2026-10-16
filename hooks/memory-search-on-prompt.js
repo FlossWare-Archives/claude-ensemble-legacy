@@ -75,8 +75,9 @@ function partitionResults(results) {
   const memory = [];
   const knowledge = [];
 
-  for (const result of results.slice(0, MAX_RESULTS)) {
-    (resultSource(result) === 'knowledge' ? knowledge : memory).push(result);
+  for (const result of results) {
+    const target = resultSource(result) === 'knowledge' ? knowledge : memory;
+    if (target.length < MAX_RESULTS) target.push(result);
   }
 
   return { memory, knowledge };
