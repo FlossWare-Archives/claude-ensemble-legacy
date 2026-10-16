@@ -126,7 +126,7 @@ p,legacy,foreign,managed_alias=sys.argv[1:]
 d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
-    {"type":"command","command":legacy,"timeout":3,"async":true},
+    {"type":"command","command":legacy,"timeout":3,"async":True},
     {"type":"command","command":managed_alias,"timeout":3,"async":true}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
