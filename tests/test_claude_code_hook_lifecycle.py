@@ -236,6 +236,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertEqual(hook_output["contextRetrieval"]["knowledgeCount"], 1)
         self.assertEqual(FakeMemoryHandler.requests[0][0], "/memory/search")
         self.assertEqual(FakeMemoryHandler.requests[0][1]["query"], "How did we decide the service boundary?")
+        self.assertEqual(FakeGraphHandler.requests, [])
 
     def test_prompt_hook_adds_current_project_graph_context(self) -> None:
         result = self.run_hook(
