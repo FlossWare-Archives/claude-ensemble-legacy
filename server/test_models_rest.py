@@ -9,11 +9,10 @@ import urllib.error
 import urllib.request
 
 
-def test_models_endpoint_exposes_credential_status(monkeypatch) -> None:
+def test_models_endpoint_reports_cli_owned_authentication(monkeypatch) -> None:
     for name in tuple(os.environ):
-        if name == "ANTHROPIC_API_KEY" or name.startswith("ANTHROPIC_API_KEY_"):
+        if name == "ANTHROPIC_API_KEY" or name.startswith("ANTHROPIC_API_KEY_") or name == "GOOGLE_API_KEY" or name.startswith("GOOGLE_API_KEY_"):
             monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ANTHROPIC_API_KEY_ACCOUNT_A", "secret-a")
     from server.ensemble_server import create_server
 
     server = create_server("127.0.0.1", 0)
@@ -26,7 +25,7 @@ def test_models_endpoint_exposes_credential_status(monkeypatch) -> None:
         ) as response:
             payload = json.loads(response.read())
         assert payload["ok"]
-        assert payload["credentials"]["anthropic"][0]["name"] == "account-a"
+        assert payload["credentials"] == {"claude-code": []}
         assert "api_key" not in json.dumps(payload)
     finally:
         server.shutdown()
@@ -65,7 +64,7 @@ def test_models_list_endpoint_returns_public_model_names_without_secrets(monkeyp
         status, payload = _request(server, "GET", "/api/v1/models/")
         assert status == 200
         assert payload["ok"] is True
-        assert payload["models"] == ["haiku", "sonnet", "opus", "gemini-2.5-flash"]
+        assert payload["models"] == ["haiku", "sonnet", "opus"]
         assert "api_key" not in json.dumps(payload)
     finally:
         server.shutdown()

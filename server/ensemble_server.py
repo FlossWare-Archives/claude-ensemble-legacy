@@ -790,10 +790,10 @@ class EnsembleApplication:
         if handler.command == "GET" and path == "/":
             _send(handler, HTTPStatus.OK, {
                 "ok": True,
-                "models": ["haiku", "sonnet", "opus", "gemini-2.5-flash"],
+                "models": ["haiku", "sonnet", "opus"],
                 "credentials": {
                     provider: self.models.registry.credential_status(provider)
-                    for provider in ("anthropic", "google")
+                    for provider in ("claude-code",)
                 },
             })
             return
@@ -802,7 +802,7 @@ class EnsembleApplication:
                 "ok": True,
                 "credentials": {
                     provider: self.models.registry.credential_status(provider)
-                    for provider in ("anthropic", "google")
+                    for provider in ("claude-code",)
                 },
             })
             return

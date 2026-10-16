@@ -38,7 +38,7 @@ class ClaudeCodeProvider(ModelProvider):
         configured_provider = (
             expected_provider
             if expected_provider is not None
-            else os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "anthropic")
+            else os.environ.get("ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER", "vertex")
         )
         if not isinstance(configured_provider, str) or not configured_provider.strip():
             raise ValueError("Expected upstream provider must be a non-empty value")
@@ -62,6 +62,13 @@ class ClaudeCodeProvider(ModelProvider):
             command.extend(["--model", model])
         if request.system_prompt:
             command.extend(["--system-prompt", request.system_prompt])
+
+        # Claude Code can fail to consume stdin-only prompts in some runtime
+        # configurations. Keep the full task on stdin, and provide a short
+        # positional instruction telling the CLI to process that input.
+        command.append(
+            "Follow the complete task supplied on standard input and respond to it directly."
+        )
 
         if self.expected_provider:
             self._verify_upstream_provider_before_invocation(executable)

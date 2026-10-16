@@ -9,12 +9,11 @@ from typing import Any
 
 from shared.runtime_config import thompson_state_file
 
-DEFAULT_MODELS = ("haiku", "sonnet", "opus", "gemini-2.5-flash")
+DEFAULT_MODELS = ("haiku", "sonnet", "opus")
 DEFAULT_CAPABILITIES = {
     "haiku": ("text_generation", "reasoning", "code"),
     "sonnet": ("text_generation", "reasoning", "code"),
     "opus": ("text_generation", "reasoning", "code"),
-    "gemini-2.5-flash": ("text_generation", "reasoning", "code"),
 }
 
 

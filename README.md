@@ -1,8 +1,8 @@
 # Claude Ensemble
 
-**Complete, production-ready multi-AI orchestration toolkit.**
+**Claude Code orchestration with persistent learning and service integration.**
 
-Claude Ensemble is a portable toolkit for orchestrating multiple AI models and Claude Code workflows. It combines model routing, multi-phase arbitration, autonomous outcome learning, cost tracking, compression, caching, and reusable workflow skills.
+Claude Ensemble is a portable toolkit built around the installed Claude Code runtime. It combines multi-phase worker/arbiter review, persistent Memory, autonomous outcome learning, Thompson/GA tuning, cost tracking, compression, caching, and reusable workflow skills. The active runtime routes model calls through Claude Code. Direct API provider implementations and API-key rotation have been removed from this branch.
 
 It is designed to work both in Red Hat-centric environments and as a standalone personal or open-source toolkit. Runtime paths, credentials, service sockets, and repository locations are configurable rather than hard-coded.
 
@@ -20,12 +20,12 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 
 ### Optimization & Analysis
 - **GA Tuning** — Genetic algorithm optimization every 4 hours (synthetic, zero cost)
-- **Model Discovery** — Probes Anthropic/Google/Cursor APIs every 4 hours for latest models
+- **Model Runtime** — Uses Claude Code authentication and model aliases (haiku, sonnet, opus)
 - **Cost Tracking** — JSONL audit log of all API usage
 - **5 Dashboards** — Cost, Thompson routing, autonomous learning, GA tuning, performance
 
 ### Workflow Skills (Learning-Integrated)
-- **Code PR Review** (`code-pr-review`) — AI consensus code review, Thompson-routed model selection
+- **Code PR Review** (`code-pr-review`) — Worker/arbiter code review through the single Claude Code runtime
 - **Documentation** (`code-doc`) — Auto-generate docs, learns which models write better
 - **Release Notes** (`code-release-notes`) — Generate from commits with multi-AI consensus
 - **Autonomous Variants** (`code-pr-review-auto`, `code-doc-auto`) — Run without user confirmation
@@ -167,7 +167,7 @@ Claude Ensemble has one client-facing REST boundary at `127.0.0.1:8080` by defau
 - `/api/v1/graph/*` routes to the independently managed Graph REST service.
 - `/api/v1/memory/*` routes to the independently managed Memory REST service.
 - `/api/v1/decision/*` exposes Decision Support through the same public boundary.
-- `/api/v1/models/*` remains the model inventory and invocation surface, including credential status.
+- `/api/v1/models/*` remains the model inventory and invocation surface; Claude Code owns authentication, so CE does not expose or rotate provider API keys.
 - `/api/v1/capabilities` exposes stable model/provider capabilities for routing decisions, including credential readiness.
 - `/api/v1/capabilities/health` exposes observed operational health from existing credentials, Thompson outcomes, and cost records. A state of `unknown` means there is not enough observed history to establish operational health.
 - `/api/v1/experiments/evaluate` evaluates a small baseline-versus-variant experiment and stores its versioned JSONL result; `/api/v1/experiments/{id}` retrieves the latest result. Evaluation is deterministic: each metric votes for baseline or variant according to its higher/lower direction, metric ties score no vote, and the overall winner is the unweighted majority of non-tied metric winners.
@@ -217,9 +217,9 @@ Services may run independently, but service integration uses REST/HTTP contracts
 
 ### Thompson Router
 - **Path:** `shared/thompson_router.py`
-- **Models:** Haiku (cheap), Sonnet (balanced), Opus (capable), Cursor, Gemini
+- **Model labels:** Haiku, Sonnet, Opus. Legacy non-Claude labels temporarily map to Sonnet during migration.
 - **Algorithm:** Bayesian inference with Beta distributions
-- **Cost Savings:** 67% vs Opus-for-all (tested)
+- **Role:** Learns task outcomes and tuning signals; it no longer selects among separate API providers.
 
 ### Autonomous Learning
 - **Path:** `learning/autonomous_learning.py`, `tools/autonomous-learner.py`

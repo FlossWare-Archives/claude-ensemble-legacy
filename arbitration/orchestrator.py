@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -236,11 +235,18 @@ class ContextManager:
         self.changed_files: list[Path] = []
         self.stage_history: list[dict[str, Any]] = []
 
-    def load_git_diff(self, repo_path: Path, target_branch: str = "main") -> None:
+    def load_git_diff(
+        self,
+        repo_path: Path,
+        target_branch: str = "main",
+        paths: list[str] | None = None,
+    ) -> None:
+        """Load changes against the target branch, including staged/unstaged edits."""
         import subprocess
 
+        path_args = ["--", *paths] if paths else []
         result = subprocess.run(
-            ["git", "diff", target_branch, "HEAD"],
+            ["git", "diff", target_branch, *path_args],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -251,7 +257,7 @@ class ContextManager:
         self.git_diff = result.stdout
 
         result = subprocess.run(
-            ["git", "diff", "--name-only", target_branch, "HEAD"],
+            ["git", "diff", "--name-only", target_branch, *path_args],
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -495,6 +501,15 @@ class ArbitrationOrchestrator:
             worker_results = self._run_workers(phase_config, current_context)
             if not worker_results:
                 raise RuntimeError(f"Phase {phase_config.phase} has no worker results")
+            if not any(result.succeeded for result in worker_results):
+                failures = "; ".join(
+                    f"{result.model}: {result.error or 'no usable response'}"
+                    for result in worker_results
+                )
+                raise RuntimeError(
+                    f"Phase {phase_config.phase} has no successful workers; "
+                    f"refusing to synthesize a review from failures alone ({failures})"
+                )
 
             arbiter_result = self._run_arbiter(phase_config, worker_results, current_context)
             self.results.append((worker_results, arbiter_result))
@@ -512,15 +527,17 @@ class ArbitrationOrchestrator:
             "Return your actual analysis. Do not claim to have inspected evidence "
             "that is not present in the supplied context."
         )
-        return ModelRequest(prompt=prompt, model=model)
+        return ModelRequest(prompt=prompt, model=model, timeout=120.0)
 
     def _run_one_worker(
         self, phase_config: PhaseConfig, model: str, context: str
     ) -> WorkerResult:
+        logger.info("Starting worker %s for phase %s", model, phase_config.phase)
         try:
             response = self._provider_for(model).generate(
                 self._worker_request(phase_config, model, context)
             )
+            logger.info("Worker %s completed phase %s", model, phase_config.phase)
             return WorkerResult(
                 model=model,
                 phase=phase_config.phase,
@@ -528,7 +545,7 @@ class ArbitrationOrchestrator:
                 key_findings=[],
             )
         except Exception as exc:
-            logger.error("Worker %s failed: %s", model, exc)
+            logger.error("Worker %s failed in phase %s: %s", model, phase_config.phase, exc)
             return WorkerResult(
                 model=model,
                 phase=phase_config.phase,
@@ -537,12 +554,11 @@ class ArbitrationOrchestrator:
             )
 
     def _run_workers(self, phase_config: PhaseConfig, context: str) -> list[WorkerResult]:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(phase_config.workers)) as executor:
-            futures = [
-                executor.submit(self._run_one_worker, phase_config, model, context)
-                for model in phase_config.workers
-            ]
-            return [future.result() for future in futures]
+        """Run CLI-backed workers serially to avoid competing for one CLI runtime."""
+        results: list[WorkerResult] = []
+        for model in phase_config.workers:
+            results.append(self._run_one_worker(phase_config, model, context))
+        return results
 
     def _run_arbiter(
         self,
@@ -572,9 +588,19 @@ class ArbitrationOrchestrator:
             f"## Worker Results\n\n{chr(10).join(chr(10) + section for section in worker_sections)}"
         )
 
+        logger.info(
+            "Starting arbiter %s for phase %s",
+            phase_config.arbiter,
+            phase_config.phase,
+        )
         try:
             response = self._provider_for(phase_config.arbiter).generate(
-                ModelRequest(prompt=prompt, model=phase_config.arbiter)
+                ModelRequest(prompt=prompt, model=phase_config.arbiter, timeout=120.0)
+            )
+            logger.info(
+                "Arbiter %s completed phase %s",
+                phase_config.arbiter,
+                phase_config.phase,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -610,10 +636,36 @@ class ArbitrationOrchestrator:
         """
         import json
 
-        try:
-            payload = json.loads(text)
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise ValueError("Arbiter response must be valid JSON") from exc
+        if not isinstance(text, str):
+            raise ValueError("Arbiter response must be text")
+
+        # Models sometimes wrap otherwise-valid JSON in a Markdown fence or
+        # add a short preamble. Extract one JSON object, then enforce the same
+        # strict field/type contract below.
+        candidates = [text.strip()]
+        import re
+
+        fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.IGNORECASE | re.DOTALL)
+        if fenced:
+            candidates.insert(0, fenced.group(1).strip())
+
+        payload = None
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+                break
+            except json.JSONDecodeError:
+                continue
+
+        if payload is None:
+            start = text.find("{")
+            if start >= 0:
+                try:
+                    payload, _ = json.JSONDecoder().raw_decode(text[start:])
+                except json.JSONDecodeError as exc:
+                    raise ValueError("Arbiter response must contain a valid JSON object") from exc
+            else:
+                raise ValueError("Arbiter response must contain a valid JSON object")
 
         if not isinstance(payload, dict):
             raise ValueError("Arbiter response must be a JSON object")
