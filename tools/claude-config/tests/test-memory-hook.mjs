@@ -210,7 +210,7 @@ try {
   assert.equal(emptyWithDiagnostics.code, 0);
   assert.equal(emptyWithDiagnostics.stdout, '');
   const emptyDiagnostics = emptyWithDiagnostics.stderr
-    .split('\\n')
+    .split('\n')
     .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
     .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)));
   assert.deepEqual(emptyDiagnostics.map(item => item.event), ['started', 'completed']);
@@ -227,7 +227,7 @@ try {
   assert.equal(populatedWithDiagnostics.code, 0);
   assert.ok(JSON.parse(populatedWithDiagnostics.stdout).hookSpecificOutput.additionalContext);
   const populatedDiagnostic = populatedWithDiagnostics.stderr
-    .split('\\n')
+    .split('\n')
     .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
     .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
     .find(item => item.event === 'completed');
