@@ -420,3 +420,19 @@ def test_collaboration_uses_canonical_model_ids_for_solver_and_arbiter():
     assert solver.requests[0].model == "claude-sonnet-5"
     assert arbiter.requests[0].model == "claude-opus-5"
 
+
+
+def test_follow_up_without_configured_reviewer_escalates_without_second_arbiter_call():
+    arbiter = FakeProvider({"arbiter": adjudication(
+        complete=False,
+        follow_ups=[{"reviewer": "grok", "candidate_id": "r1-sonnet", "question": "verify"}],
+    )})
+    loop = CollaborationOrchestrator(
+        "Review it.", solvers={"sonnet": FakeProvider({"sonnet": "solution"})},
+        arbiter=arbiter, reviewers={}, max_rounds=1, max_arbiter_calls=3,
+    )
+    result = loop.run()
+    assert result.status == "needs_human"
+    assert len(arbiter.requests) == 1
+    assert result.adjudication["human_decision_required"] is True
+    assert any(item["event"] == "targeted_follow_ups_unavailable" for item in loop.state.audit)

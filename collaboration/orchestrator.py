@@ -169,7 +169,40 @@ class CollaborationOrchestrator:
 
             follow_ups = adjudication["follow_ups"]
             if follow_ups:
+                review_count_before = len(self.state.reviews)
                 self._targeted_follow_ups(candidates, context, follow_ups)
+                if len(self.state.reviews) == review_count_before:
+                    unavailable = (
+                        "requested follow-ups could not be executed because no "
+                        "eligible configured reviewers were available"
+                    )
+                    concerns = list(adjudication["blocking_concerns"])
+                    if unavailable not in concerns:
+                        concerns.append(unavailable)
+                    adjudication = {
+                        **adjudication,
+                        "complete": False,
+                        "human_decision_required": True,
+                        "blocking_concerns": concerns,
+                        "decision": "Follow-ups unavailable; human decision required.",
+                        "rationale": "\n".join(
+                            part for part in (adjudication["rationale"].strip(), unavailable) if part
+                        ),
+                    }
+                    last_adjudication = adjudication
+                    self.state.adjudications.append(adjudication)
+                    self.state.audit.append({
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "event": "targeted_follow_ups_unavailable",
+                        "round": round_number,
+                        "decision": adjudication,
+                    })
+                    return CollaborationResult(
+                        "needs_human",
+                        self._selected(candidates, adjudication),
+                        adjudication,
+                        self.state,
+                    )
                 adjudication = self._adjudicate(context)
                 last_adjudication = adjudication
                 self.state.adjudications.append(adjudication)
@@ -407,6 +440,7 @@ class CollaborationOrchestrator:
             "constraints": list(self.state.constraints),
             "round": self.state.round,
             "workspace_context": context,
+            "available_reviewers": sorted(self.reviewers),
             "candidates": [
                 {
                     "candidate_id": c.candidate_id,
@@ -450,8 +484,12 @@ class CollaborationOrchestrator:
             "You are the collaboration arbiter. Select the most-supported solution "
             "using evidence, not majority voting. Reviewers are independent critics, "
             "not authorities. Resolve contradictions explicitly. Do not invent "
-            "execution, evidence, or reviewer findings. If the solution is incomplete, "
-            "specify concrete follow-ups or what must change in the next round. "
+            "execution, evidence, or reviewer findings. Only request follow-ups from "
+            "reviewer names in available_reviewers; that list is authoritative. If "
+            "available_reviewers is empty, do not request follow-ups; adjudicate from "
+            "the supplied candidates and evidence, or escalate to a human if needed. "
+            "If the solution is incomplete, specify concrete follow-ups or what must "
+            "change in the next round. "
             "Return ONLY JSON with: selected_candidate (string or null), decision "
             "(string), rationale (string), supporting_evidence (array of strings), "
             "rejected_alternatives (array of strings), blocking_concerns (array of strings), "
