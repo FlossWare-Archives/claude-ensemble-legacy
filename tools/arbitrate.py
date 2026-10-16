@@ -53,14 +53,12 @@ def _load_pull_request_context(orch: ArbitrationOrchestrator, repo_path: Path, n
         raise RuntimeError(f"Unable to list files for PR #{number}: {detail}")
 
     orch.context_manager.git_diff = diff.stdout
+    # Keep PR context tied to the PR diff. Reading changed paths from the
+    # current checkout could silently supply base-branch contents when the PR
+    # branch is not checked out locally.
     orch.context_manager.changed_files = [
         repo_path / name for name in files.stdout.splitlines() if name
     ]
-    orch.context_manager.load_files(orch.context_manager.changed_files)
-    if orch.context_manager.changed_files:
-        orch.context_manager.load_related_context(
-            repo_path, orch.context_manager.changed_files
-        )
 
 
 def _prepare_review_context(
