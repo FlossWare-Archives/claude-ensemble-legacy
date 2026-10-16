@@ -1,3 +1,5 @@
+import { recordEvidenceGatedOutcome } from '../shared/learning-outcome-bridge.js'
+
 export const meta = {
   name: 'code-doc-auto',
   description: 'Autonomous documentation generation - auto-creates documentation PRs',
@@ -25,28 +27,22 @@ function generateRequestId(prefix = 'skill_code_doc_auto') {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`
 }
 
-async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId) {
+async function recordOutcomeToLearning(taskId, taskType, model, rating, tokens, cost, requestId, evidence) {
   try {
-    const { execSync } = require('child_process')
-    const jsonPayload = JSON.stringify({ task_id: taskId, task_type: taskType, model, rating, tokens, cost, request_id: requestId })
-    execSync(`python3 -c "
-import sys
-import json
-sys.path.insert(0, '../learning')
-from learning_client import LearningClient
-data = json.loads('${jsonPayload.replace(/'/g, "\\'")}')
-c = LearningClient()
-c.process_outcome(data['task_id'], data['task_type'], data['model'], data['rating'], data['tokens'], data['cost'], data['request_id'])
-"`, {
-      cwd: process.env.PWD,
-      timeout: 3000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+    const response = recordEvidenceGatedOutcome({
+      runId: requestId,
+      taskId,
+      taskType,
+      model,
+      rating,
+      tokens,
+      cost,
+      evidence,
     })
-    log(`[Learning] Recorded: ${taskId} (${model}, rating=${rating})`)
+    log(`[Learning] Acknowledged: ${taskId} (${model}, rating=${rating})`)
     return true
   } catch (err) {
-    log(`⚠️ Learning recording failed (non-blocking): ${err.message}`)
+    log(`⚠️ Learning recording skipped/failed (non-blocking): ${err.message}`)
     return false
   }
 }
@@ -147,7 +143,12 @@ await recordOutcomeToLearning(
   autoDocQuality,
   autoDocTokens,
   autoDocCost,
-  workflowRequestId
+  workflowRequestId,
+  {
+    kind: 'documentation-coverage-report',
+    reference: result.pr_url || result.output_path || '',
+    summary: `Autonomous documentation workflow generated ${result.docs_generated || 0} docs; reported coverage ${result.coverage ?? 'unknown'}%; PR ${result.pr_number ?? 'not created'}.`
+  }
 )
 
 log(`[Final] Workflow completed: ${workflowRequestId}`)
