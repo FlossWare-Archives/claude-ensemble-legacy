@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import path from 'node:path';
-
 /**
  * Canonical Claude Code context retrieval hook.
  *
@@ -192,7 +190,7 @@ async function graphRequest(route, payload) {
 
 async function searchGraphContext(cwd) {
   if (typeof cwd !== 'string' || !cwd.trim()) return [];
-  const projectName = path.basename(cwd.replace(/[\\/]+$/, ''));
+  const projectName = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
   if (!projectName || projectName === '.' || projectName === '..') return [];
 
   const match = await graphRequest('/graph/query', { properties: { name: projectName } });
