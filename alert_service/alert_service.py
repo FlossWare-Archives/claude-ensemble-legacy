@@ -16,6 +16,7 @@ Email sending uses MCP Gmail server configured in ~/.mcp.json.
 Delivery attempts are recorded in delivery_log.jsonl.
 """
 
+import hashlib
 import json
 import logging
 import socket
@@ -327,34 +328,51 @@ class AlertService:
         self.manager = AlertManager()  # Initialize once
         self.socket = None
         self.last_check_time = None
-        self.check_interval_seconds = 30 * 60  # 30 minutes
+        try:
+            self.check_interval_seconds = max(
+                1.0, float(os.environ.get("ENSEMBLE_ALERT_CHECK_INTERVAL_SECONDS", "1800"))
+            )
+        except (TypeError, ValueError):
+            self.check_interval_seconds = 30 * 60
 
     def run(self):
-        """Start the service - single-threaded"""
-        logger.info("Starting RH Alert Service")
+        """Start the service and run scheduled checks without a separate timer thread."""
+        logger.info("Starting Claude Ensemble Alert Service")
 
-        # Clean up old socket if it exists
         if self.socket_path.exists():
             self.socket_path.unlink()
 
-        # Create Unix domain socket
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.bind(str(self.socket_path))
         self.socket.listen(5)
-        self.socket.settimeout(None)
+        # Wake periodically to check whether the service-owned monitoring interval elapsed.
+        self.socket.settimeout(1.0)
 
-        logger.info(f"Listening on {self.socket_path}")
+        logger.info(
+            "Listening on %s; scheduled alert checks every %.0f seconds",
+            self.socket_path,
+            self.check_interval_seconds,
+        )
+        self.last_check_time = time.monotonic()
+        self._run_check(source="startup")
 
         try:
             while True:
-                # Accept single connection at a time (single-threaded)
-                conn, _ = self.socket.accept()
+                try:
+                    conn, _ = self.socket.accept()
+                except socket.timeout:
+                    self._run_scheduled_check_if_due()
+                    continue
                 self._handle_client(conn)
         except KeyboardInterrupt:
             logger.info("Shutting down")
             self.stop()
-        except Exception as e:
-            logger.error(f"Service error: {e}")
+        except OSError as exc:
+            if self.socket is not None and self.socket.fileno() >= 0:
+                logger.error("Alert service socket error: %s", exc)
+            self.stop()
+        except Exception as exc:
+            logger.error("Service error: %s", exc)
             self.stop()
 
     def stop(self):
@@ -366,52 +384,22 @@ class AlertService:
         logger.info("Alert service stopped")
 
     def _send_email_alert(self, alert: Dict[str, Any]) -> bool:
-        """Send alert via MCP Gmail
-
-        Uses the MCP Gmail server configured in ~/.mcp.json.
-
-        Args:
-            alert: Alert dict to send
-
-        Returns:
-            True if sent successfully
-        """
-        try:
-            import subprocess
-            import json as json_module
-
-            config = self.store.get_config()
-            recipient = config.get('email_recipient', 'your-email@example.com')
-
-            subject = f"[RH AI Toolkit] {alert.get('alert_type', 'alert').upper()}: {alert.get('severity', 'info').upper()}"
-            body = self._format_email_body(alert)
-
-            # Try to call MCP Gmail server
-            # The daemon would need access to the MCP infrastructure
-            # For now, log the attempt and record as pending
-            logger.info(f"Sending alert via MCP Gmail: {subject}")
-
-            # Record delivery attempt
-            self.store.append_delivery_log({
-                'alert_type': alert.get('alert_type'),
-                'severity': alert.get('severity'),
-                'method': 'mcp_gmail',
-                'success': True,  # Optimistic - would be verified with actual MCP call
-                'recipient': recipient,
-            })
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error sending email alert: {e}")
-            self.store.append_delivery_log({
-                'alert_type': alert.get('alert_type'),
-                'severity': alert.get('severity'),
-                'method': 'mcp_gmail',
-                'success': False,
-                'error': str(e),
-            })
-            return False
+        """Record that email delivery is not configured; never report a fake success."""
+        logger.warning(
+            "Email delivery is not configured in the Alert daemon; alert %s remains available "
+            "in the local store and Messenger",
+            alert.get("alert_id", alert.get("alert_type", "unknown")),
+        )
+        self.store.append_delivery_log({
+            "alert_id": alert.get("alert_id"),
+            "alert_type": alert.get("alert_type"),
+            "severity": alert.get("severity"),
+            "method": "email",
+            "success": False,
+            "status": "not_configured",
+            "error": "MCP Gmail delivery is not implemented in the service daemon",
+        })
+        return False
 
     def _format_email_body(self, alert: Dict[str, Any]) -> str:
         """Format alert as email body"""
@@ -434,6 +422,116 @@ Dashboard: http://localhost:8000/dashboards
 --
 RH AI Toolkit Monitoring
 """
+
+    def _make_alert_id(self, alert: Dict[str, Any]) -> str:
+        """Deduplicate one alert type per local day, preventing 30-minute alert spam."""
+        day = datetime.now().date().isoformat()
+        alert_type = str(alert.get("alert_type", "unknown"))
+        digest = hashlib.sha256(f"{day}:{alert_type}".encode("utf-8")).hexdigest()[:16]
+        return f"{day}:{alert_type}:{digest}"
+
+    def _has_alert_id(self, alert_id: str) -> bool:
+        return any(
+            existing.get("alert_id") == alert_id
+            for existing in self.store.get_recent_alerts(days=2)
+        )
+
+    def _publish_messenger_alert(self, alert: Dict[str, Any], source: str) -> bool:
+        """Publish a bounded alert payload to Messenger; local persistence remains primary."""
+        try:
+            messenger_dir = str(Path(__file__).resolve().parents[1] / "session-messaging")
+            if messenger_dir not in sys.path:
+                sys.path.insert(0, messenger_dir)
+            from messenger_client import MessengerClient
+
+            payload = {
+                "alert_id": alert.get("alert_id"),
+                "alert_type": alert.get("alert_type"),
+                "severity": alert.get("severity"),
+                "timestamp": alert.get("timestamp"),
+                "message": alert.get("message"),
+                "metrics": alert.get("metrics", {}),
+                "action_recommended": alert.get("action_recommended"),
+                "source": source,
+            }
+            delivered = MessengerClient().publish(
+                "alerts",
+                payload,
+                event_type="alert.triggered",
+            )
+            self.store.append_delivery_log({
+                "alert_id": alert.get("alert_id"),
+                "alert_type": alert.get("alert_type"),
+                "severity": alert.get("severity"),
+                "method": "messenger",
+                "success": True,
+                "delivered": delivered,
+            })
+            return True
+        except Exception as exc:
+            logger.warning("Messenger alert delivery unavailable: %s", exc)
+            self.store.append_delivery_log({
+                "alert_id": alert.get("alert_id"),
+                "alert_type": alert.get("alert_type"),
+                "severity": alert.get("severity"),
+                "method": "messenger",
+                "success": False,
+                "error": str(exc),
+            })
+            return False
+
+    def _process_alerts(self, alerts: List[Dict[str, Any]], source: str) -> List[Dict[str, Any]]:
+        """Persist and publish only newly triggered, structurally valid alerts."""
+        new_alerts = []
+        for raw_alert in alerts:
+            is_valid, error_msg = Validators.validate_alert_dict(raw_alert)
+            if not is_valid:
+                logger.error("Invalid alert structure: %s", error_msg)
+                continue
+
+            alert = dict(raw_alert)
+            alert_id = self._make_alert_id(alert)
+            if self._has_alert_id(alert_id):
+                logger.info("Suppressing duplicate alert %s for today's interval", alert_id)
+                continue
+            alert["alert_id"] = alert_id
+            if not self.store.save_alert(alert):
+                logger.error("Failed to persist alert %s", alert_id)
+                continue
+
+            logger.warning(
+                "Alert triggered: %s (%s) via %s",
+                alert.get("alert_type"),
+                alert.get("severity"),
+                source,
+            )
+            self._publish_messenger_alert(alert, source)
+            new_alerts.append(alert)
+        return new_alerts
+
+    def _run_check(self, source: str) -> List[Dict[str, Any]]:
+        try:
+            config = self.store.get_config()
+            if config.get("enabled", True) is False:
+                logger.info("Alert checks are disabled by configuration")
+                return []
+            return self._process_alerts(self.manager.trigger_check(), source)
+        except Exception as exc:
+            logger.error("Alert check failed (%s): %s", source, exc)
+            return []
+
+    def _run_scheduled_check_if_due(self, now: float | None = None) -> bool:
+        """Run one scheduled check when the monotonic interval has elapsed."""
+        current = time.monotonic() if now is None else now
+        if self.last_check_time is None:
+            self.last_check_time = current
+            return False
+        if current - self.last_check_time < self.check_interval_seconds:
+            return False
+        # Advance before running the check so failures do not create a tight retry loop.
+        self.last_check_time = current
+        self._run_check(source="scheduled")
+        return True
 
     def _handle_client(self, conn: socket.socket):
         """Handle client request - process in serial with correlation logging"""
@@ -505,20 +603,7 @@ RH AI Toolkit Monitoring
                 return json.dumps({'ok': False, 'error': error_msg, 'request_id': ctx.request_id})
 
             if operation == 'trigger_check':
-                alerts = self.manager.trigger_check()
-                # Save alerts and send emails
-                for alert in alerts:
-                    # Validate alert structure
-                    is_valid, error_msg = Validators.validate_alert_dict(alert)
-                    if not is_valid:
-                        logger.error(f"Invalid alert structure: {error_msg}")
-                        continue
-
-                    self.store.save_alert(alert)
-                    logger.info(f"Alert triggered: {alert.get('alert_type')} ({alert.get('severity')})")
-                    # Send email via MCP Gmail
-                    self._send_email_alert(alert)
-
+                alerts = self._run_check(source="manual")
                 return json.dumps({
                     'ok': True,
                     'alerts': alerts,
