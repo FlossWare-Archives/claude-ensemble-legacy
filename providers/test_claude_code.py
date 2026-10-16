@@ -117,7 +117,11 @@ def test_parses_success_and_usage_metadata() -> None:
 
     args = popen.call_args.args[0]
     assert args[:3] == ["/usr/bin/claude", "--print", "--output-format=json"]
-    assert args[-2:] == ["--model", "sonnet"]
+    assert args[-3:] == [
+        "--model",
+        "sonnet",
+        "Follow the complete task supplied on standard input and respond to it directly.",
+    ]
     assert popen.call_args.kwargs["start_new_session"] is True
     assert process.communicate.call_args.kwargs["input"] == "hello"
 
