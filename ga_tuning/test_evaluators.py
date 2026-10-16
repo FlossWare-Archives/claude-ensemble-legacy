@@ -51,6 +51,14 @@ def test_compression():
     print("\nValidation: PASS - Fitness scores within [0, 1]")
 
 
+
+def test_compression_uses_synthetic_fixture_without_local_corpus():
+    evaluator = CompressionEvaluator(Path("/definitely/missing/claude-ensemble-memory-corpus"))
+    assert evaluator.synthetic_corpus is True
+    assert len(evaluator.test_files) >= 2
+    fitness = evaluator.evaluate({"compression_level": 3.0, "target_reduction": 0.3})
+    assert 0.0 < fitness <= 1.0, f"Expected measurable fixture fitness, got {fitness}"
+
 def test_thompson():
     """Test Thompson router evaluator"""
     print("\n" + "=" * 70)
@@ -165,6 +173,7 @@ def main():
 
     try:
         test_compression()
+        test_compression_uses_synthetic_fixture_without_local_corpus()
         test_thompson()
         test_caching()
         test_matrix()
