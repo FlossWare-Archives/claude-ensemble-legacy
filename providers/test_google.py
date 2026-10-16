@@ -77,3 +77,22 @@ def test_google_rejects_invalid_token_counts():
     with patch("providers.google.post_json", return_value=(payload, {})):
         with pytest.raises(RuntimeError, match="invalid token count"):
             GoogleProvider(api_key="test-key").generate(ModelRequest("hello"))
+
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gemini-../../other-endpoint",
+        "gemini-valid/../other-endpoint",
+        "gemini-",
+        "models/gemini-../../other-endpoint",
+    ],
+)
+def test_google_rejects_invalid_model_path_before_network(model):
+    with patch("providers.google.post_json") as post:
+        with pytest.raises(ValueError, match="invalid Gemini model ID"):
+            GoogleProvider(api_key="test-key").generate(
+                ModelRequest("hello", model=model)
+            )
+    post.assert_not_called()
