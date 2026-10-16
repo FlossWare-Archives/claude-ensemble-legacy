@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -175,6 +176,27 @@ class HookLifecycleContractTests(unittest.TestCase):
         contract = self.read("docs/CLAUDE_CONTEXT_HOOK_LIFECYCLE.md")
         self.assertIn("no stable per-event idempotency key", contract)
         self.assertIn("Do not register both session-end scripts", contract)
+
+
+    def test_real_hook_and_learning_lifecycle_integration_suite(self):
+        """Run the executable hook + real Learning/Thompson integration tests in CI."""
+        completed = subprocess.run(
+            [sys.executable, "tests/test_claude_code_hook_lifecycle.py"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            completed.returncode,
+            msg=(
+                "Claude Code hook lifecycle integration suite failed\\n"
+                f"stdout:\\n{completed.stdout}\\nstderr:\\n{completed.stderr}"
+            ),
+        )
+
 
 
 if __name__ == "__main__":
