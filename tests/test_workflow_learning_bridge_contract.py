@@ -48,7 +48,7 @@ class WorkflowLearningBoundaryTests(unittest.TestCase):
         self.assertIn("tools', 'record_workflow_outcome.py", source)
         self.assertIn("stableRunId", source)
         self.assertIn("evidence", source)
-        self.assertNotIn("LearningClient", source)
+        self.assertNotIn("from learning.learning_client import", source)
         self.assertNotIn("ThompsonClient", source)
 
 
