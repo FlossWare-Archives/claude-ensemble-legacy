@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from providers import ClaudeCodeProvider, ModelRequest
+from arbitration.api_client import MultiModelClient
 
 
 @pytest.mark.skipif(
@@ -21,12 +21,12 @@ def test_real_claude_code_execution() -> None:
     if shutil.which("claude") is None:
         pytest.skip("Claude Code executable is not installed")
 
-    response = ClaudeCodeProvider().generate(
-        ModelRequest(
-            "Reply with exactly the word READY.",
-            model=os.environ.get("ENSEMBLE_CLAUDE_MODEL"),
-            timeout=120,
-        )
+    # Exercise the real compatibility facade and registry, not just the low-level
+    # adapter. This is the same routing path used by CE orchestration.
+    response = MultiModelClient().call_model_response(
+        model=os.environ.get("ENSEMBLE_CLAUDE_MODEL", "sonnet"),
+        prompt="Reply with exactly the word READY.",
+        timeout=120,
     )
 
     assert response.text.strip() == "READY"
