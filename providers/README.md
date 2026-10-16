@@ -40,3 +40,8 @@ Provider support does not mean every workload may use every provider. Keep the
 Claude Code expected-upstream setting aligned with the deployment policy, and
 keep Google API routing disabled unless the data owner has approved that
 destination. External reviewer services are a separate configuration surface.
+
+
+### Per-request external-data authorization
+
+The `ENSEMBLE_ALLOW_GOOGLE_MODEL_API=true` service flag alone does not authorize sending prompts to Google. A trusted internal caller must also pass `allow_external_data=True` for that specific `MultiModelClient.call_model_response` call. The public REST `/api/v1/models/invoke` endpoint does not accept client-supplied authorization flags. Keep Google disabled for restricted/internal-code workloads.
