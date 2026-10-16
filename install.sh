@@ -211,6 +211,27 @@ else
     exit 1
 fi
 
+# Step 4e: Install the general CE code review skill (no Jira ticket required).
+echo ""
+echo "4e. Installing CE code review skill..."
+CE_REVIEW_INSTALLER="$REPO_PATH/tools/install-ce-review-skill.sh"
+CE_REVIEW_SOURCE="$REPO_PATH/claude-code-skills/ce-review/SKILL.md"
+CE_REVIEW_DEST="$CLAUDE_HOME/skills/ce-review/SKILL.md"
+if [ -L "$CLAUDE_HOME/skills" ] || [ -L "$CLAUDE_HOME/skills/ce-review" ]; then
+    echo "   ! Preserved symlinked skills location; install /ce-review manually after reviewing the target."
+elif [ -e "$CE_REVIEW_DEST" ] || [ -L "$CE_REVIEW_DEST" ]; then
+    if [ -f "$CE_REVIEW_DEST" ] && [ ! -L "$CE_REVIEW_DEST" ] && cmp -s "$CE_REVIEW_SOURCE" "$CE_REVIEW_DEST"; then
+        ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" bash "$CE_REVIEW_INSTALLER"
+    else
+        echo "   ! Preserved existing custom skill at $CE_REVIEW_DEST; no content was changed."
+    fi
+elif [ -f "$CE_REVIEW_INSTALLER" ] && [ -f "$CE_REVIEW_SOURCE" ]; then
+    ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CLAUDE_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_HOME" bash "$CE_REVIEW_INSTALLER"
+else
+    echo "ERROR: CE code review skill installer or source is missing." >&2
+    exit 1
+fi
+
 # Step 5: Install GA parameter evolution link
 echo ""
 echo "5. Installing GA parameter evolution..."

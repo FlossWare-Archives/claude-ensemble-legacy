@@ -51,11 +51,11 @@ curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/inst
 This will:
 1. Clone the repository
 2. Install CE hooks and toolkit integration under `~/.claude/`
-3. Install the `/ce-jira-review` skill unless a different existing skill must be preserved
+3. Install `/ce-review` and `/ce-jira-review` unless different existing skills must be preserved
 4. Set up credentials storage at `~/.FlossWare/secrets.env`
 5. Prompt you to configure which tools to enable
 
-The `/ce-jira-review` skill uses the authenticated Claude Code runtime and the CE worker/arbiter workflow. It requires the configured Atlassian MCP integration to retrieve Jira acceptance criteria. To install it separately into an explicitly selected CE profile, run:
+The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. It uses the authenticated Claude Code runtime and does not send source to external reviewer providers. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. To install the skills separately into an explicitly selected CE profile, run:
 
 ```bash
 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profile" \
