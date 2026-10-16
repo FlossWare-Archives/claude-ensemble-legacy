@@ -35,6 +35,16 @@ The Memory REST service is a loopback-only service. The hook sends the extracted
 
 The `/memory/search` contract returns JSON with `ok: true` and a `results` array. Each result used by the hook provides a `content` string; the hook ignores other result shapes instead of guessing at service internals.
 
+### Indexing project documentation as Knowledge
+
+The normal `sync`/`watch` commands ingest Claude Code's own `~/.claude/projects/*/memory` notes and `MEMORY.md` files. They do not automatically ingest arbitrary repository documentation. To make a project's durable Markdown documentation available to prompt-time Knowledge retrieval, explicitly run:
+
+```bash
+python3 tools/claude-config/lib/memory_sync.py knowledge-sync --root /path/to/project
+```
+
+This indexes Markdown below the selected project root, skips common generated/vendor directories, and reconciles stale entries only after all current files were ingested successfully. The root is the reconciliation scope, so choose the project directory deliberately. It does not start a watcher; rerun after documentation changes.
+
 Integration version: 0.2.
 
 The canonical REST gateway is installed as `claude-ensemble.service` and listens on loopback at `http://127.0.0.1:8080` by default. `claude-config doctor` reports configuration/runtime findings, including gateway deployment state, Memory health, gateway health, capability health, provider policy, and managed hook registration. Use `--verbose` to show passing checks or `--json` for machine-readable output. Override the gateway URL with `ENSEMBLE_GATEWAY_URL`; Memory uses `FLOSSWARE_MEMORY_URL`.

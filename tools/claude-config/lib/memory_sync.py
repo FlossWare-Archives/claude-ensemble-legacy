@@ -110,6 +110,65 @@ def sync_once(root: Path) -> int:
     return 0 if succeeded == len(paths) else 1
 
 
+def sync_knowledge_root(root: Path) -> int:
+    """Index Markdown documentation under an explicitly selected project root.
+
+    This is intentionally a separate command from syncing ~/.claude memory:
+    project documentation is durable Knowledge, while session notes remain
+    episodic Memory. Reconciliation is scoped to the selected root and occurs
+    only after every current document was ingested successfully.
+    """
+    if not root.is_dir():
+        print(f"warning: Knowledge root does not exist: {root}", file=sys.stderr)
+        return 1
+
+    scope = str(root.resolve())
+    excluded_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
+    paths = []
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = sorted(name for name in dirs if name not in excluded_dirs)
+        for name in files:
+            path = Path(directory) / name
+            if path.suffix.lower() == ".md" and name not in EXCLUDED_NAMES:
+                paths.append(path)
+    paths = sorted(path.resolve() for path in paths)
+    succeeded = 0
+    for path in paths:
+        try:
+            content = path.read_text(encoding="utf-8")
+            body = {
+                "source": "claude-code",
+                "path": str(path),
+                "content": content,
+                "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                "metadata": {
+                    "project": root.name,
+                    "kind": "markdown",
+                    "scope": scope,
+                    "relative_path": str(path.relative_to(root.resolve())),
+                },
+            }
+            result = post("/memory/ingest", body)
+            print(f"{result.get('status', 'ingested')}: {path}")
+            succeeded += 1
+        except (OSError, ValueError, RuntimeError, error.URLError) as exc:
+            print(f"warning: Knowledge ingest failed for {path}: {exc}", file=sys.stderr)
+
+    if succeeded != len(paths):
+        print("warning: Knowledge reconciliation skipped because one or more ingests failed", file=sys.stderr)
+        return 1
+    try:
+        result = post(
+            "/memory/reconcile",
+            {"source": "claude-code", "scope": scope, "paths": [str(path) for path in paths]},
+        )
+        print(f"reconciled: {result.get('count', 0)} stale Knowledge document(s)")
+    except (OSError, ValueError, RuntimeError, error.URLError) as exc:
+        print(f"warning: Knowledge reconciliation failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def snapshot(root: Path) -> dict[str, tuple[int, int]]:
     result = {}
     for path in markdown_files(root):
@@ -226,10 +285,14 @@ def watch(root: Path, interval: float) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("sync", "watch"))
+    parser.add_argument("command", choices=("sync", "watch", "knowledge-sync"))
     parser.add_argument("--root", default=None)
     parser.add_argument("--interval", type=float, default=2.0)
     args = parser.parse_args()
+    if args.command == "knowledge-sync":
+        if not args.root:
+            parser.error("knowledge-sync requires --root to select a project documentation directory")
+        return sync_knowledge_root(Path(args.root).expanduser())
     root = Path(args.root).expanduser() if args.root else claude_root()
     if args.command == "sync":
         return sync_once(root)
