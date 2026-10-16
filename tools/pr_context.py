@@ -60,7 +60,7 @@ def load_pull_request_context(orch: Any, repo_path: Path, number: str) -> None:
             logger.warning("PR #%s source context capped at %s files", number, MAX_FILES)
             break
         response = _gh(
-            ["api", f"repos/{owner}/{repo}/contents/{name}", "-f", f"ref={sha}"],
+            ["api", "-X", "GET", f"repos/{owner}/{repo}/contents/{name}?ref={sha}"],
             repo_path,
             f"Unable to fetch PR #{number} source at {sha}: {name}",
         )
