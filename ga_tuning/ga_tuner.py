@@ -19,6 +19,7 @@ import sys
 import time
 import logging
 import random
+import secrets
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
@@ -56,7 +57,8 @@ class GAConfig:
     crossover_rate: float = 0.8
     mutation_rate: float = 0.1
     tournament_k: int = 3
-    seed: int = 42
+    # None gives each scheduled run a fresh seed; set an integer for reproducible experiments.
+    seed: int | None = None
     max_workers: int = 4
     output_dir: str = './results'
 
@@ -85,8 +87,10 @@ class GeneticAlgorithm:
         # Create output directory
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
 
-        random.seed(config.seed)
-        np.random.seed(config.seed)
+        self.seed = config.seed if config.seed is not None else secrets.randbits(32)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        logger.info("Using GA seed=%s%s", self.seed, " (explicit/reproducible)" if config.seed is not None else " (generated per run)")
 
     def initialize_evaluators(self):
         """Initialize all 5 evaluators"""
@@ -370,6 +374,7 @@ class GeneticAlgorithm:
         # Save summary report
         summary = {
             'timestamp': timestamp,
+            'seed': self.seed,
             'total_evaluations': self.total_evaluations,
             'generations': self.config.generations,
             'population_size': self.config.population_size,
