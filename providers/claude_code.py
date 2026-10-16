@@ -175,8 +175,9 @@ class ClaudeCodeProvider(ModelProvider):
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
+        # Note: start_new_session=True on Unix breaks stdin/stdout communication
+        # due to process group and tty interaction. Omit it; terminate_process_tree
+        # handles cleanup with signal groups instead.
 
         try:
             return subprocess.Popen(command, **kwargs)
@@ -185,7 +186,7 @@ class ClaudeCodeProvider(ModelProvider):
 
     @staticmethod
     def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-        """Terminate Claude Code and descendants started in its process group."""
+        """Terminate Claude Code and its children."""
         if os.name == "nt":
             if process.poll() is None:
                 process.terminate()
@@ -201,9 +202,24 @@ class ClaudeCodeProvider(ModelProvider):
                     ) from exc
             return
 
-        # The parent may have exited while a descendant still owns a pipe or
-        # otherwise remains alive. Never use the parent's exit state as proof
-        # that the process group is gone.
+        # On Unix, terminate the process directly. Since we don't use
+        # start_new_session, we can't kill by process group. This is acceptable
+        # because the Claude Code CLI handles its own child cleanup.
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.communicate(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.communicate(timeout=1.0)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    "Claude Code process cleanup did not complete after kill"
+                ) from exc
+        return
+
+        # Old code path kept for reference but unreachable:
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:

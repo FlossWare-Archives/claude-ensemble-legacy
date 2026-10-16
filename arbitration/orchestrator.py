@@ -527,7 +527,8 @@ class ArbitrationOrchestrator:
             "Return your actual analysis. Do not claim to have inspected evidence "
             "that is not present in the supplied context."
         )
-        return ModelRequest(prompt=prompt, model=model, timeout=120.0)
+        # Increase timeout to 300s to account for API latency and large prompts
+        return ModelRequest(prompt=prompt, model=model, timeout=300.0)
 
     def _run_one_worker(
         self, phase_config: PhaseConfig, model: str, context: str
@@ -594,8 +595,9 @@ class ArbitrationOrchestrator:
             phase_config.phase,
         )
         try:
+            # Increase timeout to 600s for arbiter (handles larger prompts with worker results)
             response = self._provider_for(phase_config.arbiter).generate(
-                ModelRequest(prompt=prompt, model=phase_config.arbiter, timeout=120.0)
+                ModelRequest(prompt=prompt, model=phase_config.arbiter, timeout=600.0)
             )
             logger.info(
                 "Arbiter %s completed phase %s",
