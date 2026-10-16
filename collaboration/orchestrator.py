@@ -171,10 +171,17 @@ class CollaborationOrchestrator:
             if follow_ups:
                 review_count_before = len(self.state.reviews)
                 self._targeted_follow_ups(candidates, context, follow_ups)
-                if len(self.state.reviews) == review_count_before:
+                follow_up_reviews = self.state.reviews[review_count_before:]
+                usable_follow_up_reviews = [
+                    review
+                    for review in follow_up_reviews
+                    if review.status == "complete" and not review.error
+                ]
+                if not usable_follow_up_reviews:
                     unavailable = (
-                        "requested follow-ups could not be executed because no "
-                        "eligible configured reviewers were available"
+                        "requested follow-ups produced no usable review evidence; "
+                        "reviewers may be unavailable, failed, given an invalid "
+                        "candidate, or blocked by the review-call budget"
                     )
                     concerns = list(adjudication["blocking_concerns"])
                     if unavailable not in concerns:
