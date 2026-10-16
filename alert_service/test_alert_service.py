@@ -108,13 +108,9 @@ class AlertServiceTest(unittest.TestCase):
             sys.path.insert(0, str(Path(__file__).parent.parent))
             from alert_service.alert_service import AlertService
 
-            service = AlertService(
-                socket_path=Path(temp_dir) / "alert.sock",
-                alert_dir=Path(temp_dir) / "alerts",
-            )
-
             class FakeManager:
-                calls = 0
+                def __init__(self):
+                    self.calls = 0
 
                 def trigger_check(self):
                     self.calls += 1
@@ -127,7 +123,12 @@ class AlertServiceTest(unittest.TestCase):
                         "action_recommended": "Review model selection",
                     }]
 
-            service.manager = FakeManager()
+            manager = FakeManager()
+            service = AlertService(
+                socket_path=Path(temp_dir) / "alert.sock",
+                alert_dir=Path(temp_dir) / "alerts",
+                manager=manager,
+            )
             published = []
             service._publish_messenger_alert = lambda alert, source: published.append((dict(alert), source)) or True
             service.check_interval_seconds = 30
@@ -135,7 +136,7 @@ class AlertServiceTest(unittest.TestCase):
 
             self.assertFalse(service._run_scheduled_check_if_due(now=129.9))
             self.assertTrue(service._run_scheduled_check_if_due(now=130.0))
-            self.assertEqual(service.manager.calls, 1)
+            self.assertEqual(manager.calls, 1)
             self.assertEqual(len(published), 1)
             self.assertEqual(published[0][1], "scheduled")
             self.assertTrue(published[0][0]["alert_id"].startswith(datetime.now().date().isoformat()))
@@ -143,7 +144,7 @@ class AlertServiceTest(unittest.TestCase):
             # The same alert type is not republished on every interval that day.
             self.assertFalse(service._run_scheduled_check_if_due(now=140.0))
             self.assertEqual(service.manager.calls, 1)
-            duplicate = service._process_alerts(service.manager.trigger_check(), source="manual")
+            duplicate = service._process_alerts(manager.trigger_check(), source="manual")
             self.assertEqual(duplicate, [])
             self.assertEqual(len(published), 1)
 
@@ -186,6 +187,7 @@ class AlertServiceTest(unittest.TestCase):
             service = AlertService(
                 socket_path=Path(temp_dir) / "alert.sock",
                 alert_dir=Path(temp_dir) / "alerts",
+                manager=SimpleNamespace(trigger_check=lambda: []),
             )
             published = []
 
@@ -225,6 +227,7 @@ class AlertServiceTest(unittest.TestCase):
             service = AlertService(
                 socket_path=Path(temp_dir) / "alert.sock",
                 alert_dir=Path(temp_dir) / "alerts",
+                manager=SimpleNamespace(trigger_check=lambda: []),
             )
             result = service._send_email_alert({
                 "alert_id": "alert-email",
