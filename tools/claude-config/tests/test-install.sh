@@ -127,7 +127,7 @@ d=json.load(open(p,encoding="utf-8"))
 d["hooks"]["UserPromptSubmit"] = [
   {"matcher":"Remember|recall","hooks": [
     {"type":"command","command":legacy,"timeout":3,"async":True},
-    {"type":"command","command":managed_alias,"timeout":3,"async":true}
+    {"type":"command","command":managed_alias,"timeout":3,"async":True}
   ]},
   {"matcher":"UserPromptSubmit","hooks": [
     {"type":"command","command":foreign,"timeout":3},
