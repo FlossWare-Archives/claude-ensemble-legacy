@@ -65,7 +65,10 @@ def load_pull_request_context(orch: Any, repo_path: Path, number: str) -> None:
             f"Unable to fetch PR #{number} source at {sha}: {name}",
         )
         try:
-            payload: dict[str, Any] = json.loads(response)
+            payload: Any = json.loads(response)
+            if not isinstance(payload, dict):
+                logger.warning("Skipping unexpected GitHub source response: %s", name)
+                continue
             if payload.get("encoding") != "base64" or not isinstance(payload.get("content"), str):
                 logger.warning("Skipping source not returned inline by GitHub: %s", name)
                 continue
