@@ -389,17 +389,30 @@ class GeneticAlgorithm:
         return summary
 
 
+def load_config(config_file: Path | None = None) -> GAConfig:
+    """Load the shipped GA configuration, retaining support for a legacy CWD file."""
+    if config_file is None:
+        shipped_config = Path(__file__).resolve().parent / "config" / "ga_config.yaml"
+        legacy_config = Path.cwd() / "ga_config.yaml"
+        config_file = shipped_config if shipped_config.is_file() else legacy_config
+
+    if not config_file.is_file():
+        return GAConfig()
+
+    with config_file.open("r", encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f) or {}
+    if not isinstance(config_dict, dict):
+        raise ValueError(f"GA config must be a YAML mapping: {config_file}")
+
+    # System bounds and descriptions document parameter_schema.py; they are not
+    # GAConfig constructor fields and must not be passed into the dataclass.
+    config_dict.pop("systems", None)
+    return GAConfig(**config_dict)
+
+
 def main():
     """Main entry point"""
-    # Load config if available, otherwise use defaults
-    config_file = './ga_config.yaml'
-    if os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            config_dict = yaml.safe_load(f)
-        config = GAConfig(**config_dict)
-    else:
-        config = GAConfig()
-
+    config = load_config()
     ga = GeneticAlgorithm(config)
     summary = ga.run()
 
