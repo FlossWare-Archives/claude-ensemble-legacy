@@ -16,12 +16,12 @@ The `UserPromptSubmit` hook exposes these as separate sections in its `additiona
 1. Claude Code submits a user prompt.
 2. `~/.claude/hooks/memory-search-on-prompt.js` receives the event.
 3. The complete prompt is used as the retrieval query. Retrieval is relevance-driven and does not depend on trigger words such as `remember`, `recall`, or `prior`.
-4. The hook calls the loopback Memory REST endpoint `POST /memory/search`.
+4. The hook calls the loopback Memory REST endpoint `POST /memory/search` and, when Claude Code supplies `cwd`, queries Graph for a project node matching the working-directory basename and traverses one hop of related nodes.
 5. Results are validated against the canonical `{ok: true, results: []}` envelope and require a string `content` field.
 6. Results are deduplicated by source, file, section, and content.
 7. Results are partitioned into Memory and Knowledge. Claude Code-ingested documents (`source=claude-code` or `claude-code-*` documents) are treated as Knowledge; other Memory service search results remain Memory.
 8. The hook emits `UserPromptSubmit.hookSpecificOutput.additionalContext`.
-9. Memory failures remain fail-open and never block prompt submission.
+9. Memory and Graph failures remain independently fail-open and never block prompt submission. Graph results are bounded and labeled as reference data, not instructions.
 
 ## Legacy hooks
 
@@ -53,17 +53,17 @@ Future cross-hook deduplication should use the query hash exposed in the hook me
 
 | Event/component | May read | May write | Must not do |
 | --- | --- | --- | --- |
-| `UserPromptSubmit` canonical context hook | Memory and Knowledge through Memory REST search | Nothing; it only returns context | Capture events, invoke learners, or promote Knowledge |
+| `UserPromptSubmit` canonical context hook | Memory and Knowledge through Memory REST search; project Graph nodes and one-hop relationships | Nothing; it only returns context | Capture events, invoke learners, or promote Knowledge |
 | `SessionStart` context loader | Local, already-approved context index | Nothing | Trigger learning or update learner state |
 | `PostToolUse` capture adapter | The event payload needed for capture | An idempotent capture request to Memory | Update Thompson/GA state or promote Knowledge |
-| `SessionEnd` capture adapter | Session outcome and explicitly supplied observations | An idempotent capture request to Memory | Replay all historical outcomes as new events |
+| `SessionEnd` capture adapter | Session ID and safe lifecycle metadata only | An idempotent Memory event and a transient metadata-only Messenger event | Read transcripts, infer task quality, invoke learners, or replay historical outcomes |
 | Workflow-completion adapter | The completed workflow result and stable run ID | One operational outcome/learning artifact through the Learning service | Directly mutate Thompson/GA state or infer correctness from completion alone |
 | Learning service / scheduled learner | Persisted outcome artifacts plus evidence and provenance | Learner state and learning artifacts | Treat telemetry, model consensus, or successful completion as ground truth |
 | Knowledge promotion | Validated learning artifacts and cited evidence | Explicit Knowledge additions/updates | Promote raw hook output or unreviewed suggestions automatically |
 
 ### Idempotency and retry contract
 
-- Every captured event must carry a stable event/run identifier supplied by the originating workflow. Wall-clock timestamps are metadata, not idempotency keys.
+- Every captured event must carry a stable event/run identifier. Session capture derives its event ID from the Claude Code session ID; workflow outcome IDs are derived from task type plus evidence so identical retries deduplicate. Wall-clock timestamps are metadata, not idempotency keys.
 - Retrying the same event must update/reconcile the existing capture or be rejected as a duplicate; it must not append another learning outcome or apply a learner update twice.
 - Capture failure is fail-open for Claude Code execution, but it must be visible through structured diagnostics. A hook must not report a successful durable write when the service has not acknowledged it.
 - Learning-service retries must be idempotent by outcome ID. A learner update must record the outcome/evidence IDs it consumed so a retry cannot apply the same evidence twice.
