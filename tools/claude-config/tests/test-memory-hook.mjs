@@ -100,13 +100,13 @@ try {
   });
 
   assert.equal(result.code, 0);
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].method, 'POST');
-  assert.equal(requests[0].url, '/memory/search');
-  assert.deepEqual(JSON.parse(requests[0].body), {
-    query: 'What did we decide about Claude Ensemble relative to Claude Code?',
-    limit: 10,
-  });
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every(request => request.method === 'POST' && request.url === '/memory/search'));
+  assert.deepEqual(requests.map(request => JSON.parse(request.body).source).sort(), ['claude-code', 'memory']);
+  assert.ok(requests.every(request =>
+    JSON.parse(request.body).query === 'What did we decide about Claude Ensemble relative to Claude Code?' &&
+    JSON.parse(request.body).limit === 10
+  ));
 
   const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
