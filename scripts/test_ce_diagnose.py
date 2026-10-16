@@ -150,5 +150,30 @@ class DiagnoseTests(unittest.TestCase):
             self.assertIn("acknowledged", detail)
 
 
+    def test_installed_hook_smoke_runs_prompt_and_opt_in_session_end_scripts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp)
+            (hook_dir / "memory-search-on-prompt.js").write_text(
+                "process.stdin.resume(); process.stdin.on('end', () => "
+                "process.stdout.write(JSON.stringify({hookSpecificOutput: "
+                "{hookEventName: 'UserPromptSubmit', additionalContext: 'mock context'}})));",
+                encoding="utf-8",
+            )
+            (hook_dir / "session-end-memory-capture.js").write_text(
+                "process.stdin.resume(); process.stdin.on('end', () => {});",
+                encoding="utf-8",
+            )
+            results = diagnose.installed_hook_smoke(
+                hook_dir, "smoke-test-correlation", timeout=1.0,
+                include_session_end=True,
+            )
+        self.assertEqual(
+            ["hooks.user_prompt_submit", "hooks.session_end"],
+            [item["step"] for item in results],
+        )
+        self.assertEqual(["pass", "pass"], [item["status"] for item in results])
+
+
+
 if __name__ == "__main__":
     unittest.main()

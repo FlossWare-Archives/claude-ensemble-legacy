@@ -83,6 +83,20 @@ bash tools/ce diagnose --deep --json
 
 This probes the configured gateway, Memory, Graph, decision endpoint, Learning, Thompson, Messenger, and Alert service. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
 
+To exercise the installed `~/.claude/hooks/memory-search-on-prompt.js` against live Memory/Graph services without writing production data:
+
+```bash
+bash tools/ce diagnose --hook-smoke --json
+```
+
+To also exercise installed SessionEnd capture and Messenger delivery, explicitly authorize one uniquely identified metadata-only event in production Memory:
+
+```bash
+bash tools/ce diagnose --session-end-smoke --allow-memory-write --json
+```
+
+The SessionEnd smoke test sends no transcript, prompt text, tool output, or project path. The explicit flag is required because the test writes one event to production Memory.
+
 For a read-only service check without the isolated pipeline test:
 
 ```bash

@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 from typing import Any
+from pathlib import Path
 
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
 DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
@@ -192,10 +193,108 @@ def unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
     return ("pass", state, elapsed) if result.returncode == 0 else ("fail", state, elapsed)
 
 
+
+def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
+                        include_session_end: bool = False) -> list[dict[str, Any]]:
+    """Run the installed prompt hook; optionally run metadata-only SessionEnd capture."""
+    results: list[dict[str, Any]] = []
+    node = shutil.which("node")
+    if not node:
+        record(results, "hooks.node", "fail", "Node.js is unavailable", 0,
+               remediation="Install Node.js to execute the installed Claude Code hooks.")
+        return results
+
+    prompt_hook = hook_dir / "memory-search-on-prompt.js"
+    session_hook = hook_dir / "session-end-memory-capture.js"
+    required = [prompt_hook, session_hook] if include_session_end else [prompt_hook]
+    if any(not path.is_file() for path in required):
+        record(results, "hooks.installed", "fail",
+               "required installed hook script is missing", 0, str(hook_dir),
+               "Install/sync the canonical hook scripts or set CLAUDE_HOOK_DIR.")
+        return results
+
+    env = os.environ.copy()
+    env.setdefault("FLOSSWARE_MEMORY_URL", "http://127.0.0.1:8767")
+    env.setdefault("FLOSSWARE_GRAPH_URL", "http://127.0.0.1:8766")
+    env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = str(int(timeout * 1000))
+    env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = str(int(timeout * 1000))
+    env.setdefault("CLAUDE_MESSENGER_SOCKET",
+                   os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") +
+                   "/claude-messenger/claude-messenger.sock")
+
+    prompt_event = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": f"ce-diagnostic-prompt-{correlation_id}",
+        "cwd": str(Path.cwd()),
+        "prompt": "What are the current CE project decisions and architecture?",
+    }
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [node, str(prompt_hook)], input=json.dumps(prompt_event),
+            capture_output=True, text=True, timeout=max(5.0, timeout * 3),
+            env=env, check=False,
+        )
+        elapsed = round((time.monotonic() - started) * 1000)
+        failed = result.returncode != 0 or "Memory search unavailable:" in result.stderr or "Graph context unavailable" in result.stderr
+        if not failed and result.stdout.strip():
+            try:
+                payload = json.loads(result.stdout)
+                output = payload.get("hookSpecificOutput", {})
+                failed = not isinstance(output, dict) or output.get("hookEventName") != "UserPromptSubmit" or not isinstance(output.get("additionalContext"), str)
+            except (json.JSONDecodeError, AttributeError):
+                failed = True
+        record(results, "hooks.user_prompt_submit", "fail" if failed else "pass",
+               "installed prompt hook failed its live service contract" if failed
+               else "installed prompt hook completed without Memory/Graph errors",
+               elapsed, str(prompt_hook),
+               "Check installed hook path and live Memory/Graph service configuration." if failed else "")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        elapsed = round((time.monotonic() - started) * 1000)
+        record(results, "hooks.user_prompt_submit", "fail",
+               f"installed prompt hook could not complete ({type(exc).__name__})",
+               elapsed, str(prompt_hook), "Check Node.js and Memory/Graph service health.")
+
+    if include_session_end:
+        session_id = f"ce-diagnostic-session-{correlation_id}"
+        event = {"hook_event_name": "SessionEnd", "session_id": session_id,
+                 "reason": "diagnostic_smoke_test"}
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                [node, str(session_hook)], input=json.dumps(event),
+                capture_output=True, text=True, timeout=max(5.0, timeout * 3),
+                env=env, check=False,
+            )
+            elapsed = round((time.monotonic() - started) * 1000)
+            failed = (result.returncode != 0
+                      or "Memory capture unavailable:" in result.stderr
+                      or "Messenger session event unavailable:" in result.stderr)
+            record(results, "hooks.session_end", "fail" if failed else "pass",
+                   "SessionEnd reported a Memory/Messenger failure" if failed
+                   else "metadata-only SessionEnd capture and Messenger publish completed",
+                   elapsed, str(session_hook),
+                   "Check Memory append-once and Messenger service health." if failed else "")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            elapsed = round((time.monotonic() - started) * 1000)
+            record(results, "hooks.session_end", "fail",
+                   f"installed SessionEnd hook could not complete ({type(exc).__name__})",
+                   elapsed, str(session_hook), "Check Node.js, Memory, and Messenger service health.")
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deep", action="store_true",
                         help="exercise read-only Memory/Graph/Decision operations and the isolated Learning-to-Thompson pipeline")
+    parser.add_argument("--hook-smoke", action="store_true",
+                        help="run the installed UserPromptSubmit hook against live Memory/Graph services")
+    parser.add_argument("--session-end-smoke", action="store_true",
+                        help="also run SessionEnd; writes one metadata-only event to production Memory and publishes a transient Messenger event")
+    parser.add_argument("--allow-memory-write", action="store_true",
+                        help="explicitly authorize the metadata-only SessionEnd smoke event")
+    parser.add_argument("--hook-dir", default=os.environ.get("CLAUDE_HOOK_DIR", str(Path.home() / ".claude" / "hooks")),
+                        help="installed Claude hook directory (default: ~/.claude/hooks)")
     parser.add_argument("--pipeline-test", action="store_true",
                         help="run the isolated Learning-to-Thompson integration test using temporary state")
     parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson", "messenger", "alert"),
@@ -204,6 +303,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=2.0,
                         help="per-request timeout in seconds (default: 2; maximum: 10)")
     args = parser.parse_args()
+    if args.session_end_smoke and not args.allow_memory_write:
+        parser.error("--session-end-smoke requires --allow-memory-write because it appends a synthetic metadata event to Memory")
+    if args.session_end_smoke:
+        args.hook_smoke = True
     if not 0.1 <= args.timeout <= 10:
         parser.error("--timeout must be between 0.1 and 10 seconds")
 
@@ -306,6 +409,12 @@ def main() -> int:
                    elapsed, "temporary state and socket; no production state touched",
                    "Run python3 scripts/test_ce_pipeline.py and inspect the test environment.")
 
+    if args.hook_smoke:
+        results.extend(installed_hook_smoke(
+            Path(args.hook_dir).expanduser(), correlation_id, args.timeout,
+            include_session_end=args.session_end_smoke,
+        ))
+
     failures = [item for item in results if item["status"] == "fail"]
     summary = {
         "ok": not failures,
@@ -314,8 +423,8 @@ def main() -> int:
         "passed": sum(item["status"] == "pass" for item in results),
         "failed": len(failures),
         "skipped": 0,
-        "mode": "deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"),
-        "side_effects": ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"),
+        "mode": "hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard")),
+        "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
         "results": results,
     }
     if args.json:
@@ -328,7 +437,12 @@ def main() -> int:
             if item["status"] != "pass" and item["remediation"]:
                 print(f"    Fix: {item['remediation']}")
         print(f"Summary: {summary['passed']} passed, {summary['failed']} failed")
-        print("Mode is read-only; this does not simulate Learning-to-Thompson outcome processing.")
+        if args.session_end_smoke:
+            print("SessionEnd smoke writes one metadata-only Memory event and publishes a transient Messenger event.")
+        elif args.hook_smoke:
+            print("Hook smoke is read-only; it does not invoke a model or submit a learning outcome.")
+        else:
+            print("This does not invoke a Claude model or create a production learning outcome.")
     return 1 if failures else 0
 
 
