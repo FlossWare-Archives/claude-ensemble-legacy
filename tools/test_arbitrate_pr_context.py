@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.arbitrate import _load_pull_request_context
+from tools.pr_context import load_pull_request_context
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
 
 
@@ -34,7 +34,7 @@ class PullRequestContextTests(unittest.TestCase):
             completed(json.dumps(payload)),
         ]
         orch = ArbitrationOrchestrator(TaskType.CODE_REVIEW, "test")
-        _load_pull_request_context(orch, Path("/tmp/repo"), "12")
+        load_pull_request_context(orch, Path("/tmp/repo"), "12")
         self.assertEqual(orch.context_manager.git_diff, "diff --git a/app.py b/app.py\n+return True\n")
         self.assertEqual(orch.context_manager.files, {"PR_HEAD:abc123:app.py": source})
         self.assertIn("ref=abc123", run.call_args_list[2].args[0])
@@ -54,7 +54,7 @@ class PullRequestContextTests(unittest.TestCase):
         ]
         orch = ArbitrationOrchestrator(TaskType.CODE_REVIEW, "test")
         with self.assertRaises(RuntimeError):
-            _load_pull_request_context(orch, Path("/tmp/repo"), "12")
+            load_pull_request_context(orch, Path("/tmp/repo"), "12")
 
 
 if __name__ == "__main__":
