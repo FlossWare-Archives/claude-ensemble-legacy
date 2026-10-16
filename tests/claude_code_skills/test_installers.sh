@@ -42,6 +42,14 @@ else
 fi
 [[ "$(cat "$CONFLICT_PROFILE/skills/ce-status/SKILL.md")" == 'user-owned skill' ]]
 
+# A symlinked skills directory must never receive writes, including through the aggregate installer.
+SYMLINK_PROFILE="$TMP_ROOT/symlink-profile"
+SYMLINK_SKILLS="$TMP_ROOT/real-skills"
+mkdir -p "$SYMLINK_PROFILE" "$SYMLINK_SKILLS"
+ln -s "$SYMLINK_SKILLS" "$SYMLINK_PROFILE/skills"
+ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$SYMLINK_PROFILE" bash "$ROOT/tools/install-ce-skills.sh"
+[[ -z "$(find "$SYMLINK_SKILLS" -mindepth 1 -print -quit)" ]]
+
 # The aggregate installer must be idempotent and install every supported CE skill.
 export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/claude-profile"
 bash "$ROOT/tools/install-ce-skills.sh"
