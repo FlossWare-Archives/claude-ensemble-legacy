@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any
 
@@ -38,8 +39,12 @@ class GoogleProvider(ModelProvider):
         if not api_key:
             raise RuntimeError("GOOGLE_API_KEY is not configured")
 
-        model = request.model or self.default_model
-        model = model.removeprefix("models/")
+        model = (request.model or self.default_model).removeprefix("models/").lower()
+        # The model becomes a URL path segment. Validate it before interpolating
+        # it into the endpoint so caller-controlled slashes or dot segments
+        # cannot redirect the API-key-bearing request to another path.
+        if not re.fullmatch(r"gemini-[a-z0-9][a-z0-9._-]*", model):
+            raise ValueError("invalid Gemini model ID")
         conversation = request.conversation()
         contents = [
             {
