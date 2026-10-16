@@ -125,6 +125,29 @@ class DoctorHealthTests(unittest.TestCase):
             self.assertEqual("skip", checks["CLAUDE_PROVIDER_POLICY"]["status"])
             self.assertEqual(1, exit_code)  # Only the missing CLI fails.
 
+    def test_explicit_profile_missing_managed_files_are_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp) / "acceptance-profile"
+            profile.mkdir()
+            config = doctor.DoctorConfig(
+                home=Path(tmp),
+                repo_root=Path(tmp),
+                environ={"ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": str(profile)},
+            )
+            output = io.StringIO()
+            with (
+                patch("sys.argv", ["doctor", "--json"]),
+                patch.object(doctor.shutil, "which", return_value=None),
+                patch.object(doctor, "http_health", return_value=("pass", "test health")),
+                redirect_stdout(output),
+            ):
+                exit_code = doctor.main(config)
+            report = json.loads(output.getvalue())
+            checks = {item["code"]: item for item in report["checks"]}
+            for code in ("SETTINGS_MISSING", "PROMPT_HOOK_MISSING", "SESSION_HOOK_MISSING", "MANIFEST_MISSING"):
+                self.assertEqual("fail", checks[code]["status"], code)
+            self.assertEqual(1, exit_code)
+
     def setUp(self):
         HealthHandler.payload = {"ok": True}
         HealthHandler.status_code = 200

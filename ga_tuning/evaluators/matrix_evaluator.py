@@ -80,9 +80,25 @@ class MatrixEvaluator:
         'debugging': 'opus-5-5',
     }
 
+    # Known task difficulty for the labelled synthetic benchmark. Values near
+    # decision boundaries let the optimizer distinguish weight configurations.
+    SYNTHETIC_COMPLEXITY = {
+        "code_reading": 0.45,
+        "documentation": 0.15,
+        "simple_fixes": 0.25,
+        "code_review": 0.72,
+        "architecture": 0.90,
+        "debugging": 0.72,
+    }
+
     def __init__(self, rh_memory_dir: Path):
+        # Markdown memory files are not labelled routing examples and cannot provide
+        # ground truth for routing accuracy. Use an explicit labelled synthetic
+        # benchmark until a reviewed, labelled task corpus is supplied.
         self.rh_memory_dir = Path(rh_memory_dir)
-        self.test_tasks = self._load_rh_files()
+        self.evaluation_source = "synthetic-labeled-fixtures"
+        self.test_tasks = self._create_synthetic_tasks()
+        logger.info("Using %d labelled synthetic routing tasks; no operational routing claim is implied", len(self.test_tasks))
 
     def _load_rh_files(self) -> List[Tuple[str, str]]:
         """Load RH files for testing"""
@@ -113,9 +129,19 @@ class MatrixEvaluator:
         task_types = ['code_reading', 'documentation', 'simple_fixes', 'code_review', 'architecture', 'debugging']
 
         tasks = []
-        for i, task_type in enumerate(task_types * 20):  # 120 tasks
-            content = f"Task {i}: {task_type}\n" + "Sample content " * (20 + i % 50)
-            tasks.append((f"task_{i}", content))
+        descriptions = {
+            "code_reading": "Read and analyze source code to understand control flow and data structures.",
+            "documentation": "Write documentation and explain the usage guide and README.",
+            "simple_fixes": "Fix a small bug and correct the reported issue with a simple change.",
+            "code_review": "Review the code, check correctness, validate behavior, and test edge cases.",
+            "architecture": "Design the system architecture and evaluate component boundaries and tradeoffs.",
+            "debugging": "Debug the failure, trace the error, and identify the root cause.",
+        }
+        for i, task_type in enumerate(task_types * 20):  # 120 labelled tasks
+            # Keep the label separate from the text classifier so benchmark ground
+            # truth is stable even if keyword heuristics change.
+            content = descriptions[task_type] + "\n" + "Implementation context " * (20 + i % 50)
+            tasks.append((f"synthetic-{task_type}__task_{i}", content))
 
         return tasks
 
@@ -254,9 +280,14 @@ class MatrixEvaluator:
         total = 0
 
         for filename, content in self.test_tasks[:100]:  # Use up to 100 tasks
-            # Estimate task properties
-            complexity = self._estimate_complexity(content)
-            task_type = self._estimate_task_type(content)
+            if filename.startswith("synthetic-") and "__task_" in filename:
+                # Synthetic benchmark labels and difficulty are ground truth, not
+                # guesses derived from an arbitrary memory document's length.
+                task_type = filename[len("synthetic-"):].split("__task_", 1)[0]
+                complexity = self.SYNTHETIC_COMPLEXITY[task_type]
+            else:
+                complexity = self._estimate_complexity(content)
+                task_type = self._estimate_task_type(content)
 
             # Select model with current weights
             selected = self._select_model(

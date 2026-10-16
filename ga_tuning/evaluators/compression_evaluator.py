@@ -35,6 +35,7 @@ class CompressionEvaluator:
 
     def __init__(self, rh_memory_dir: Path):
         self.rh_memory_dir = Path(rh_memory_dir)
+        self.synthetic_corpus = False
         self.test_files = self._load_test_files()
         self.tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken else None
 
@@ -48,8 +49,9 @@ class CompressionEvaluator:
         test_files = []
 
         if not self.rh_memory_dir.exists():
-            logger.warning(f"Memory directory not found: {self.rh_memory_dir}")
-            return test_files
+            logger.warning("Memory directory not found: %s; using a synthetic fixture corpus", self.rh_memory_dir)
+            self.synthetic_corpus = True
+            return self._synthetic_test_files()
 
         # Load markdown files
         for md_file in self.rh_memory_dir.glob('*.md'):
@@ -61,7 +63,25 @@ class CompressionEvaluator:
             except Exception as e:
                 logger.error(f"Error loading {md_file}: {e}")
 
+        if not test_files:
+            logger.warning("No usable Markdown files found; using a synthetic fixture corpus")
+            self.synthetic_corpus = True
+            return self._synthetic_test_files()
         return test_files
+
+    @staticmethod
+    def _synthetic_test_files() -> List[Tuple[str, str]]:
+        """Small deterministic corpus used only when no operational corpus is available."""
+        common = (
+            "Service memory request state configuration validation recovery reliability "
+            "service memory request state configuration validation recovery reliability"
+        )
+        return [
+            ("architecture.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("testing.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("operations.md", common + ". " + common + ". " + common + ". " + common + "."),
+            ("memory.md", common + ". " + common + ". " + common + ". " + common + "."),
+        ]
 
     def _count_tokens(self, text: str) -> int:
         """Count tokens using tiktoken"""

@@ -51,6 +51,14 @@ def test_compression():
     print("\nValidation: PASS - Fitness scores within [0, 1]")
 
 
+
+def test_compression_uses_synthetic_fixture_without_local_corpus():
+    evaluator = CompressionEvaluator(Path("/definitely/missing/claude-ensemble-memory-corpus"))
+    assert evaluator.synthetic_corpus is True
+    assert len(evaluator.test_files) >= 2
+    fitness = evaluator.evaluate({"compression_level": 3.0, "target_reduction": 0.3})
+    assert 0.0 < fitness <= 1.0, f"Expected measurable fixture fitness, got {fitness}"
+
 def test_thompson():
     """Test Thompson router evaluator"""
     print("\n" + "=" * 70)
@@ -118,17 +126,21 @@ def test_matrix():
         {'domain_weight': 0.5, 'complexity_weight': 0.6, 'task_weight': 0.5},  # High weights
     ]
 
-    print(f"Test corpus: {len(evaluator.test_tasks)} RH files")
+    print(f"Test corpus: {len(evaluator.test_tasks)} labelled synthetic tasks")
 
+    scores = []
     for i, params in enumerate(test_cases, 1):
         fitness = evaluator.evaluate(params)
+        scores.append(fitness)
         print(f"Test {i}: domain={params['domain_weight']:.1f}, "
               f"complexity={params['complexity_weight']:.1f}, task={params['task_weight']:.1f} "
               f"-> fitness={fitness:.6f}")
 
-    # Validate: should be in [0, 1]
-    assert 0 <= evaluator.evaluate(test_cases[0]) <= 1.0, "Fitness out of bounds"
-    print("\nValidation: PASS - Fitness scores within [0, 1]")
+    # The labelled fixture benchmark must not silently degenerate to zero fitness.
+    assert evaluator.evaluation_source == "synthetic-labeled-fixtures"
+    assert max(scores) > 0.0, f"Expected at least one correct routing choice, got {scores}"
+    assert all(0.0 <= score <= 1.0 for score in scores), "Fitness out of bounds"
+    print("\nValidation: PASS - labelled routing fitness is measurable and bounded")
 
 
 def test_dashboard():
@@ -165,6 +177,7 @@ def main():
 
     try:
         test_compression()
+        test_compression_uses_synthetic_fixture_without_local_corpus()
         test_thompson()
         test_caching()
         test_matrix()
