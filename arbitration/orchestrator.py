@@ -501,6 +501,15 @@ class ArbitrationOrchestrator:
             worker_results = self._run_workers(phase_config, current_context)
             if not worker_results:
                 raise RuntimeError(f"Phase {phase_config.phase} has no worker results")
+            if not any(result.succeeded for result in worker_results):
+                failures = "; ".join(
+                    f"{result.model}: {result.error or 'no usable response'}"
+                    for result in worker_results
+                )
+                raise RuntimeError(
+                    f"Phase {phase_config.phase} has no successful workers; "
+                    f"refusing to synthesize a review from failures alone ({failures})"
+                )
 
             arbiter_result = self._run_arbiter(phase_config, worker_results, current_context)
             self.results.append((worker_results, arbiter_result))
