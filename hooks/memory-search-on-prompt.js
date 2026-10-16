@@ -232,7 +232,7 @@ async function searchGraphContext(cwd) {
     .split('\n');
 }
 
-async function searchContext(query) {
+async function searchContext(query, source) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -243,7 +243,7 @@ async function searchContext(query) {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({ query, limit: MAX_RESULTS }),
+      body: JSON.stringify({ query, limit: MAX_RESULTS, source }),
       signal: controller.signal,
     });
 
@@ -276,11 +276,16 @@ async function main() {
   emitDiagnostics('started', { queryHash, cwdPresent: Boolean(event.cwd) });
   let memoryError = null;
   let graphError = null;
-  const [payload, graphContext] = await Promise.all([
-    searchContext(query).catch(error => {
+  const [memoryPayload, knowledgePayload, graphContext] = await Promise.all([
+    searchContext(query, 'memory').catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       memoryError = message;
       process.stderr.write(`Memory search unavailable: ${message}\n`);
+      return null;
+    }),
+    searchContext(query, 'claude-code').catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Knowledge search unavailable: ${message}\n`);
       return null;
     }),
     searchGraphContext(event.cwd).catch(error => {
@@ -291,12 +296,21 @@ async function main() {
     }),
   ]);
 
+  const memoryResults = extractResults(memoryPayload)
+    .filter(result => resultSource(result) === 'memory');
+  const knowledgeResults = extractResults(knowledgePayload)
+    .filter(result => resultSource(result) === 'knowledge')
+    .map(result => ({ ...result, source: 'claude-code' }));
+  const payload = {
+    ok: memoryPayload?.ok === true || knowledgePayload?.ok === true,
+    results: [...memoryResults, ...knowledgeResults],
+  };
   const results = extractResults(payload);
   const { memory, knowledge } = partitionResults(results);
   const additionalContext = formatContext(query, payload, graphContext);
   const diagnostics = {
     queryHash,
-    memoryStatus: memoryError ? 'error' : payload?.ok === true ? 'ok' : 'empty_or_invalid',
+    memoryStatus: memoryError ? 'error' : memoryPayload?.ok === true ? 'ok' : 'empty_or_invalid',
     memoryResultCount: results.length,
     memoryCount: memory.length,
     knowledgeCount: knowledge.length,
