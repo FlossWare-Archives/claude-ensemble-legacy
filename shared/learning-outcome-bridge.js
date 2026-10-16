@@ -17,8 +17,6 @@ const REPO_ROOT = path.resolve(MODULE_DIR, '..')
 const ADAPTER = path.join(REPO_ROOT, 'tools', 'record_workflow_outcome.py')
 
 export function recordEvidenceGatedOutcome({
-  runId,
-  taskId = runId,
   taskType,
   model,
   rating,
@@ -26,9 +24,6 @@ export function recordEvidenceGatedOutcome({
   cost,
   evidence,
 }) {
-  if (typeof runId !== 'string' || !runId.trim()) {
-    throw new TypeError('runId must be a non-empty stable identifier')
-  }
   if (!evidence || typeof evidence !== 'object') {
     throw new TypeError('evidence is required; completion alone is not a learning signal')
   }
