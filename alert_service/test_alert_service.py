@@ -146,6 +146,37 @@ class AlertServiceTest(unittest.TestCase):
             self.assertEqual(duplicate, [])
             self.assertEqual(len(published), 1)
 
+    def test_service_loop_runs_periodic_checks_without_client_requests(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from alert_service.alert_service import AlertService
+
+            service = AlertService(
+                socket_path=Path(temp_dir) / "alert.sock",
+                alert_dir=Path(temp_dir) / "alerts",
+            )
+
+            class FakeManager:
+                calls = 0
+
+                def trigger_check(self):
+                    self.calls += 1
+                    return []
+
+            service.manager = FakeManager()
+            service.check_interval_seconds = 0.05
+            thread = threading.Thread(target=service.run, daemon=True)
+            thread.start()
+            deadline = time.monotonic() + 2.0
+            while service.manager.calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            try:
+                self.assertGreaterEqual(service.manager.calls, 2, "startup and scheduled checks should run")
+            finally:
+                service.stop()
+                thread.join(timeout=2)
+            self.assertFalse(thread.is_alive(), "service should stop cleanly")
+
     def test_alerts_publish_through_messenger_and_record_delivery(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             sys.path.insert(0, str(Path(__file__).parent.parent))
