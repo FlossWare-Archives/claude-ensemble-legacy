@@ -55,7 +55,7 @@ This will:
 4. Set up credentials storage at `~/.FlossWare/secrets.env`
 5. Prompt you to configure which tools to enable
 
-The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. The `/ce-status` skill diagnoses profile wiring and service health; `/ce-memory` investigates Memory/Knowledge retrieval without guessing undocumented API contracts. Both default to read-only diagnosis. To install skills separately into an explicitly selected CE profile, run:
+The `/ce-review` skill runs the CE worker/arbiter code review against a local repository or file without requiring Jira. The `/ce-jira-review` skill additionally retrieves Jira acceptance criteria through the configured Atlassian MCP integration. The `/ce-status` skill diagnoses profile wiring and service health; `/ce-memory` investigates Memory/Knowledge retrieval without guessing undocumented API contracts; `/ce-learning` inspects learning artifacts, Thompson routing, and GA tuning without confusing synthetic optimization with measured task quality. These skills default to read-only diagnosis. To install skills separately into an explicitly selected CE profile, run:
 
 ```bash
 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profile" \
