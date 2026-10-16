@@ -300,7 +300,7 @@ async function main() {
     memoryResultCount: results.length,
     memoryCount: memory.length,
     knowledgeCount: knowledge.length,
-    graphStatus: graphError ? 'error' : 'ok',
+    graphStatus: graphError ? 'error' : graphResult.status,
     graphCount: graphContext.length,
     contextEmitted: Boolean(additionalContext),
   };
