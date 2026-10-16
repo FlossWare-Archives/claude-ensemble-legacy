@@ -7,7 +7,8 @@
  * Retrieval is relevance-driven: the complete user prompt is the query.
  *
  * The Memory service is shared infrastructure, but results are separated
- * into two contracts:
+ * into two contracts. A project Graph lookup adds bounded one-hop relationships
+ * based on the working-directory basename when Claude Code provides cwd.
  *   - Memory: episodic/experience records, what happened.
  *   - Knowledge: durable Claude Code documents, what is currently known.
  *
