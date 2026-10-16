@@ -62,7 +62,7 @@ ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profil
   bash tools/install-ce-jira-review-skill.sh
 ```
 
-Replace the example profile path with the profile Claude Code actually uses. Install the other skills with `tools/install-ce-review-skill.sh`, `tools/install-ce-status-skill.sh`, and `tools/install-ce-memory-skill.sh` as needed. The installers refuse to overwrite a different existing skill.
+Replace the example profile path with the profile Claude Code actually uses. Install the other skills with `tools/install-ce-review-skill.sh`, `tools/install-ce-status-skill.sh`, `tools/install-ce-memory-skill.sh`, and `tools/install-ce-learning-skill.sh` as needed. The installers refuse to overwrite a different existing skill.
 
 **See [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md)** for how to configure API tokens and credentials (auto-loaded in all sessions).
 
