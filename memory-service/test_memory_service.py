@@ -188,10 +188,11 @@ class MemorySearchRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
-            service.store.write_file(
-                "operational-learning-artifact",
-                "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result.",
-            )
+            for index in range(12):
+                service.store.write_file(
+                    f"operational-learning-artifact-{index}",
+                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result.",
+                )
             knowledge_path = root / "project" / "CLAUDE.md"
             knowledge_path.parent.mkdir()
             knowledge_content = (
