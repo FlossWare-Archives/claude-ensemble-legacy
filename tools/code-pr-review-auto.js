@@ -810,7 +810,7 @@ await recordOutcomeToLearning(
   workflowRequestId,
   {
     kind: 'review-batch-result',
-    reference: validResults.map(item => item.pr_url).filter(Boolean).slice(0, 5).join(','),
+    reference: validResults.map(item => item.pr_url).filter(Boolean).slice(0, 3).join(','),
     summary: `Automated review processed ${validResults.length}/${prsThisRun.length} pull requests; approved ${validResults.filter(item => item.approved).length}, changes requested ${validResults.filter(item => item.rejected).length}; aggregate quality ${autoQuality}/5.`
   }
 )
