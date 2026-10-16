@@ -400,7 +400,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
                 "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
                 "ENSEMBLE_THOMPSON_STATE_FILE": str(root / "thompson-state.json"),
             })
-            script = r\'''
+            script = r'''
 import json, socket, sys, tempfile, threading, time
 from pathlib import Path
 
@@ -443,16 +443,16 @@ try:
     client.settimeout(5)
     handler = threading.Thread(target=learning._handle_client, args=(service,), daemon=True)
     handler.start()
-    client.sendall((json.dumps(request) + "\\n").encode())
+    client.sendall((json.dumps(request) + "\n").encode())
     response = bytearray()
-    while b"\\n" not in response and len(response) < 65536:
+    while b"\n" not in response and len(response) < 65536:
         chunk = client.recv(4096)
         if not chunk: break
         response.extend(chunk)
     client.close()
     handler.join(timeout=2)
     assert not handler.is_alive(), "Learning handler did not finish"
-    result = json.loads(bytes(response).split(b"\\n", 1)[0].decode())
+    result = json.loads(bytes(response).split(b"\n", 1)[0].decode())
     assert result.get("ok") is True, result
     assert result.get("thompson") is True, result
     assert result.get("checkpoint_advanced") is True, result
@@ -464,14 +464,14 @@ try:
 finally:
     thompson.stop()
     worker.join(timeout=2)
-\'''
+'''
             completed = subprocess.run(
                 [sys.executable, "-c", script, str(ROOT), str(root), session_id],
                 env=env, capture_output=True, text=True, timeout=15, check=False,
             )
             self.assertEqual(
                 0, completed.returncode,
-                msg=f"real Learning/Thompson path failed\\nstdout:\\n{completed.stdout}\\nstderr:\\n{completed.stderr}",
+                msg=f"real Learning/Thompson path failed\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
             )
             learning_result = json.loads(completed.stdout.strip().splitlines()[-1])
             self.assertEqual(session_id, learning_result["task_id"])
