@@ -19,12 +19,12 @@ class ActivationTests(unittest.TestCase):
   self.bin=self.base/"bin"; self.bin.mkdir(); self.systemctl=self.bin/"systemctl"
   self.systemctl.write_text("""#!/usr/bin/env bash
 set -eu
-printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
+echo "$*" >> "$SYSTEMCTL_LOG"
 [[ "${1:-}" == "--user" ]] && shift
 action="${1:-}"; shift || true
 case "$action" in
  stop) unit="$1"; grep -Fxv "$unit" "$SYSTEMCTL_STATE" > "$SYSTEMCTL_STATE.tmp" || true; mv "$SYSTEMCTL_STATE.tmp" "$SYSTEMCTL_STATE" ;;
- start) unit="$1"; current="$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)"; if [[ "${FAIL_VERSION:-}" != "" && "$current" == "$DEPLOY_ROOT/releases/$FAIL_VERSION" && "$unit" == "claude-ensemble.service" ]]; then exit 1; fi; grep -Fxq "$unit" "$SYSTEMCTL_STATE" 2>/dev/null || printf '%s\\n' "$unit" >> "$SYSTEMCTL_STATE" ;;
+ start) unit="$1"; current="$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)"; if [[ "${FAIL_VERSION:-}" != "" && "$current" == "$DEPLOY_ROOT/releases/$FAIL_VERSION" && "$unit" == "claude-ensemble.service" ]]; then exit 1; fi; grep -Fxq "$unit" "$SYSTEMCTL_STATE" 2>/dev/null || echo "$unit" >> "$SYSTEMCTL_STATE" ;;
  is-active) unit="$2"; grep -Fxq "$unit" "$SYSTEMCTL_STATE" ;;
  daemon-reload|show-environment) ;;
  *) exit 2 ;;
@@ -60,9 +60,16 @@ esac
   failed=self.run_deployment("activate","0.2",check=False,extra_env={"FAIL_VERSION":"0.2"})
   self.assertNotEqual(failed.returncode,0); self.assertEqual(os.readlink(self.root/"current"),"releases/0.1",failed.stdout)
   self.assertFalse((self.root/"activation.json").exists()); self.assertEqual(set(self.state.read_text().splitlines()),set(UNITS))
+  known=json.loads((self.root/"known-good.json").read_text()); self.assertEqual((known["active"],known["previous"]),("0.1",None))
+  rejected=self.run_deployment("rollback",check=False); self.assertNotEqual(rejected.returncode,0); self.assertIn("no previous known-good release",rejected.stdout)
+  self.run_deployment("activate","0.2")
+  known=json.loads((self.root/"known-good.json").read_text()); self.assertEqual((known["active"],known["previous"]),("0.2","0.1"))
+  self.run_deployment("rollback"); self.assertEqual(os.readlink(self.root/"current"),"releases/0.1")
+  known=json.loads((self.root/"known-good.json").read_text()); self.assertEqual((known["active"],known["previous"]),("0.1","0.2"))
   backup=self.root/"shared"/"activation-backups"/"activation.test"; backup.mkdir()
   active_file=backup/"active-before.txt"; active_file.write_text("".join(u+chr(10) for u in UNITS))
   for unit in UNITS: shutil.copy2(self.units_dir/unit,backup/unit)
+  shutil.copy2(self.root/"known-good.json",backup/"known-good-before.json")
   (self.root/"activation.json").write_text(json.dumps({"schema_version":1,"previous":"0.1","target":"0.2","unit_backup":str(backup),"active_before_file":str(active_file)}))
   tmp=self.root/".current-test"; tmp.symlink_to("releases/0.2"); tmp.replace(self.root/"current")
   self.run_deployment("recover")
