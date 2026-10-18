@@ -8,7 +8,8 @@ trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/claude-ensemble"
 export CE_TEST_STATE="$TMP/state"
-mkdir -p "$HOME/.config/systemd/user" "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools" "$ENSEMBLE_INSTALL_ROOT/releases/0.2/tools" "$TMP/bin" "$CE_TEST_STATE/active"
+export ENSEMBLE_USER_UNIT_DIR="$TMP/isolated-systemd-units"
+mkdir -p "$HOME/.config/systemd/user" "$ENSEMBLE_USER_UNIT_DIR" "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools" "$ENSEMBLE_INSTALL_ROOT/releases/0.2/tools" "$TMP/bin" "$CE_TEST_STATE/active"
 
 cat > "$TMP/bin/systemctl" <<'MOCK_SYSTEMCTL'
 #!/usr/bin/env bash
@@ -56,7 +57,7 @@ for version in 0.1 0.2; do
   cat > "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh" <<'MOCK_INSTALL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-unit_dir="$HOME/.config/systemd/user"
+unit_dir="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$unit_dir"
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
@@ -115,7 +116,7 @@ BACKUP="$ENSEMBLE_INSTALL_ROOT/shared/activation-backups/activation.test"
 mkdir -p "$BACKUP" "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups"
 : > "$BACKUP/active-before.txt"
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
-  cp -a "$HOME/.config/systemd/user/$unit" "$BACKUP/$unit"
+  cp -a "$ENSEMBLE_USER_UNIT_DIR/$unit" "$BACKUP/$unit"
   printf "%s\n" "$unit" >> "$BACKUP/active-before.txt"
   rm -f "$CE_TEST_STATE/active/$unit"
 done
@@ -140,6 +141,11 @@ bash "$SCRIPT" prune
 [[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.1" ]]
 [[ ! -e "$ENSEMBLE_INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: prune retained a failed release instead of only known-good releases" >&2; exit 1; }
 echo 'Versioned deployment contract tests passed.'
+if compgen -G "$HOME/.config/systemd/user/claude-*.service" >/dev/null; then
+  echo 'FAIL: deployment staging wrote service units into the normal user-unit directory' >&2
+  exit 1
+fi
+unset ENSEMBLE_USER_UNIT_DIR
 
 # Exercise the real installer against a temporary legacy deployment and mocked
 # systemd. This verifies profile preservation, migration snapshotting, manifest
@@ -209,7 +215,9 @@ echo "Versioned installer migration contract tests passed."
 SERVICE_HOME="$TMP/service-home"
 SERVICE_ROOT="$SERVICE_HOME/.FlossWare/claude-ensemble"
 SERVICE_RELEASE="$SERVICE_ROOT/releases/0.1"
-mkdir -p "$SERVICE_RELEASE" "$SERVICE_HOME/.config/systemd/user"
+SERVICE_UNIT_DIR="$SERVICE_HOME/staged-systemd-units"
+mkdir -p "$SERVICE_RELEASE" "$SERVICE_HOME/.config/systemd/user" "$SERVICE_UNIT_DIR"
+export ENSEMBLE_USER_UNIT_DIR="$SERVICE_UNIT_DIR"
 for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
   cp -a "$SCRIPT_DIR/../$service_dir" "$SERVICE_RELEASE/"
 done
@@ -220,9 +228,14 @@ for installer in memory-service/install.sh thompson-service/install.sh learning-
   ENSEMBLE_DEFER_SERVICE_START=1 bash "$SERVICE_ROOT/current/$installer"
 done
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
-  unit_file="$SERVICE_HOME/.config/systemd/user/$unit"
+  unit_file="$SERVICE_UNIT_DIR/$unit"
   [[ -f "$unit_file" ]] || { echo "FAIL: real installer did not generate $unit" >&2; exit 1; }
   grep -Fq "$SERVICE_ROOT/current" "$unit_file" || { echo "FAIL: $unit does not use stable current path" >&2; cat "$unit_file" >&2; exit 1; }
   if grep -Eq "releases/0\.1" "$unit_file"; then echo "FAIL: $unit pins release 0.1" >&2; exit 1; fi
 done
+if compgen -G "$SERVICE_HOME/.config/systemd/user/claude-*.service" >/dev/null; then
+  echo 'FAIL: real service installers ignored ENSEMBLE_USER_UNIT_DIR' >&2
+  exit 1
+fi
+unset ENSEMBLE_USER_UNIT_DIR
 echo "Stable-current service installer path contract passed."
