@@ -190,7 +190,7 @@ if ! mv -- "$STAGING" "$DEPLOY_ROOT"; then
   exit 1
 fi
 printf '\nInstalling Claude Ensemble from independent deployment: %s\n\n' "$DEPLOY_ROOT"
-if ENSEMBLE_STANDALONE_INSTALL=1 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$DEPLOY_ROOT" ENSEMBLE_DEFER_SERVICE_START=1 bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
+if ENSEMBLE_STANDALONE_INSTALL=1 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.FlossWare/claude-ensemble-profile" ENSEMBLE_DEFER_SERVICE_START=1 bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
   :
 else
   status=$?
@@ -212,7 +212,7 @@ if ! verify_ce_services_stopped; then
   restore_preinstall_services
   exit 1
 fi
-if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
+if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.FlossWare/claude-ensemble-profile" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
