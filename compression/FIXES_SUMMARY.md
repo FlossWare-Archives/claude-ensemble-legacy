@@ -275,7 +275,7 @@ Result: 16/16 PASSED ✓
    - Lines 63-65: Fix eviction to use `popitem(last=False)`
    - Lines 104-119: Implement Thompson sampling
 
-3. ``compression/test_critical_fixes.py`` (NEW)
+3. `compression/test_critical_fixes.py` (NEW)
    - Comprehensive test suite for all 5 fixes
    - 16 tests covering edge cases and expected behavior
 
