@@ -129,7 +129,7 @@ class MemoryCacheIntegrator:
     """Detects and structures prompts for Anthropic prompt caching.
 
     Attributes:
-        memory_dir: Root directory for RH memory files (default: user's RH memory path)
+        memory_dir: Root directory for RH memory files (default: CE_MEMORY_DIR, legacy RH path, then ~/.claude/memory)
         cache_control_version: API version for cache_control (default: "ephemeral")
         max_cached_file_size: Max file size to cache (default: 100KB)
     """
@@ -167,12 +167,16 @@ class MemoryCacheIntegrator:
 
         # Set default memory directory
         if memory_dir is None:
-            # Typical RH setup
-            rh_path = Path.home() / "Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory"
-            if rh_path.exists():
-                self.memory_dir = str(rh_path)
+            configured_memory_dir = os.getenv("CE_MEMORY_DIR")
+            if configured_memory_dir:
+                self.memory_dir = str(Path(configured_memory_dir).expanduser())
             else:
-                self.memory_dir = str(Path.home() / ".claude" / "memory")
+                # Preserve the historical RH layout as a compatibility fallback.
+                rh_path = Path.home() / "Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory"
+                if rh_path.exists():
+                    self.memory_dir = str(rh_path)
+                else:
+                    self.memory_dir = str(Path.home() / ".claude" / "memory")
         else:
             self.memory_dir = memory_dir
 

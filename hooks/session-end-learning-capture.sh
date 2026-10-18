@@ -9,8 +9,13 @@
 if [ -z "${ENSEMBLE_ROOT:-}" ]; then
     if [ -L "$HOME/.claude/ensemble-init.sh" ]; then
         ENSEMBLE_ROOT="$(cd "$(dirname "$(readlink -f "$HOME/.claude/ensemble-init.sh")")/.." && pwd)"
-    else
+    elif [ -d "$HOME/.FlossWare/claude-ensemble/current/memory-service" ]; then
+        ENSEMBLE_ROOT="$HOME/.FlossWare/claude-ensemble/current"
+    elif [ -d "$HOME/Development/github/FlossWare/claude-ensemble/memory-service" ]; then
+        # Compatibility fallback for existing source-checkout installs.
         ENSEMBLE_ROOT="$HOME/Development/github/FlossWare/claude-ensemble"
+    else
+        ENSEMBLE_ROOT=""
     fi
 fi
 SESSION_LEARNING_LOG="${SESSION_LEARNING_LOG:-.claude-session-learning.log}"
