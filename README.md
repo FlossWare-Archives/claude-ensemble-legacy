@@ -50,6 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tool
 
 This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.FlossWare/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Managed files in the Claude Code profile are copies, not symlinks into your development checkout. The deployment can therefore keep running if you move, clean, or update the working Git repository.
 
+The standalone installer stops the seven CE user services before replacing the deployment, runs the installation, checks runtime symlinks under the deployment and `~/.claude` for links into Git checkouts, reloads systemd, starts services in dependency order, and verifies every service is active. If installation or verification fails, it restores the prior deployment when available and attempts to restore the services that were active before the update.
+
 To deploy the current contents of an existing checkout, including its uncommitted changes, run:
 
 ```bash
