@@ -54,6 +54,7 @@ esac
   if check and p.returncode: self.fail(f"command failed ({p.returncode}): {p.stdout}")
   return p
  def test_failed_upgrade_rolls_back_and_interrupted_recovery_restores_previous(self):
+  profile=self.root/"shared"/"claude-code"/"settings.json"; profile.write_text('{"env":{"CE_TEST":"preserve"}}\n')
   self.run_deployment("activate","0.1")
   self.assertEqual(os.readlink(self.root/"current"),"releases/0.1")
   self.assertEqual(set(self.state.read_text().splitlines()),set(UNITS))
@@ -76,6 +77,7 @@ esac
   self.assertEqual(os.readlink(self.root/"current"),"releases/0.1")
   self.assertFalse((self.root/"activation.json").exists()); self.assertFalse(backup.exists())
   self.assertEqual(set(self.state.read_text().splitlines()),set(UNITS))
+  self.assertEqual(profile.read_text(),'{"env":{"CE_TEST":"preserve"}}\n')
  def test_activation_refuses_invalid_current_symlink_before_touching_services(self):
   outside=self.root/"outside"; outside.mkdir()
   current=self.root/"current"; current.symlink_to("releases/../outside")
