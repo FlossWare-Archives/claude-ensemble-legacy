@@ -62,6 +62,16 @@ PY
 }
 [[ ! -e "$SYSTEMCTL_LOG" ]] || { echo "FAIL: systemctl was invoked in staging-only mode" >&2; exit 1; }
 
+# A HOME subdirectory may resolve through a symlink into Development (as
+# ~/.FlossWare does on some hosts). Internal release links must still validate.
+mkdir -p "$HOME/Development/FlossWare"
+DEV_ROOT="$HOME/Development/FlossWare/staging-target"
+ENSEMBLE_INSTALL_ROOT="$DEV_ROOT" ENSEMBLE_STAGING_ONLY=1 \\
+  bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
+[[ -f "$DEV_ROOT/deployment.json" ]] || {
+  echo "FAIL: staging failed when target resolved beneath HOME/Development" >&2; exit 1;
+}
+
 # Staging must fail closed instead of reusing a non-empty root.
 if ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \
     bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.2 "$SOURCE" >"$WORK/reuse.out" 2>&1; then
