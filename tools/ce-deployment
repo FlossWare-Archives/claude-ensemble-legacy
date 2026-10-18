@@ -294,7 +294,7 @@ case "$cmd" in
     target="$(known_good_field previous)" || die "known-good state is invalid"
     [[ -n "$target" ]] || die "no previous known-good release is recorded"
     [[ -d "$RELEASES/$target" ]] || die "previous known-good release is missing: $target"
-    "$0" activate "$target"
+    bash "$0" activate "$target"
     ;;
   status)
     if [[ -e "$JOURNAL" ]]; then printf "WARNING: interrupted activation journal exists; run ce-deployment recover.\n" >&2; fi
