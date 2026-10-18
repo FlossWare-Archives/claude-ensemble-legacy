@@ -12,15 +12,6 @@
 set -Eeuo pipefail
 
 DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
-PROFILE_ROOT="$HOME/.FlossWare/claude-ensemble-profile"
-if [[ -L "$PROFILE_ROOT" ]]; then
-  printf 'ERROR: Refusing to install into a symlinked Claude profile: %s\n' "$PROFILE_ROOT" >&2
-  exit 1
-fi
-if [[ -e "$PROFILE_ROOT" && ! -d "$PROFILE_ROOT" ]]; then
-  printf 'ERROR: Claude profile path exists and is not a directory: %s\n' "$PROFILE_ROOT" >&2
-  exit 1
-fi
 case "$DEPLOY_ROOT" in
   "~") DEPLOY_ROOT="$HOME" ;;
   "~/"*) DEPLOY_ROOT="$HOME/${DEPLOY_ROOT#\~/}" ;;
@@ -51,6 +42,15 @@ fi
 if [[ -d "$DEPLOY_ROOT/.git" || -f "$DEPLOY_ROOT/.git" ]]; then
   printf 'ERROR: Deployment path contains Git metadata; refusing to replace a working checkout: %s\n' "$DEPLOY_ROOT" >&2
   printf 'Choose a separate ENSEMBLE_INSTALL_ROOT or move the checkout first.\n' >&2
+  exit 1
+fi
+PROFILE_ROOT="$DEPLOY_ROOT/claude-code"
+if [[ -L "$PROFILE_ROOT" ]]; then
+  printf 'ERROR: Refusing to use a symlinked Claude Code configuration directory: %s\n' "$PROFILE_ROOT" >&2
+  exit 1
+fi
+if [[ -e "$PROFILE_ROOT" && ! -d "$PROFILE_ROOT" ]]; then
+  printf 'ERROR: Claude Code configuration path exists and is not a directory: %s\n' "$PROFILE_ROOT" >&2
   exit 1
 fi
 
@@ -170,6 +170,13 @@ if [[ ! -f "$STAGING/install.sh" || -d "$STAGING/.git" ]]; then
   exit 1
 fi
 
+# Preserve mutable Claude Code configuration inside the single CE installation
+# root across atomic deployment replacements.
+if [[ -d "$PROFILE_ROOT" ]]; then
+  mkdir -p -- "$STAGING/claude-code"
+  cp -a -- "$PROFILE_ROOT/." "$STAGING/claude-code/"
+fi
+
 BACKUP_ROOT="${DEPLOY_ROOT}.previous.$$"
 if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
   printf 'ERROR: Backup path already exists: %s\n' "$BACKUP_ROOT" >&2
@@ -220,7 +227,7 @@ if ! verify_ce_services_stopped; then
   restore_preinstall_services
   exit 1
 fi
-if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$PROFILE_ROOT" all; then
+if ! audit_runtime_links "$DEPLOY_ROOT" all; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
@@ -245,6 +252,6 @@ if ! start_and_verify_services; then
 fi
 if [[ -e "$BACKUP_ROOT" ]]; then rm -rf -- "$BACKUP_ROOT"; fi
 printf '\nIndependent CE deployment installed at %s\n' "$DEPLOY_ROOT"
-printf 'Symlink audit passed: no links into Git checkouts under deployment or ~/.claude.\n'
+printf 'Symlink audit passed: no links into Git checkouts under the CE installation root.\n'
 printf 'All seven Claude Ensemble services are active.\n'
 printf 'This deployment is separate from your working Git checkout.\n'
