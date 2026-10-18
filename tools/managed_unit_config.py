@@ -91,6 +91,7 @@ def validate(unit_dir: Path, root: Path, current: Path) -> None:
         f'Environment="ENSEMBLE_LOG_DIR={_escape_env(root / "shared/logs")}"',
         f'Environment="ENSEMBLE_RUNTIME_DIR={_escape_env(root / "shared/runtime")}"',
         f'Environment="ENSEMBLE_REPO_ROOT={_escape_env(current)}"',
+        f'Environment="ENSEMBLE_CLAUDE_CODE_CONFIG_DIR={_escape_env(root / "shared/claude-code")}"',
         environment_file,
     )
     for unit, specific in UNITS.items():
