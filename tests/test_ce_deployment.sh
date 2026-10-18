@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Contract tests for release validation, activation, health checks, and rollback.
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT="$SCRIPT_DIR/../tools/ce-deployment"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+export HOME="$TMP/home"
+export ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/claude-ensemble"
+export CE_TEST_STATE="$TMP/state"
+mkdir -p "$HOME/.config/systemd/user" "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools" "$ENSEMBLE_INSTALL_ROOT/releases/0.2/tools" "$TMP/bin" "$CE_TEST_STATE/active"
+
+cat > "$TMP/bin/systemctl" <<'MOCK_SYSTEMCTL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ "${1:-}" == --user ]] && shift
+command="${1:-}"
+[[ $# -eq 0 ]] || shift
+case "$command" in
+  show-environment|daemon-reload|enable) exit 0 ;;
+  stop)
+    unit="${1:?}"
+    rm -f "$CE_TEST_STATE/active/$unit"
+    ;;
+  start)
+    unit="${1:?}"
+    if [[ "${FAIL_START_UNIT:-}" == "$unit" && ! -e "$CE_TEST_STATE/failure-consumed" ]]; then
+      touch "$CE_TEST_STATE/failure-consumed"
+      exit 1
+    fi
+    touch "$CE_TEST_STATE/active/$unit"
+    ;;
+  is-active)
+    [[ "${1:-}" == --quiet ]] && shift
+    [[ -e "$CE_TEST_STATE/active/${1:?}" ]]
+    ;;
+  *) echo "unexpected systemctl invocation: $command $*" >&2; exit 2 ;;
+esac
+MOCK_SYSTEMCTL
+cat > "$TMP/bin/python3" <<'MOCK_PYTHON'
+#!/usr/bin/env bash
+# Run JSON/journal operations with Python; only the HTTP readiness probe is mocked.
+set -Eeuo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  input="$(cat)"
+  if grep -q '127.0.0.1:8080/api/v1/ready' <<< "$input"; then exit 0; fi
+  printf '%s\n' "$input" | /usr/bin/python3 "$@"
+else
+  exec /usr/bin/python3 "$@"
+fi
+MOCK_PYTHON
+chmod +x "$TMP/bin/systemctl" "$TMP/bin/python3"
+export PATH="$TMP/bin:$PATH"
+
+for version in 0.1 0.2; do
+  cat > "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh" <<'MOCK_INSTALL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+unit_dir="$HOME/.config/systemd/user"
+mkdir -p "$unit_dir"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
+done
+MOCK_INSTALL
+  chmod +x "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh"
+done
+
+# Version labels and release structure are validated without touching services.
+bash "$SCRIPT" validate 0.1
+if bash "$SCRIPT" validate 0.1.1 >/dev/null 2>&1; then
+  echo 'FAIL: patch version unexpectedly accepted' >&2
+  exit 1
+fi
+
+# Release symlinks may target shared deployment state, never arbitrary host paths.
+ln -s /etc/passwd "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+if bash "$SCRIPT" validate 0.1 >/dev/null 2>&1; then
+  echo 'FAIL: release symlink escaping deployment root was accepted' >&2
+  exit 1
+fi
+rm "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+
+# The helper itself enforces the same path boundary as the installer.
+if ENSEMBLE_INSTALL_ROOT="$TMP/outside-root" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment root outside HOME was accepted' >&2
+  exit 1
+fi
+ln -s "$ENSEMBLE_INSTALL_ROOT" "$HOME/ce-root-link"
+if ENSEMBLE_INSTALL_ROOT="$HOME/ce-root-link" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: symlinked deployment root was accepted' >&2
+  exit 1
+fi
+rm "$HOME/ce-root-link"
+
+# First activation should start all seven mocked services.
+bash "$SCRIPT" activate 0.1
+[[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: $unit not active" >&2; exit 1; }
+done
+
+# Force one startup failure for 0.2. The helper must restore 0.1 and recover.
+if FAIL_START_UNIT=claude-ensemble.service bash "$SCRIPT" activate 0.2; then
+  echo 'FAIL: activation unexpectedly succeeded despite injected service failure' >&2
+  exit 1
+fi
+[[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: rollback did not recover $unit" >&2; exit 1; }
+done
+
+# Simulate a hard process interruption after current switched to 0.2 but before
+# service startup/health verification. Recovery must use the durable journal.
+BACKUP="$ENSEMBLE_INSTALL_ROOT/shared/activation-backups/activation.test"
+mkdir -p "$BACKUP" "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups"
+: > "$BACKUP/active-before.txt"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  cp -a "$HOME/.config/systemd/user/$unit" "$BACKUP/$unit"
+  printf "%s\n" "$unit" >> "$BACKUP/active-before.txt"
+  rm -f "$CE_TEST_STATE/active/$unit"
+done
+ln -s releases/0.2 "$ENSEMBLE_INSTALL_ROOT/.current.interrupted"
+mv -Tf "$ENSEMBLE_INSTALL_ROOT/.current.interrupted" "$ENSEMBLE_INSTALL_ROOT/current"
+python3 - "$ENSEMBLE_INSTALL_ROOT/activation.json" "$BACKUP" <<'JOURNAL'
+import json, sys
+path, backup = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as out:
+    json.dump({"schema_version": 1, "previous": "0.1", "target": "0.2", "unit_backup": backup, "active_before_file": backup + "/active-before.txt"}, out)
+    out.write("\n")
+JOURNAL
+bash "$SCRIPT" recover
+[[ "$(readlink "$ENSEMBLE_INSTALL_ROOT/current")" == releases/0.1 ]]
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/activation.json" ]]
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: recovery did not restart $unit" >&2; exit 1; }
+done
+[[ ! -e "$BACKUP" ]]
+echo "Interrupted activation recovery contract passed."
+bash "$SCRIPT" prune
+[[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.1" ]]
+[[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.2" ]]
+echo 'Versioned deployment contract tests passed.'
+
+# Exercise the real installer against a temporary legacy deployment and mocked
+# systemd. This verifies profile preservation, migration snapshotting, manifest
+# creation, and stable-current unit generation without touching host services.
+rm -rf "$CE_TEST_STATE"
+mkdir -p "$CE_TEST_STATE/active"
+INSTALL_HOME="$TMP/install-home"
+INSTALL_ROOT="$INSTALL_HOME/.FlossWare/claude-ensemble"
+SOURCE_FIXTURE="$TMP/source-fixture"
+mkdir -p "$INSTALL_HOME/.FlossWare/claude-ensemble-profile" "$INSTALL_ROOT/claude-code" "$INSTALL_ROOT/shared/claude-code" "$SOURCE_FIXTURE/tools"
+printf '{"custom":"legacy-settings"}\n' > "$INSTALL_ROOT/claude-code/settings.json"
+printf '{"custom":"keep-me"}\n' > "$INSTALL_ROOT/claude-code/legacy-only.json"
+printf '{"custom":"top-level-legacy"}\n' > "$INSTALL_HOME/.FlossWare/claude-ensemble-profile/legacy-only.json"
+printf '{"custom":"shared-wins"}\n' > "$INSTALL_ROOT/shared/claude-code/settings.json"
+cat > "$INSTALL_ROOT/install.sh" <<'LEGACY_INSTALL'
+#!/usr/bin/env bash
+exit 0
+LEGACY_INSTALL
+cat > "$SOURCE_FIXTURE/install.sh" <<'FIXTURE_INSTALL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+unit_dir="$HOME/.config/systemd/user"
+mkdir -p "$unit_dir"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
+done
+FIXTURE_INSTALL
+cp "$SCRIPT" "$SOURCE_FIXTURE/tools/ce-deployment"
+
+# Let the real Python interpreter handle JSON manifest operations while
+# short-circuiting only the gateway HTTP readiness probe.
+cat > "$TMP/bin/python3" <<'MOCK_PYTHON'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == "-" ]]; then
+  input="$(cat)"
+  if grep -q '127.0.0.1:8080/api/v1/ready' <<< "$input"; then
+    exit 0
+  fi
+  printf '%s\n' "$input" | /usr/bin/python3 "$@"
+else
+  exec /usr/bin/python3 "$@"
+fi
+MOCK_PYTHON
+chmod +x "$TMP/bin/python3"
+export HOME="$INSTALL_HOME"
+export ENSEMBLE_INSTALL_ROOT="$INSTALL_ROOT"
+bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.1 "$SOURCE_FIXTURE"
+[[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.1 ]]
+[[ -d "$INSTALL_ROOT/releases/0.0" ]]
+[[ -L "$INSTALL_ROOT/releases/0.1/claude-code" ]]
+[[ -f "$INSTALL_ROOT/shared/claude-code/settings.json" ]] || { echo "FAIL: shared settings.json missing" >&2; exit 1; }
+if ! grep -q 'shared-wins' "$INSTALL_ROOT/shared/claude-code/settings.json"; then cat "$INSTALL_ROOT/shared/claude-code/settings.json" >&2; echo "FAIL: migration overwrote existing shared settings.json" >&2; exit 1; fi
+[[ -f "$INSTALL_ROOT/shared/claude-code/legacy-only.json" ]] || { echo "FAIL: legacy-only.json was not migrated" >&2; exit 1; }
+if ! grep -q 'keep-me' "$INSTALL_ROOT/shared/claude-code/legacy-only.json"; then cat "$INSTALL_ROOT/shared/claude-code/legacy-only.json" >&2; echo "FAIL: legacy-only.json content changed" >&2; exit 1; fi
+/usr/bin/python3 - "$INSTALL_ROOT/deployment.json" <<'VERIFY_MANIFEST'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+assert manifest["release"] == "0.1"
+assert manifest["validation"] == "activated"
+VERIFY_MANIFEST
+echo "Versioned installer migration contract tests passed."
+
+# Exercise the real seven service installers through a logical current symlink.
+# They must render stable-current ExecStart paths rather than pinned release paths.
+SERVICE_HOME="$TMP/service-home"
+SERVICE_ROOT="$SERVICE_HOME/.FlossWare/claude-ensemble"
+SERVICE_RELEASE="$SERVICE_ROOT/releases/0.1"
+mkdir -p "$SERVICE_RELEASE" "$SERVICE_HOME/.config/systemd/user"
+for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+  cp -a "$SCRIPT_DIR/../$service_dir" "$SERVICE_RELEASE/"
+done
+ln -s releases/0.1 "$SERVICE_ROOT/current"
+export HOME="$SERVICE_HOME"
+export ENSEMBLE_INSTALL_ROOT="$SERVICE_ROOT"
+for installer in memory-service/install.sh thompson-service/install.sh learning-service/install.sh alert_service/install.sh session-messaging/install.sh graph-service/install.sh server/install.sh; do
+  ENSEMBLE_DEFER_SERVICE_START=1 bash "$SERVICE_ROOT/current/$installer"
+done
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  unit_file="$SERVICE_HOME/.config/systemd/user/$unit"
+  [[ -f "$unit_file" ]] || { echo "FAIL: real installer did not generate $unit" >&2; exit 1; }
+  grep -Fq "$SERVICE_ROOT/current" "$unit_file" || { echo "FAIL: $unit does not use stable current path" >&2; cat "$unit_file" >&2; exit 1; }
+  if grep -Eq "releases/0\.1" "$unit_file"; then echo "FAIL: $unit pins release 0.1" >&2; exit 1; fi
+done
+echo "Stable-current service installer path contract passed."
