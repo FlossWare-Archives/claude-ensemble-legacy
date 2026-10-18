@@ -13,12 +13,13 @@ Tests validate:
 
 import sys
 import re
+from pathlib import Path
 from unittest import TestCase, main
 from collections import OrderedDict
 import numpy as np
 
 # Import the fixed modules
-sys.path.insert(0, '/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/compression')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from summarizer import RecursiveSummarizer, TokenEstimator
 
 
