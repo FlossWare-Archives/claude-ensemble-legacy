@@ -53,13 +53,16 @@ STAGED="$WORK/release"
 cleanup() { rm -rf -- "$WORK"; }
 trap cleanup EXIT
 
-for command in tar curl systemctl python3 git; do
+for command in tar curl python3 git; do
   command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$command" >&2; exit 1; }
 done
-systemctl --user show-environment >/dev/null 2>&1 || {
-  printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2
-  exit 1
-}
+if [[ "$STAGING_ONLY" != "1" ]]; then
+  command -v systemctl >/dev/null 2>&1 || { printf 'ERROR: Required command not found: systemctl\n' >&2; exit 1; }
+  systemctl --user show-environment >/dev/null 2>&1 || {
+    printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2
+    exit 1
+  }
+fi
 [[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
 LEGACY_MIGRATION=0
 LEGACY_SNAPSHOT="$WORK/legacy"
@@ -98,15 +101,18 @@ if [[ "$LEGACY_MIGRATION" == "1" ]]; then
 fi
 # Import legacy CE profile files without overwriting the shared profile. Keep the
 # source directories until activation succeeds so a failed install is reversible.
-for legacy_profile in "$ROOT/claude-code" "$HOME/.FlossWare/claude-ensemble-profile"; do
-  if [[ -L "$legacy_profile" ]]; then
-    printf 'ERROR: Refusing to migrate symlinked profile directory: %s\n' "$legacy_profile" >&2
-    exit 1
-  fi
-  if [[ -d "$legacy_profile" ]]; then
-    cp -a --update=none -- "$legacy_profile/." "$SHARED/claude-code/"
-  fi
-done
+# Staging-only mode intentionally imports no user profile data.
+if [[ "$STAGING_ONLY" != "1" ]]; then
+  for legacy_profile in "$ROOT/claude-code" "$HOME/.FlossWare/claude-ensemble-profile"; do
+    if [[ -L "$legacy_profile" ]]; then
+      printf 'ERROR: Refusing to migrate symlinked profile directory: %s\n' "$legacy_profile" >&2
+      exit 1
+    fi
+    if [[ -d "$legacy_profile" ]]; then
+      cp -a --update=none -- "$legacy_profile/." "$SHARED/claude-code/"
+    fi
+  done
+fi
 mkdir -p "$STAGED"
 if [[ -n "$SOURCE_DIR" ]]; then
   [[ -f "$SOURCE_DIR/install.sh" ]] || { printf 'ERROR: Source checkout lacks install.sh: %s\n' "$SOURCE_DIR" >&2; exit 1; }
