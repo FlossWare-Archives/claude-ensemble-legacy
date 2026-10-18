@@ -43,7 +43,22 @@ curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tool
 bash /tmp/install-ce-versioned.sh 0.1
 ```
 
-The installer stages a release without `.git` metadata, preserves profile files without overwriting existing shared files, writes a deployment manifest, and activates the release. It does not modify the ordinary `~/.claude` profile.
+The normal installer stages a release without `.git` metadata, preserves profile files without overwriting existing shared files, writes a deployment manifest, and then activates the release. Activation stops and restarts the seven CE services and rewrites their user systemd units, so do not use normal install mode as a harmless staging test.
+
+### Stage and validate without activation
+
+Use staging-only mode first when testing a release on a host with running CE services:
+
+```bash
+TEST_ROOT="$HOME/.FlossWare/ce-staging-test"
+ENSEMBLE_INSTALL_ROOT="$TEST_ROOT" \
+ENSEMBLE_STAGING_ONLY=1 \
+  bash tools/install-ce-versioned.sh 0.1 /path/to/clean/claude-ensemble
+```
+
+Staging-only mode requires an explicit `ENSEMBLE_INSTALL_ROOT` beneath `HOME` and a new or empty target root. It does not import the legacy CE profile, does not require an active systemd user manager, does not write service unit files, does not create or switch `current`, and does not activate services. It copies the release, checks its structural contract (including symlink containment), writes a manifest with validation status `staged`, and exits. A failed structural validation removes the newly staged release and exits nonzero.
+
+The test root must be separate from the live deployment. Inspect the staged release and manifest before running the normal installer against the actual deployment root. Staging is structural validation, not proof that services start or that the gateway is healthy.
 
 ## Inspect and roll back
 
