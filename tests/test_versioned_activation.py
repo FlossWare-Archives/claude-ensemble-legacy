@@ -109,7 +109,7 @@ esac
   backup=self.root/"shared"/"activation-backups"/"unsafe-recovery"
   backup.mkdir()
   active_file=backup/"active-before.txt"
-  active_file.write_text("".join(unit+"\n" for unit in UNITS))
+  active_file.write_text("".join(unit+chr(10) for unit in UNITS))
   journal={"schema_version":1,"previous":"0.1","target":"0.2","unit_backup":str(backup),"active_before_file":str(active_file)}
   (self.root/"activation.json").write_text(json.dumps(journal))
   result=self.run_deployment("recover",check=False)
