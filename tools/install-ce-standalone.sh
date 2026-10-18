@@ -39,6 +39,11 @@ if [[ -e "$DEPLOY_ROOT" && ! -d "$DEPLOY_ROOT" ]]; then
   printf 'ERROR: Deployment path exists and is not a directory: %s\n' "$DEPLOY_ROOT" >&2
   exit 1
 fi
+if [[ -d "$DEPLOY_ROOT/.git" || -f "$DEPLOY_ROOT/.git" ]]; then
+  printf 'ERROR: Deployment path contains Git metadata; refusing to replace a working checkout: %s\n' "$DEPLOY_ROOT" >&2
+  printf 'Choose a separate ENSEMBLE_INSTALL_ROOT or move the checkout first.\n' >&2
+  exit 1
+fi
 WORK_ROOT="$(mktemp -d "$TMP_PARENT/.claude-ensemble-install.XXXXXX")"
 STAGING="$WORK_ROOT/deployment"
 SOURCE_DIR=""
