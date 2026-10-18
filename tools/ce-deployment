@@ -95,6 +95,10 @@ validate_release() {
   if find "$release" -type l -print0 | while IFS= read -r -d '' link; do
       resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
       [[ -n "$resolved" ]] || exit 1
+      # Releases may link to shared state, but never outside the deployment
+      # root. This prevents a staged checkout/archive from smuggling links to
+      # arbitrary files in HOME or the host filesystem into an activated release.
+      case "$resolved" in "$ROOT"/*) ;; *) exit 1;; esac
       case "$resolved" in "$HOME/Development/"*|"$HOME/Development/github/"*) exit 1;; esac
     done; then :; else die "release contains broken links or links into development checkouts"; fi
 }
