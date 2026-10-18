@@ -162,7 +162,18 @@ install_managed_copy() {
     local destination="$1" source="$2" label="$3" source_mode
     [ -f "$source" ] || return 0
     if [ -L "$destination" ]; then
-        if [ "$(readlink -f "$destination" 2>/dev/null || true)" = "$(readlink -f "$source")" ]; then
+        local resolved_target target_repo source_relative target_relative
+        resolved_target="$(readlink -f "$destination" 2>/dev/null || true)"
+        target_repo=""
+        source_relative="${source#"$REPO_PATH"/}"
+        if [ -n "$resolved_target" ]; then
+            target_repo="$(git -C "$(dirname -- "$resolved_target")" rev-parse --show-toplevel 2>/dev/null || true)"
+        fi
+        target_relative=""
+        if [ -n "$target_repo" ] && [[ "$resolved_target" == "$target_repo/"* ]]; then
+            target_relative="${resolved_target#"$target_repo"/}"
+        fi
+        if [ "$resolved_target" = "$(readlink -f "$source")" ] || { [ -n "$target_repo" ] && [ "$target_relative" = "$source_relative" ]; }; then
             rm -- "$destination"
             source_mode="$(stat -c '%a' "$source")"
             install -m "$source_mode" -- "$source" "$destination"
