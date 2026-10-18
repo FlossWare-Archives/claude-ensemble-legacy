@@ -187,7 +187,8 @@ if [[ -d "$LEGACY_PROFILE_ROOT" ]]; then
 fi
 
 # Preserve mutable Claude Code configuration inside the single CE installation
-# root across atomic deployment replacements.
+# root across atomic deployment replacements. If a file exists in both locations,
+# the in-root copy wins because it is copied after the legacy profile.
 if [[ -d "$PROFILE_ROOT" ]]; then
   mkdir -p -- "$STAGING/claude-code"
   cp -a -- "$PROFILE_ROOT/." "$STAGING/claude-code/"
