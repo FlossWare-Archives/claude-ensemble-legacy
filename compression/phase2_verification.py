@@ -19,6 +19,9 @@ from pathlib import Path
 from compression_api import compress_prompt, batch_compress, measure_effectiveness
 from summarizer import TokenEstimator
 
+
+VERDICT_OUTPUT_PATH = Path(__file__).resolve().parent / "phase2_verdict.json"
+
 # 10 Real RH Disseminator prompts for Challenger 1
 RH_DISSEMINATOR_PROMPTS = [
     # 1. CPSEARCH-10981 Keyset Pagination
@@ -444,7 +447,7 @@ if __name__ == "__main__":
         "detailed_results": all_results
     }
 
-    with (Path(__file__).resolve().parent / 'phase2_verdict.json').open('w', encoding='utf-8') as f:
+    with VERDICT_OUTPUT_PATH.open('w', encoding='utf-8') as f:
         json.dump(export_data, f, indent=2, default=str)
 
     print(f"\nDetailed results exported to: compression/phase2_verdict.json")
