@@ -44,23 +44,43 @@ Workflow outcomes pass through the Learning service only when they have durable,
 
 ### Installation
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tools/install-ce-standalone.sh | bash
-```
+The versioned installer is the deployment path for a standalone CE runtime. It stores immutable releases under `~/.FlossWare/claude-ensemble/releases/`, selects the active release through the atomic `current` symlink, and keeps mutable state under `shared/`. The runtime release tree contains no Git metadata and must not point into a development checkout.
 
-This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.FlossWare/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Claude Code's isolated profile lives separately at `~/.FlossWare/claude-ensemble-profile`, so updating the replaceable runtime deployment does not erase profile settings or skills. Standalone mode does not modify `~/.claude`, `~/.mcp.json`, or shell startup files. Start Claude Code with `CLAUDE_CONFIG_DIR="$HOME/.FlossWare/claude-ensemble-profile" claude` to use the isolated CE profile.
-
-The standalone installer stops the seven CE user services before replacing the deployment, runs the installation against the isolated profile, checks runtime symlinks under the deployment, isolated profile, and `~/.claude` for links into Git checkouts, reloads systemd, starts services in dependency order, and verifies every service is active. If installation or verification fails, it restores the prior deployment when available and attempts to restore the services that were active before the update.
-
-To deploy the current contents of an existing checkout, including its uncommitted changes, run:
+**First, perform a structural-only staging run.** Use a clean source checkout outside a development checkout's symlinked paths and choose a new, disposable staging root:
 
 ```bash
-bash tools/install-ce-standalone.sh /path/to/claude-ensemble
+SOURCE="$HOME/.FlossWare/ce-source"
+STAGE="$HOME/.FlossWare/ce-staging-test"
+git clone https://github.com/FlossWare/claude-ensemble.git "$SOURCE"
+test ! -e "$STAGE"
+ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
+  bash "$SOURCE/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
 ```
 
-Set `ENSEMBLE_INSTALL_ROOT` to choose a different deployment directory. Re-running the standalone installer replaces the prior managed deployment after staging the new one; it restores the previous deployment if installation fails.
+Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
 
-The lower-level `install.sh [checkout-path]` remains available for direct installation from a chosen tree. Prefer the standalone installer when the deployed runtime must be independent of a developer checkout.
+After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the seven CE user services**:
+
+```bash
+bash "$SOURCE/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
+```
+
+The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapshots the existing service units and active-service state, validates the release, switches `current` atomically, starts services in dependency order, and checks both service activity and gateway readiness. A failed activation attempts to restore the previous release. Do not run the activation command against a disposable staging root as a substitute for testing on an isolated system: activation controls the current user's systemd units and checks the configured gateway endpoint.
+
+The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases.
+
+Inspect deployment state and use explicit rollback/pruning commands through the selected release's deployment manager:
+
+```bash
+ROOT="$HOME/.FlossWare/claude-ensemble"
+bash "$ROOT/current/tools/ce-deployment" status
+bash "$ROOT/current/tools/ce-deployment" rollback
+bash "$ROOT/current/tools/ce-deployment" prune
+```
+
+Rollback selects the recorded previous known-good release, not simply the highest version number. Pruning retains the active and previous known-good releases and refuses to proceed when activation history is missing or inconsistent. If an activation is interrupted, inspect the journal and run `bash "$ROOT/current/tools/ce-deployment" recover` before attempting another activation.
+
+For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The legacy `install.sh [checkout-path]` remains available for direct installation from a chosen tree, but the versioned installer is preferred when rollback and separation from development checkouts matter.
 
 The installer:
 1. Deploys CE under `~/.FlossWare/claude-ensemble` by default, without copying Git metadata
