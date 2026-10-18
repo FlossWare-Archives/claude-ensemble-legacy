@@ -11,10 +11,15 @@ SYSTEMCTL_BIN="${ENSEMBLE_SYSTEMCTL_BIN:-systemctl}"
 UNIT_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
 ROOT="${ROOT%/}"
+ROOT_BASE="$(basename -- "$ROOT")"
+[[ -n "$ROOT_BASE" && "$ROOT_BASE" != "." && "$ROOT_BASE" != ".." ]] || {
+  printf 'ERROR: Deployment root must name a child directory, not a dot segment: %s\\n' "$ROOT" >&2
+  exit 1
+}
 ROOT_PARENT="$(dirname -- "$ROOT")"
 mkdir -p -- "$ROOT_PARENT"
 ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
-ROOT="$ROOT_PARENT/$(basename -- "$ROOT")"
+ROOT="$ROOT_PARENT/$ROOT_BASE"
 HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
