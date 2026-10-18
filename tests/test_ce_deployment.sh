@@ -8,7 +8,8 @@ trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
 export ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/claude-ensemble"
 export CE_TEST_STATE="$TMP/state"
-mkdir -p "$HOME/.config/systemd/user" "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools" "$ENSEMBLE_INSTALL_ROOT/releases/0.2/tools" "$TMP/bin" "$CE_TEST_STATE/active"
+export ENSEMBLE_USER_UNIT_DIR="$TMP/isolated-systemd-units"
+mkdir -p "$HOME/.config/systemd/user" "$ENSEMBLE_USER_UNIT_DIR" "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools" "$ENSEMBLE_INSTALL_ROOT/releases/0.2/tools" "$TMP/bin" "$CE_TEST_STATE/active"
 
 cat > "$TMP/bin/systemctl" <<'MOCK_SYSTEMCTL'
 #!/usr/bin/env bash
@@ -56,7 +57,7 @@ for version in 0.1 0.2; do
   cat > "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh" <<'MOCK_INSTALL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-unit_dir="$HOME/.config/systemd/user"
+unit_dir="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$unit_dir"
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
@@ -129,7 +130,7 @@ BACKUP="$ENSEMBLE_INSTALL_ROOT/shared/activation-backups/activation.test"
 mkdir -p "$BACKUP" "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups"
 : > "$BACKUP/active-before.txt"
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
-  cp -a "$HOME/.config/systemd/user/$unit" "$BACKUP/$unit"
+  cp -a "$ENSEMBLE_USER_UNIT_DIR/$unit" "$BACKUP/$unit"
   printf "%s\n" "$unit" >> "$BACKUP/active-before.txt"
   rm -f "$CE_TEST_STATE/active/$unit"
 done
@@ -154,6 +155,11 @@ bash "$SCRIPT" prune
 [[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.1" ]]
 [[ ! -e "$ENSEMBLE_INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: prune retained a failed release instead of only known-good releases" >&2; exit 1; }
 echo 'Versioned deployment contract tests passed.'
+if compgen -G "$HOME/.config/systemd/user/claude-*.service" >/dev/null; then
+  echo 'FAIL: deployment staging wrote units into the normal user-unit directory' >&2
+  exit 1
+fi
+unset ENSEMBLE_USER_UNIT_DIR
 
 # Exercise the real installer against a temporary legacy deployment and mocked
 # systemd. This verifies profile preservation, migration snapshotting, manifest
