@@ -26,6 +26,7 @@ esac
 [[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\\n' "$ROOT" >&2; exit 1; }
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
+KNOWN_GOOD="$ROOT/known-good.json"
 UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
 STOP_ORDER=(claude-ensemble.service claude-graph.service claude-messenger.service claude-alert.service claude-learning.service claude-thompson.service claude-memory.service)
 START_ORDER=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
@@ -122,6 +123,38 @@ validate_release() {
 JOURNAL="$ROOT/activation.json"
 BACKUPS="$ROOT/shared/activation-backups"
 
+write_known_good() {
+  local previous="$1" target="$2" tmp="$ROOT/.known-good.json.$BASHPID"
+  python3 - "$tmp" "$previous" "$target" <<'PY'
+import json, os, re, sys
+path, previous, target = sys.argv[1:]
+for version in (previous, target):
+    if version and not re.fullmatch(r"[0-9]+\\.[0-9]+", version):
+        raise SystemExit("invalid known-good release version")
+with open(path, "w", encoding="utf-8") as out:
+    json.dump({"schema_version": 1, "active": target, "previous": previous or None}, out, indent=2)
+    out.write("\\n")
+os.replace(path, os.path.join(os.path.dirname(path), "known-good.json"))
+PY
+}
+
+known_good_field() {
+  local field="$1"
+  [[ -f "$KNOWN_GOOD" ]] || return 1
+  python3 - "$KNOWN_GOOD" "$field" <<'PY'
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8") as source: data = json.load(source)
+if data.get("schema_version") != 1: raise SystemExit("unsupported known-good state schema")
+field = sys.argv[2]; value = data.get(field)
+if field == "active":
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+\\.[0-9]+", value): raise SystemExit("invalid active release in known-good state")
+elif field == "previous":
+    if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9]+\\.[0-9]+", value)): raise SystemExit("invalid previous release in known-good state")
+else: raise SystemExit("invalid known-good field")
+print(value or "")
+PY
+}
+
 write_journal() {
   local previous="$1" target="$2" backup="$3" active_file="$4" tmp="$ROOT/.activation.json.${BASHPID}"
   python3 - "$tmp" "$previous" "$target" "$backup" "$active_file" <<'PY'
@@ -187,6 +220,7 @@ recover_activation() {
     rm -f -- "$CURRENT"
     restore_units "$backup" "$active_file" || die "original unit restoration failed; journal retained"
   fi
+  if [[ -f "$backup/known-good-before.json" ]]; then cp -a -- "$backup/known-good-before.json" "$KNOWN_GOOD"; elif [[ -f "$backup/known-good-before.absent" ]]; then rm -f -- "$KNOWN_GOOD"; fi
   rm -f -- "$JOURNAL"
   rm -rf -- "$backup"
   rm -f -- "$active_file"
@@ -216,6 +250,7 @@ case "$cmd" in
       if [[ -e "$file" || -L "$file" ]]; then cp -a -- "$file" "$backup/$unit"; fi
       "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
     done
+    if [[ -f "$KNOWN_GOOD" ]]; then cp -a -- "$KNOWN_GOOD" "$backup/known-good-before.json"; else : > "$backup/known-good-before.absent"; fi
     write_journal "$previous" "$version" "$backup" "$active_file"
     [[ -f "$JOURNAL" ]] || die "failed to persist activation journal at $JOURNAL"
     stop_services || die "could not stop all CE services; run ce-deployment recover; journal retained"
@@ -225,6 +260,7 @@ case "$cmd" in
       die "atomic current symlink switch failed; prior unit files restored"
     fi
     if start_services; then
+      write_known_good "$previous" "$version" || die "activation succeeded but known-good state could not be persisted; journal retained"
       rm -f -- "$JOURNAL"; rm -rf -- "$backup"
       printf "Activated Claude Ensemble release %s. Previous release: %s\n" "$version" "${previous:-none}"
       exit 0
@@ -247,16 +283,13 @@ case "$cmd" in
     recover_activation
     ;;
   rollback)
-    previous="$(active_version)" || die "no active release"
-    candidates=()
-    for dir in "$RELEASES"/*; do
-      [[ -d "$dir" ]] || continue
-      version="${dir##*/}"
-      [[ "$version" != "$previous" ]] && candidates+=("$version")
-    done
-    (("${#candidates[@]}" > 0)) || die "no prior release available"
-    # Sort numeric major/minor versions and choose the highest non-active release.
-    target="$(printf '%s\n' "${candidates[@]}" | sort -t. -k1,1n -k2,2n | tail -n 1)"
+    active="$(active_version)" || die "no active release"
+    [[ -f "$KNOWN_GOOD" ]] || die "no known-good activation history; activate a release successfully before rollback"
+    recorded_active="$(known_good_field active)" || die "known-good state is invalid"
+    [[ "$recorded_active" == "$active" ]] || die "current release $active does not match known-good state $recorded_active; recover or reconcile deployment state first"
+    target="$(known_good_field previous)" || die "known-good state is invalid"
+    [[ -n "$target" ]] || die "no previous known-good release is recorded"
+    [[ -d "$RELEASES/$target" ]] || die "previous known-good release is missing: $target"
     "$0" activate "$target"
     ;;
   status)
@@ -269,12 +302,15 @@ case "$cmd" in
   prune)
     [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
     active="$(active_version)" || die "no active release"
-    previous="$(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -vxF "$active" | sort -V | tail -n 1 || true)"
+    [[ -f "$KNOWN_GOOD" ]] || die "no known-good activation history; refusing to prune"
+    recorded_active="$(known_good_field active)" || die "known-good state is invalid"
+    [[ "$recorded_active" == "$active" ]] || die "current release $active does not match known-good state $recorded_active; refusing to prune"
+    previous="$(known_good_field previous)" || die "known-good state is invalid"
     for dir in "$RELEASES"/*; do
       [[ -d "$dir" ]] || continue
       version="${dir##*/}"
       if [[ "$version" != "$active" && "$version" != "$previous" ]]; then
-        printf 'Removing old release %s\n' "$version"
+        printf 'Removing old release %s\\n' "$version"
         rm -rf -- "$dir"
       fi
     done
