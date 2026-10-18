@@ -74,6 +74,20 @@ fi
 RELEASES="$ROOT/releases"
 RELEASE="$RELEASES/$VERSION"
 SHARED="$ROOT/shared"
+assert_managed_layout() {
+  local path
+  for path in \
+    "$RELEASES" "$SHARED" "$SHARED/claude-code" "$SHARED/config" "$SHARED/data" \
+    "$SHARED/data/memory" "$SHARED/data/learning" "$SHARED/data/alerts" \
+    "$SHARED/runtime" "$SHARED/logs" "$SHARED/activation-backups"; do
+    [[ ! -L "$path" ]] || { printf 'ERROR: managed deployment path must not be a symlink: %s\\n' "$path" >&2; exit 1; }
+    [[ ! -e "$path" || -d "$path" ]] || { printf 'ERROR: managed deployment path is not a directory: %s\\n' "$path" >&2; exit 1; }
+  done
+  path="$SHARED/config/environment"
+  [[ ! -L "$path" ]] || { printf 'ERROR: managed service environment must not be a symlink: %s\\n' "$path" >&2; exit 1; }
+  [[ ! -e "$path" || -f "$path" ]] || { printf 'ERROR: managed service environment is not a regular file: %s\\n' "$path" >&2; exit 1; }
+}
+assert_managed_layout
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ce-versioned.XXXXXX")"
 STAGED="$WORK/release"
 cleanup() { rm -rf -- "$WORK"; }
@@ -117,6 +131,7 @@ fi
 }
 
 mkdir -p "$RELEASES" "$SHARED/claude-code" "$SHARED/config" "$SHARED/data" "$SHARED/logs"
+assert_managed_layout
 if [[ "$LEGACY_MIGRATION" == "1" ]]; then
   mkdir -p "$RELEASES/0.0"
   tar -C "$LEGACY_SNAPSHOT" -cf - . | tar -C "$RELEASES/0.0" -xf -
