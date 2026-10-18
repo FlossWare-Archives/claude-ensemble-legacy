@@ -100,7 +100,7 @@ esac
   (outside/"tools").mkdir()
   shutil.copy2(DEPLOYMENT_SOURCE,outside/"tools"/"ce-deployment")
   installer=outside/"install.sh"
-  installer.write_text("#!/usr/bin/env bash\\nexit 0\\n")
+  installer.write_text("#!/usr/bin/env bash\nexit 0\n")
   installer.chmod(0o755)
   shutil.rmtree(release)
   release.symlink_to(outside,target_is_directory=True)
