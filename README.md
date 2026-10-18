@@ -69,6 +69,14 @@ The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapsh
 
 The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases.
 
+The scheduled GA job follows the same isolation boundary. Its results, pending learning artifacts, ingestion receipts, evolution log, lock, and scheduler log live under `~/.FlossWare/claude-ensemble/shared/data/ga-tuning/` and `shared/logs/`; it reads the CE profile at `shared/claude-code/settings.json`, not ordinary `~/.claude/settings.json`. Once deployment acceptance is complete, the crontab entry should call the stable release path:
+
+```cron
+0 */4 * * * "$HOME/.FlossWare/claude-ensemble/current/tools/ga-tuning-schedule.sh"
+```
+
+Do not migrate or run the host crontab as part of staging. The existing `~/.claude/ga-tuning-schedule.sh` entry remains a host-side migration item until the isolated release has passed acceptance.
+
 Inspect deployment state and use explicit rollback/pruning commands through the selected release's deployment manager:
 
 ```bash
