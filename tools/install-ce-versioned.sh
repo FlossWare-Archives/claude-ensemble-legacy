@@ -30,6 +30,21 @@ if [[ "$#" -lt 1 || "$#" -gt 2 || ! "$1" =~ ^[0-9]+\.[0-9]+$ ]]; then
 fi
 VERSION="$1"
 SOURCE_DIR="${2:-}"
+STAGING_ONLY="${ENSEMBLE_STAGING_ONLY:-0}"
+if [[ "$STAGING_ONLY" != "0" && "$STAGING_ONLY" != "1" ]]; then
+  printf 'ERROR: ENSEMBLE_STAGING_ONLY must be 0 or 1.\\n' >&2
+  exit 2
+fi
+if [[ "$STAGING_ONLY" == "1" ]]; then
+  [[ -n "${ENSEMBLE_INSTALL_ROOT:-}" ]] || {
+    printf 'ERROR: Staging-only mode requires an explicit ENSEMBLE_INSTALL_ROOT beneath HOME.\\n' >&2
+    exit 2
+  }
+  if [[ -e "$ROOT" && -n "$(find "$ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    printf 'ERROR: Staging-only mode requires a new or empty install root: %s\\n' "$ROOT" >&2
+    exit 1
+  fi
+fi
 RELEASES="$ROOT/releases"
 RELEASE="$RELEASES/$VERSION"
 SHARED="$ROOT/shared"
@@ -115,6 +130,12 @@ ln -s ../../shared/claude-code "$STAGED/claude-code"
 mkdir -p "$RELEASES"
 mv -- "$STAGED" "$RELEASE"
 
+if ! ENSEMBLE_INSTALL_ROOT="$ROOT" bash "$RELEASE/tools/ce-deployment" validate "$VERSION"; then
+  rm -rf -- "$RELEASE"
+  printf 'ERROR: Staged release failed structural validation.\\n' >&2
+  exit 1
+fi
+
 MANIFEST_TMP="$WORK/deployment.json"
 python3 - "$MANIFEST_TMP" "$VERSION" "$SOURCE_COMMIT" <<'PY'
 import datetime
@@ -131,6 +152,14 @@ with open(path, "w", encoding="utf-8") as output:
     }, output, indent=2)
     output.write("\n")
 PY
+if [[ "$STAGING_ONLY" == "1" ]]; then
+  mv -f -- "$MANIFEST_TMP" "$ROOT/deployment.json"
+  printf 'Staged Claude Ensemble %s at %s/releases/%s\\n' "$VERSION" "$ROOT" "$VERSION"
+  printf 'Source commit: %s\\n' "$SOURCE_COMMIT"
+  printf 'Validation: structural only; no service, systemd unit, current symlink, or Claude profile was changed.\\n'
+  printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
+  exit 0
+fi
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
   printf 'ERROR: Activation failed. The release was retained for diagnosis and retry.\n' >&2
   exit 1
