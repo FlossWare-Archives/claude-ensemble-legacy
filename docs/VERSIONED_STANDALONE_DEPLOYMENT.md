@@ -56,7 +56,7 @@ ENSEMBLE_STAGING_ONLY=1 \
   bash tools/install-ce-versioned.sh 0.1 /path/to/clean/claude-ensemble
 ```
 
-Staging-only mode requires an explicit `ENSEMBLE_INSTALL_ROOT` beneath `HOME` and a new or empty target root. It does not import the legacy CE profile, does not require an active systemd user manager, does not write service unit files, does not create or switch `current`, and does not activate services. It copies the release, checks its structural contract (including symlink containment), writes a manifest with validation status `staged`, and exits. A failed structural validation removes the newly staged release and exits nonzero.
+Staging-only mode requires an explicit `ENSEMBLE_INSTALL_ROOT` beneath `HOME` and a new or empty target root. It does not import the legacy CE profile, does not require an active systemd user manager, does not write service unit files, does not create or switch `current`, and does not activate services. It copies the release, checks its structural contract (including symlink containment), writes a manifest with validation status `staged`, and exits. The developer-checkout symlink `claude-global-skills` (which points into a Red Hat checkout) is deliberately omitted from standalone releases; it is host-specific and must not be shipped or followed. Other unexpected external symlinks still fail validation. A failed structural validation removes the newly staged release and exits nonzero.
 
 The test root must be separate from the live deployment. Inspect the staged release and manifest before running the normal installer against the actual deployment root. Staging is structural validation, not proof that services start or that the gateway is healthy.
 
