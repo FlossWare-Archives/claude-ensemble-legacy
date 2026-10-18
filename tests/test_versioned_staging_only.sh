@@ -66,7 +66,7 @@ PY
 # ~/.FlossWare does on some hosts). Internal release links must still validate.
 mkdir -p "$HOME/Development/FlossWare"
 DEV_ROOT="$HOME/Development/FlossWare/staging-target"
-ENSEMBLE_INSTALL_ROOT="$DEV_ROOT" ENSEMBLE_STAGING_ONLY=1 \\
+ENSEMBLE_INSTALL_ROOT="$DEV_ROOT" ENSEMBLE_STAGING_ONLY=1 \
   bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
 [[ -f "$DEV_ROOT/deployment.json" ]] || {
   echo "FAIL: staging failed when target resolved beneath HOME/Development" >&2; exit 1;
