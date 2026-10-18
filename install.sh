@@ -398,7 +398,10 @@ fi
 
 if [ -n "$SHELL_RC" ] && [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" != "1" ]]; then
     EXPORT_LINE="export PATH=\"$REPO_PATH/tools:\$PATH\""
-    if ! grep -q "$REPO_PATH/tools" "$SHELL_RC" 2>/dev/null && ! grep -q "claude-ensemble/tools" "$SHELL_RC" 2>/dev/null; then
+    # Use fixed-string matching for the current checkout path. Do not treat
+    # any historical claude-ensemble path as equivalent: after a checkout move,
+    # the active tools directory must be added rather than silently skipped.
+    if ! grep -Fq -- "$REPO_PATH/tools" "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
         echo "# Claude Ensemble Tools" >> "$SHELL_RC"
         echo "$EXPORT_LINE" >> "$SHELL_RC"
