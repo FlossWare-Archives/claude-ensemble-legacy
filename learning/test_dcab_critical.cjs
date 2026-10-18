@@ -17,16 +17,19 @@ test('PostgreSQL integration: pool connects and supports a transaction round tri
   let client;
 
   try {
-    client = await pool.connect();
+    try {
+      client = await pool.connect();
+    } catch (error) {
+      throw new Error(
+        `Could not connect to PostgreSQL at ${config.host}:${config.port}/${config.database} as ${config.user}. Start/configure PostgreSQL and set PGHOST, PGPORT, PGDATABASE, PGUSER, and PGPASSWORD as needed.`,
+        { cause: error },
+      );
+    }
+
     await client.query('BEGIN');
     const result = await client.query('SELECT 1 AS test');
     assert.deepEqual(result.rows, [{ test: 1 }]);
     await client.query('ROLLBACK');
-  } catch (error) {
-    throw new Error(
-      `PostgreSQL integration test failed for ${config.host}:${config.port}/${config.database} as ${config.user}. Start/configure PostgreSQL and set PGHOST, PGPORT, PGDATABASE, PGUSER, and PGPASSWORD as needed.`,
-      { cause: error },
-    );
   } finally {
     if (client) {
       try {
