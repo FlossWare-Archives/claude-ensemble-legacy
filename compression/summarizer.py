@@ -11,6 +11,7 @@ Approach: Multi-level compression with semantic preservation
 
 import re
 import json
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, asdict
 from collections import defaultdict
@@ -497,7 +498,7 @@ if __name__ == "__main__":
         "per_test_results": [asdict(s) for s in all_stats]
     }
 
-    with open('/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/compression/worker1_summarizer_metrics.json', 'w') as f:
+    with (Path(__file__).resolve().parent / 'worker1_summarizer_metrics.json').open('w', encoding='utf-8') as f:
         json.dump(metrics, f, indent=2)
 
     print(f"\nMetrics exported to: compression/worker1_summarizer_metrics.json")

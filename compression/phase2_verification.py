@@ -15,6 +15,7 @@ Final Verdict: Production-ready?
 
 import json
 import sys
+from pathlib import Path
 from compression_api import compress_prompt, batch_compress, measure_effectiveness
 from summarizer import TokenEstimator
 
@@ -443,7 +444,7 @@ if __name__ == "__main__":
         "detailed_results": all_results
     }
 
-    with open('/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/compression/phase2_verdict.json', 'w') as f:
+    with (Path(__file__).resolve().parent / 'phase2_verdict.json').open('w', encoding='utf-8') as f:
         json.dump(export_data, f, indent=2, default=str)
 
     print(f"\nDetailed results exported to: compression/phase2_verdict.json")
