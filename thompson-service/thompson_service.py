@@ -28,9 +28,6 @@ from shared.request_context import RequestContext
 from shared.validators import Validators
 from shared.runtime_config import log_dir, socket_path, thompson_state_file
 
-CLAUDE_DIR = Path.home() / ".claude"
-CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
-
 LOG_DIR = log_dir()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

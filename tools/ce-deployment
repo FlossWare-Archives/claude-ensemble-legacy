@@ -62,6 +62,53 @@ start_services() {
     ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
     ENSEMBLE_DEFER_SERVICE_START=1 \
     bash "$CURRENT/install.sh" "$CURRENT"
+  # Keep managed deployment state out of the development profile and global config.
+  mkdir -p "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
+    "$ROOT/shared/data/alerts" "$ROOT/shared/logs" "$ROOT/shared/runtime"
+  python3 - "$UNIT_DIR" "$ROOT" "$CURRENT" <<'PY'
+import sys
+from pathlib import Path
+
+unit_dir, root, current = map(Path, sys.argv[1:])
+units = {
+    "claude-memory.service": {"ENSEMBLE_MEMORY_DIR": root / "shared/data/memory", "ENSEMBLE_MEMORY_SOCKET": root / "shared/runtime/memory.sock"},
+    "claude-thompson.service": {"ENSEMBLE_THOMPSON_STATE_FILE": root / "shared/data/thompson-sampling-state.json", "ENSEMBLE_THOMPSON_SOCKET": root / "shared/runtime/thompson.sock"},
+    "claude-learning.service": {"ENSEMBLE_LEARNING_DIR": root / "shared/data/learning", "ENSEMBLE_LEARNING_SOCKET": root / "shared/runtime/learning.sock"},
+    "claude-alert.service": {"ENSEMBLE_ALERT_DIR": root / "shared/data/alerts", "ENSEMBLE_ALERT_SOCKET": root / "shared/runtime/alert.sock"},
+    "claude-messenger.service": {"CLAUDE_MESSENGER_SOCKET": root / "shared/runtime/messenger.sock"},
+    "claude-graph.service": {"ENSEMBLE_GRAPH_STORE": root / "shared/data/graph.json"},
+    "claude-ensemble.service": {},
+}
+environment_file = root / "shared/claude-code/environment"
+common = {
+    "ENSEMBLE_LOG_DIR": root / "shared/logs",
+    "ENSEMBLE_RUNTIME_DIR": root / "shared/runtime",
+    "ENSEMBLE_REPO_ROOT": current,
+    "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": root / "shared/claude-code",
+}
+def quote_env(value):
+    return str(value).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
+def escape_path(value):
+    return str(value).replace("%", "%%").replace("\\", "\\\\").replace(" ", "\\x20").replace("\t", "\\x09")
+for unit, specific in units.items():
+    path = unit_dir / unit
+    if not path.is_file():
+        raise SystemExit(f"missing generated service unit: {path}")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = [line for line in lines if not line.startswith("EnvironmentFile=")]
+    try:
+        service_index = lines.index("[Service]")
+    except ValueError as exc:
+        raise SystemExit(f"generated unit has no [Service] section: {path}") from exc
+    lines.insert(service_index + 1, f"EnvironmentFile=-{escape_path(environment_file)}")
+    values = {**common, **specific}
+    names = set(values)
+    lines = [line for line in lines if not any(line.startswith(f'Environment="{name}=') for name in names)]
+    env_lines = [f'Environment="{name}={quote_env(value)}"' for name, value in values.items()]
+    install_index = next((i for i, line in enumerate(lines) if line == "[Install]"), len(lines))
+    lines[install_index:install_index] = env_lines
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
   local unit file
   for unit in "${UNITS[@]}"; do
     file="$UNIT_DIR/$unit"

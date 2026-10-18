@@ -98,7 +98,21 @@ bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
   [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: $unit not active" >&2; exit 1; }
+  unit_file="$ENSEMBLE_USER_UNIT_DIR/$unit"
+  [[ -f "$unit_file" ]] || { echo "FAIL: generated unit missing from isolated directory: $unit_file" >&2; exit 1; }
+  grep -Fq "EnvironmentFile=-$ENSEMBLE_INSTALL_ROOT/shared/claude-code/environment" "$unit_file" || { echo "FAIL: $unit does not use deployment-owned environment file" >&2; exit 1; }
+  grep -Fq "ENSEMBLE_LOG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/logs" "$unit_file" || { echo "FAIL: $unit does not isolate logs under shared/" >&2; exit 1; }
+  grep -Fq "ENSEMBLE_RUNTIME_DIR=$ENSEMBLE_INSTALL_ROOT/shared/runtime" "$unit_file" || { echo "FAIL: $unit does not isolate runtime state under shared/" >&2; exit 1; }
+  if grep -Eq '/\.claude(/|$)|/\.local/share/claude-ensemble' "$unit_file"; then
+    echo "FAIL: managed unit retains a legacy mutable-state path: $unit" >&2
+    exit 1
+  fi
 done
+grep -Fq "ENSEMBLE_MEMORY_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/memory" "$ENSEMBLE_USER_UNIT_DIR/claude-memory.service" || { echo "FAIL: memory data path not isolated" >&2; exit 1; }
+grep -Fq "ENSEMBLE_LEARNING_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/learning" "$ENSEMBLE_USER_UNIT_DIR/claude-learning.service" || { echo "FAIL: learning data path not isolated" >&2; exit 1; }
+grep -Fq "ENSEMBLE_ALERT_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/alerts" "$ENSEMBLE_USER_UNIT_DIR/claude-alert.service" || { echo "FAIL: alert data path not isolated" >&2; exit 1; }
+grep -Fq "ENSEMBLE_GRAPH_STORE=$ENSEMBLE_INSTALL_ROOT/shared/data/graph.json" "$ENSEMBLE_USER_UNIT_DIR/claude-graph.service" || { echo "FAIL: graph data path not isolated" >&2; exit 1; }
+grep -Fq "ENSEMBLE_THOMPSON_STATE_FILE=$ENSEMBLE_INSTALL_ROOT/shared/data/thompson-sampling-state.json" "$ENSEMBLE_USER_UNIT_DIR/claude-thompson.service" || { echo "FAIL: Thompson state path not isolated" >&2; exit 1; }
 
 # Force one startup failure for 0.2. The helper must restore 0.1 and recover.
 if FAIL_START_UNIT=claude-ensemble.service bash "$SCRIPT" activate 0.2; then
@@ -167,7 +181,7 @@ LEGACY_INSTALL
 cat > "$SOURCE_FIXTURE/install.sh" <<'FIXTURE_INSTALL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-unit_dir="$HOME/.config/systemd/user"
+unit_dir="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$unit_dir"
 for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"

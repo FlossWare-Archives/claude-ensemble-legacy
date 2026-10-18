@@ -35,10 +35,14 @@ MEMORY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def get_runtime_dir() -> Path:
-    """Return and harden the per-user runtime directory."""
-    xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
-    base_dir = Path(xdg_runtime_dir) if xdg_runtime_dir else Path.home() / ".cache"
-    runtime_dir = base_dir / RUNTIME_SUBDIR
+    """Return and harden the configured runtime directory."""
+    configured = os.environ.get("ENSEMBLE_RUNTIME_DIR")
+    if configured:
+        runtime_dir = Path(configured).expanduser()
+    else:
+        xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        base_dir = Path(xdg_runtime_dir) if xdg_runtime_dir else Path.home() / ".cache"
+        runtime_dir = base_dir / RUNTIME_SUBDIR
     runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(runtime_dir, 0o700)
     return runtime_dir
