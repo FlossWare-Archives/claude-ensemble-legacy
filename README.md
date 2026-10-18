@@ -45,15 +45,27 @@ Workflow outcomes pass through the Learning service only when they have durable,
 ### Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tools/install-ce-standalone.sh | bash
 ```
 
-This will:
-1. Clone the repository
-2. Install CE hooks and toolkit integration under `~/.claude/`
-3. Install the complete `/ce-*` skill set unless different existing skills must be preserved
-4. Set up credentials storage at `~/.FlossWare/secrets.env`
-5. Prompt you to configure which tools to enable
+This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.local/opt/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Managed files in the Claude Code profile are copies, not symlinks into your development checkout. The deployment can therefore keep running if you move, clean, or update the working Git repository.
+
+To deploy the current contents of an existing checkout, including its uncommitted changes, run:
+
+```bash
+bash tools/install-ce-standalone.sh /path/to/claude-ensemble
+```
+
+Set `ENSEMBLE_INSTALL_ROOT` to choose a different deployment directory. Re-running the standalone installer replaces the prior managed deployment after staging the new one; it restores the previous deployment if installation fails.
+
+The lower-level `install.sh [checkout-path]` remains available for direct installation from a chosen tree. Prefer the standalone installer when the deployed runtime must be independent of a developer checkout.
+
+The installer:
+1. Deploys CE under `~/.local/opt/claude-ensemble` by default, without copying Git metadata
+2. Installs hooks and managed toolkit files as independent copies under `~/.claude/`
+3. Installs the complete `/ce-*` skill set unless different existing skills must be preserved
+4. Sets up credentials storage at `~/.FlossWare/secrets.env`
+5. Prompts for optional tool configuration in an interactive terminal
 
 The `/ce-review` skill runs the worker/arbiter code review without Jira; `/ce-jira-review` adds Jira acceptance criteria; `/ce-solve` investigates and implements a coding fix; `/ce-status` reports profile and service status; `/ce-diagnose` runs deeper diagnostics; `/ce-memory` distinguishes Memory from durable Knowledge; `/ce-learning` inspects learning and Thompson outcomes; and `/ce-ga` inspects genetic-algorithm tuning evidence. Diagnostic skills default to read-only. `/ce-solve` may edit the current repository but does not commit, push, merge, deploy, or perform destructive operations without authorization. All skills use the authenticated Claude Code runtime and must not send proprietary source to external reviewer providers. To install the full set into an explicitly selected CE profile, run:
 
