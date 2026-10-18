@@ -71,6 +71,8 @@ The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claud
 
 The scheduled GA job follows the same isolation boundary. Its results, pending learning artifacts, ingestion receipts, evolution log, lock, and scheduler log live under `~/.FlossWare/claude-ensemble/shared/data/ga-tuning/` and `shared/logs/`; it reads the CE profile at `shared/claude-code/settings.json`, not ordinary `~/.claude/settings.json`. Once deployment acceptance is complete, the crontab entry should call the stable release path:
 
+The GA dashboard automatically reads the installed deployment's shared results when a versioned `current` release exists. Direct development runs retain the repository-local `ga_tuning/results/` default. Set `CE_GA_RESULTS_DIR` to override the result directory explicitly.
+
 ```cron
 0 */4 * * * "$HOME/.FlossWare/claude-ensemble/current/tools/ga-tuning-schedule.sh"
 ```
@@ -332,7 +334,7 @@ Services may run independently, but service integration uses REST/HTTP contracts
 - **Frequency:** Every 4 hours (0, 4, 8, 12, 16, 20 UTC)
 - **Evaluators:** 5 independent (compression, Thompson, caching, capability matrix, learning rate)
 - **Cost:** Zero (synthetic tasks, no API calls)
-- **Parameters:** Tuned automatically, logged to `ga_tuning/parameter_evolution.md`
+- **Parameters:** Scheduled installed runs log to `~/.FlossWare/claude-ensemble/shared/data/ga-tuning/parameter_evolution.md`; direct development runs use `ga_tuning/parameter_evolution.md`
 
 ### Model Discovery
 - **Path:** `tools/discover-models.py`
@@ -400,8 +402,8 @@ ga_tuning/
   ga_tuner.py                 # GA optimizer
   extract_and_apply_parameters.py  # Extract & update settings
   evaluators/                 # 5 independent evaluators
-  parameter_evolution.md      # Timestamped parameter changes
-  results/                    # GA output (JSON)
+  parameter_evolution.md      # Direct development-run parameter history
+  results/                    # Direct development-run output (JSON); installed output lives under shared/data/ga-tuning/results
 
 compression/
   compression_api.py          # 64.6% reduction
