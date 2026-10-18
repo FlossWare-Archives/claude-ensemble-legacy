@@ -32,8 +32,10 @@ module.exports = async function preToolValidation(context) {
     });
 
     // Call pre_tool_validator.py with JSON via stdin
+    const configuredValidatorPath = process.env.CE_PRE_TOOL_VALIDATOR_PATH;
     const projectDir = process.env.CLAUDE_PROJECT_DIR || path.join(process.env.HOME, 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills');
-    const validatorPath = path.join(projectDir, 'shared/pre_tool_validator.py');
+    // CE_PRE_TOOL_VALIDATOR_PATH overrides the legacy project-relative default.
+    const validatorPath = configuredValidatorPath || path.join(projectDir, 'shared/pre_tool_validator.py');
 
     const result = execFileSync('python3', [validatorPath], {
       input: request,
