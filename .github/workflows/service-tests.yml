@@ -229,7 +229,9 @@ jobs:
 
       - name: Run versioned deployment contract tests
         shell: bash
-        run: bash tests/test_ce_deployment.sh
+        run: |
+          bash tests/test_ce_deployment.sh
+          bash tests/test_versioned_staging_only.sh
 
   docs-check:
     runs-on: ubuntu-latest
