@@ -36,7 +36,16 @@ export PATH="$FAKE_BIN:$PATH"
 SOURCE="$TMP_ROOT/source"
 DEPLOY="$HOME/.FlossWare/claude-ensemble"
 mkdir -p "$SOURCE/.git" "$SOURCE/tools"
-printf '%s\n' '#!/usr/bin/env bash' '[[ -f "$0" ]]' > "$SOURCE/install.sh"
+cat > "$SOURCE/install.sh" <<'INSTALL'
+#!/usr/bin/env bash
+[[ -f "$0" ]] || exit 2
+# The standalone wrapper must not start any service before this installer exits.
+awk '
+  /--user stop claude-ensemble.service/ { last_stop = NR }
+  /--user start / { last_start = NR }
+  END { if (last_start > last_stop) exit 1 }
+' "$CE_SYSTEMCTL_LOG"
+INSTALL
 printf '%s\n' 'v1' > "$SOURCE/payload.txt"
 printf '%s\n' 'git metadata must not deploy' > "$SOURCE/.git/config"
 
