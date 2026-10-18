@@ -134,6 +134,29 @@ if ENSEMBLE_INSTALL_ROOT="$HOME/ce-root-link" bash "$SCRIPT" status >/dev/null 2
 fi
 rm "$HOME/ce-root-link"
 
+# Deployment-owned releases/shared paths must themselves be real directories.
+LINKED_ROOT="$HOME/.FlossWare/linked-state-root"
+mkdir -p "$LINKED_ROOT"
+ln -s "$TMP/external-releases" "$LINKED_ROOT/releases"
+if ENSEMBLE_INSTALL_ROOT="$LINKED_ROOT" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: symlinked releases directory was accepted' >&2
+  exit 1
+fi
+rm "$LINKED_ROOT/releases"
+ln -s "$TMP/external-shared" "$LINKED_ROOT/shared"
+if ENSEMBLE_INSTALL_ROOT="$LINKED_ROOT" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: symlinked shared directory was accepted' >&2
+  exit 1
+fi
+rm "$LINKED_ROOT/shared"
+mkdir -p "$LINKED_ROOT/shared"
+ln -s "$TMP/external-environment" "$LINKED_ROOT/shared/config"
+mkdir -p "$LINKED_ROOT/shared"
+if ENSEMBLE_INSTALL_ROOT="$LINKED_ROOT" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: symlinked shared config directory was accepted' >&2
+  exit 1
+fi
+
 # First activation should start all seven mocked services.
 bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
