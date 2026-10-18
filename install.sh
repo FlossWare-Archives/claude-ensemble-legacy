@@ -75,11 +75,11 @@ echo "  Claude Ensemble Toolkit Installer"
 echo "================================================"
 echo ""
 echo "Repository:  $REPO_PATH"
-echo "Claude Home: $CLAUDE_HOME"
+echo "Claude profile: $CLAUDE_HOME"
 echo ""
 
 # Step 1: Create ~/.claude directories
-echo "1. Setting up ~/.claude directories..."
+echo "1. Setting up Claude Code profile directories at $CLAUDE_HOME..."
 mkdir -p "$CLAUDE_HOME"/{hooks,projects/memory,cost_tracking}
 echo "   ✓ Created directories"
 
