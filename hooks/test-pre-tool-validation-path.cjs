@@ -1,4 +1,4 @@
-"""Regression test for the configurable pre-tool validator path."""
+// Regression test for the configurable pre-tool validator path.
 
 const assert = require('node:assert/strict');
 const Module = require('node:module');
