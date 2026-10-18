@@ -93,4 +93,29 @@ esac
   self.assertNotEqual(result.returncode,0)
   self.assertIn("release contains broken links or links into development checkouts",result.stdout)
   self.assertTrue((other/"sentinel").is_file(),"validation must not mutate the target release")
+ def test_recovery_rejects_symlinked_previous_release_before_stopping_services(self):
+  release=self.root/"releases"/"0.1"
+  outside=self.home/"outside-release"
+  outside.mkdir()
+  (outside/"tools").mkdir()
+  shutil.copy2(DEPLOYMENT_SOURCE,outside/"tools"/"ce-deployment")
+  installer=outside/"install.sh"
+  installer.write_text("#!/usr/bin/env bash\\nexit 0\\n")
+  installer.chmod(0o755)
+  shutil.rmtree(release)
+  release.symlink_to(outside,target_is_directory=True)
+  current=self.root/"current"
+  current.symlink_to("releases/0.2")
+  backup=self.root/"shared"/"activation-backups"/"unsafe-recovery"
+  backup.mkdir()
+  active_file=backup/"active-before.txt"
+  active_file.write_text("".join(unit+"\\n" for unit in UNITS))
+  journal={"schema_version":1,"previous":"0.1","target":"0.2","unit_backup":str(backup),"active_before_file":str(active_file)}
+  (self.root/"activation.json").write_text(json.dumps(journal))
+  result=self.run_deployment("recover",check=False)
+  self.assertNotEqual(result.returncode,0)
+  self.assertIn("release is incomplete or is a symlink",result.stdout)
+  self.assertEqual(os.readlink(current),"releases/0.2")
+  self.assertTrue((self.root/"activation.json").is_file(),"unsafe journal must be retained for inspection")
+  self.assertFalse(self.log.exists(),"recovery must reject unsafe release before stopping services")
 if __name__=="__main__": unittest.main(verbosity=2)
