@@ -46,9 +46,9 @@ if [[ -d "$DEPLOY_ROOT/.git" || -f "$DEPLOY_ROOT/.git" ]]; then
 fi
 
 for required in curl tar find readlink systemctl git; do
-  command -v "$required" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\\n' "$required" >&2; exit 1; }
+  command -v "$required" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$required" >&2; exit 1; }
 done
-systemctl --user show-environment >/dev/null 2>&1 || { printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\\n' >&2; exit 1; }
+systemctl --user show-environment >/dev/null 2>&1 || { printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2; exit 1; }
 SERVICE_UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
 STOP_ORDER=(claude-ensemble.service claude-graph.service claude-messenger.service claude-alert.service claude-learning.service claude-thompson.service claude-memory.service)
 START_ORDER=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
@@ -70,8 +70,8 @@ start_and_verify_services() {
   systemctl --user daemon-reload
   for unit in "${START_ORDER[@]}"; do systemctl --user start "$unit"; done
   for unit in "${SERVICE_UNITS[@]}"; do
-    systemctl --user is-active --quiet "$unit" || { printf 'ERROR: CE service failed post-install verification: %s\\n' "$unit" >&2; return 1; }
-    printf '  ✓ %s active\\n' "$unit"
+    systemctl --user is-active --quiet "$unit" || { printf 'ERROR: CE service failed post-install verification: %s\n' "$unit" >&2; return 1; }
+    printf '  ✓ %s active\n' "$unit"
   done
 }
 audit_runtime_links() {
@@ -80,13 +80,13 @@ audit_runtime_links() {
   while IFS= read -r -d '' link; do
     resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
     if [[ -z "$resolved" ]]; then
-      printf 'ERROR: Broken symlink: %s\\n' "$link" >&2
+      printf 'ERROR: Broken symlink: %s\n' "$link" >&2
       return 1
     fi
     git_root="$(git -C "$(dirname -- "$resolved")" rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$git_root" && "$resolved" == "$git_root/"* && "$git_root" != "$DEPLOY_ROOT" ]]; then
       if [[ "$scope" == all || "$(basename -- "$git_root")" == "claude-ensemble" ]]; then
-        printf 'ERROR: Symlink points into a Git checkout: %s -> %s (repo: %s)\\n' "$link" "$resolved" "$git_root" >&2
+        printf 'ERROR: Symlink points into a Git checkout: %s -> %s (repo: %s)\n' "$link" "$resolved" "$git_root" >&2
         return 1
       fi
     fi
@@ -144,13 +144,13 @@ if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
   exit 1
 fi
 
-printf '\\nStopping Claude Ensemble services before deployment update...\\n'
+printf '\nStopping Claude Ensemble services before deployment update...\n'
 stop_ce_services
 if [[ -e "$DEPLOY_ROOT" ]]; then mv -- "$DEPLOY_ROOT" "$BACKUP_ROOT"; fi
 if ! mv -- "$STAGING" "$DEPLOY_ROOT"; then
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
-  printf 'ERROR: Could not activate staged deployment.\\n' >&2
+  printf 'ERROR: Could not activate staged deployment.\n' >&2
   exit 1
 fi
 printf '\nInstalling Claude Ensemble from independent deployment: %s\n\n' "$DEPLOY_ROOT"
@@ -158,7 +158,8 @@ if bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
   :
 else
   status=$?
-  printf '\\nERROR: CE installation failed (exit %s). Restoring the prior deployment when available.\\n' "$status" >&2
+  printf '\nERROR: CE installation failed (exit %s). Restoring the prior deployment when available.\n' "$status" >&2
+  stop_ce_services
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
@@ -169,29 +170,30 @@ fi
 # Stop them again so the definitive start follows the completed install and link audit.
 stop_ce_services
 if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
-  printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\\n' >&2
+  printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
   exit 1
 fi
 if [[ -e "$DEPLOY_ROOT/.git" || -L "$DEPLOY_ROOT/.git" ]]; then
-  printf 'ERROR: Deployed runtime unexpectedly contains .git metadata.\\n' >&2
+  printf 'ERROR: Deployed runtime unexpectedly contains .git metadata.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
   exit 1
 fi
 
-printf '\\nStarting and verifying Claude Ensemble services after installation...\\n'
+printf '\nStarting and verifying Claude Ensemble services after installation...\n'
 if ! start_and_verify_services; then
+  stop_ce_services
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
   exit 1
 fi
 if [[ -e "$BACKUP_ROOT" ]]; then rm -rf -- "$BACKUP_ROOT"; fi
-printf '\\nIndependent CE deployment installed at %s\\n' "$DEPLOY_ROOT"
-printf 'Symlink audit passed: no links into Git checkouts under deployment or ~/.claude.\\n'
-printf 'All seven Claude Ensemble services are active.\\n'
-printf 'This deployment is separate from your working Git checkout.\\n'
+printf '\nIndependent CE deployment installed at %s\n' "$DEPLOY_ROOT"
+printf 'Symlink audit passed: no links into Git checkouts under deployment or ~/.claude.\n'
+printf 'All seven Claude Ensemble services are active.\n'
+printf 'This deployment is separate from your working Git checkout.\n'
