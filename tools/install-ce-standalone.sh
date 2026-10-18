@@ -45,6 +45,15 @@ if [[ -d "$DEPLOY_ROOT/.git" || -f "$DEPLOY_ROOT/.git" ]]; then
   exit 1
 fi
 PROFILE_ROOT="$DEPLOY_ROOT/claude-code"
+LEGACY_PROFILE_ROOT="$HOME/.FlossWare/claude-ensemble-profile"
+if [[ -L "$LEGACY_PROFILE_ROOT" ]]; then
+  printf 'ERROR: Refusing to migrate a symlinked legacy Claude Code profile: %s\n' "$LEGACY_PROFILE_ROOT" >&2
+  exit 1
+fi
+if [[ -e "$LEGACY_PROFILE_ROOT" && ! -d "$LEGACY_PROFILE_ROOT" ]]; then
+  printf 'ERROR: Legacy Claude Code profile path exists and is not a directory: %s\n' "$LEGACY_PROFILE_ROOT" >&2
+  exit 1
+fi
 if [[ -L "$PROFILE_ROOT" ]]; then
   printf 'ERROR: Refusing to use a symlinked Claude Code configuration directory: %s\n' "$PROFILE_ROOT" >&2
   exit 1
@@ -170,6 +179,13 @@ if [[ ! -f "$STAGING/install.sh" || -d "$STAGING/.git" ]]; then
   exit 1
 fi
 
+# Migrate the previous top-level profile into the single installation root.
+# Existing in-root configuration overlays legacy files when both are present.
+if [[ -d "$LEGACY_PROFILE_ROOT" ]]; then
+  mkdir -p -- "$STAGING/claude-code"
+  cp -a -- "$LEGACY_PROFILE_ROOT/." "$STAGING/claude-code/"
+fi
+
 # Preserve mutable Claude Code configuration inside the single CE installation
 # root across atomic deployment replacements.
 if [[ -d "$PROFILE_ROOT" ]]; then
@@ -251,6 +267,8 @@ if ! start_and_verify_services; then
   exit 1
 fi
 if [[ -e "$BACKUP_ROOT" ]]; then rm -rf -- "$BACKUP_ROOT"; fi
+# Retire the legacy profile only after audit and all seven service checks pass.
+if [[ -d "$LEGACY_PROFILE_ROOT" ]]; then rm -rf -- "$LEGACY_PROFILE_ROOT"; fi
 printf '\nIndependent CE deployment installed at %s\n' "$DEPLOY_ROOT"
 printf 'Symlink audit passed: no links into Git checkouts under the CE installation root.\n'
 printf 'All seven Claude Ensemble services are active.\n'
