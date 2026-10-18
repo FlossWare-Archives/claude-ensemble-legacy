@@ -30,14 +30,30 @@ Do not write Jira content into the repository, commit it, or print secrets. Keep
 
 ## 3. Run CE review
 
-Use the deployed CE checkout:
-`/home/sfloess/Development/github/FlossWare/claude-ensemble-main-deploy`
+Use the active deployed CE checkout. Set `CE_REPO_PATH` explicitly when the active checkout is not at one of the known deployment locations. Prefer the managed deployment's `current` release when it exists; otherwise use the legacy deployment checkout. Do not fall back to an arbitrary source checkout.
 
-If that path is unavailable, locate the active CE checkout from the user's environment; do not silently use an arbitrary stale checkout.
+Resolve and validate the checkout before running the review:
+```bash
+if [ -z "${CE_REPO_PATH:-}" ]; then
+  if [ -d "$HOME/.FlossWare/claude-ensemble/current/tools" ]; then
+    CE_REPO_PATH="$HOME/.FlossWare/claude-ensemble/current"
+  elif [ -d "$HOME/Development/github/FlossWare/claude-ensemble-main-deploy/tools" ]; then
+    CE_REPO_PATH="$HOME/Development/github/FlossWare/claude-ensemble-main-deploy"
+  else
+    echo "Set CE_REPO_PATH to the active deployed Claude Ensemble checkout." >&2
+    exit 1
+  fi
+fi
+CE_REPO_PATH="$(cd "$CE_REPO_PATH" && pwd -P)" || exit 1
+if [ ! -f "$CE_REPO_PATH/tools/arbitrate.py" ]; then
+  echo "CE_REPO_PATH does not contain tools/arbitrate.py: $CE_REPO_PATH" >&2
+  exit 1
+fi
+```
 
 Run the existing review CLI from the target repository, passing the temporary directory as additional context:
 ```bash
-python3 /home/sfloess/Development/github/FlossWare/claude-ensemble-main-deploy/tools/arbitrate.py \
+python3 "$CE_REPO_PATH/tools/arbitrate.py" \
   code-review "$REPO_PATH" --target-branch "$BASE_BRANCH" \
   --context-dir "$JIRA_CONTEXT_DIR" --phases 1 --tiers 1
 ```
