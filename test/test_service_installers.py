@@ -72,6 +72,11 @@ exit 0
 
     env = os.environ.copy()
     env["HOME"] = str(home)
+    # Exercise the same unit-directory override used by versioned staging.
+    # Every real service installer must honor it and leave the normal user
+    # unit directory untouched.
+    unit_dir = Path(tmp) / "isolated-systemd-units"
+    env["ENSEMBLE_USER_UNIT_DIR"] = str(unit_dir)
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["SYSTEMCTL_LOG"] = str(Path(tmp) / "systemctl.log")
     env["SYSTEMCTL_BIN"] = str(fake_systemctl)
@@ -96,7 +101,7 @@ exit 0
                 f"{result.stdout}\n{result.stderr}"
             )
 
-        installed = home / ".config/systemd/user" / service_name
+        installed = unit_dir / service_name
         if not installed.is_file():
             fail(f"{script} did not install {installed}")
 
@@ -166,13 +171,17 @@ exit 0
 
     systemctl_log = Path(env["SYSTEMCTL_LOG"]).read_text(encoding="utf-8")
     for service_dir, service_name in SERVICES:
-        installed = home / ".config/systemd/user" / service_name
+        installed = unit_dir / service_name
         if not installed.is_file():
             fail(f"top-level installer did not install {installed}")
         if f"enable {service_name}" not in systemctl_log:
             fail(f"top-level installer did not enable {service_name}")
         if f"start {service_name}" not in systemctl_log:
             fail(f"top-level installer did not start {service_name}")
+
+    normal_unit_dir = home / ".config/systemd/user"
+    if any((normal_unit_dir / service_name).exists() for _, service_name in SERVICES):
+        fail("isolated installer wrote service units into the normal user-unit directory")
 
     # A live unit is not sufficient: a readiness endpoint that never returns
     # HTTP 200 must fail the gateway installer, without a 20-second test delay.
