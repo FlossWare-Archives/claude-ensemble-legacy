@@ -14,11 +14,11 @@ set -Eeuo pipefail
 DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 PROFILE_ROOT="$HOME/.FlossWare/claude-ensemble-profile"
 if [[ -L "$PROFILE_ROOT" ]]; then
-  printf 'ERROR: Refusing to install into a symlinked Claude profile: %s\\n' "$PROFILE_ROOT" >&2
+  printf 'ERROR: Refusing to install into a symlinked Claude profile: %s\n' "$PROFILE_ROOT" >&2
   exit 1
 fi
 if [[ -e "$PROFILE_ROOT" && ! -d "$PROFILE_ROOT" ]]; then
-  printf 'ERROR: Claude profile path exists and is not a directory: %s\\n' "$PROFILE_ROOT" >&2
+  printf 'ERROR: Claude profile path exists and is not a directory: %s\n' "$PROFILE_ROOT" >&2
   exit 1
 fi
 case "$DEPLOY_ROOT" in
