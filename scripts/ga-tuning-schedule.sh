@@ -3,6 +3,7 @@
 # No API calls needed - all local evaluation
 
 RH_TOOLS_ROOT="${RH_TOOLS_ROOT:-${CE_GLOBAL_SKILLS_ROOT:-$HOME/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills}}"
+export RH_TOOLS_ROOT
 GA_RESULTS_DIR="$RH_TOOLS_ROOT/ga_tuning/results"
 LOG_FILE="$HOME/.claude/ga_tuning_schedule.log"
 
