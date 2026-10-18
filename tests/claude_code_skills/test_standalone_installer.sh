@@ -13,7 +13,7 @@ mkdir -p "$FAKE_BIN"
 export CE_SYSTEMCTL_LOG="$TMP_ROOT/systemctl.log"
 cat > "$FAKE_BIN/systemctl" <<'SYSTEMCTL'
 #!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$CE_SYSTEMCTL_LOG"
+printf '%s\n' "$*" >> "$CE_SYSTEMCTL_LOG"
 if [[ "$*" == *"is-active"* || "$*" == *"show-environment"* ]]; then exit 0; fi
 exit 0
 SYSTEMCTL
