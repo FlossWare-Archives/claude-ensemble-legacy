@@ -385,7 +385,7 @@ print(json.dumps(reports, indent=2))
 
 ## Support & Questions
 
-- **Module location**: ``cost_tracking/aggregator.py``
+- **Module location**: `cost_tracking/aggregator.py`
 - **Log location**: `~/.claude/cost_tracking/cost.log`
 - **Sample report**: `~/.claude/cost_tracking/sample_report.json`
 
