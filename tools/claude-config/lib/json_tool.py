@@ -29,6 +29,7 @@ LEGACY_HOOK_SHAS={
     },
     "hooks/session-end-comprehensive-capture.sh": {
         "41192633ca004f186e4b3fa31782dbbbb9badd39e0cf827a0e07db5053daa32c",
+        "3be8e65fffc19ed75a9076ece986ed80dafbd39f4a41cba1bd0a18d780cdd7e5",
     },
     "hooks/session-end-learning-capture.sh": {
         "22b65ebe3a726376fe7b510930554385380f64f03b12c55a88af043726736b15",
