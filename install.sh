@@ -398,7 +398,7 @@ fi
 
 if [ -n "$SHELL_RC" ] && [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" != "1" ]]; then
     EXPORT_LINE="export PATH=\"$REPO_PATH/tools:\$PATH\""
-    if ! grep -q "claude-ensemble/tools" "$SHELL_RC" 2>/dev/null; then
+    if ! grep -q "$REPO_PATH/tools" "$SHELL_RC" 2>/dev/null && ! grep -q "claude-ensemble/tools" "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
         echo "# Claude Ensemble Tools" >> "$SHELL_RC"
         echo "$EXPORT_LINE" >> "$SHELL_RC"
