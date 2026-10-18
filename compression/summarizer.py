@@ -17,6 +17,9 @@ from dataclasses import dataclass, asdict
 from collections import defaultdict
 
 
+METRICS_OUTPUT_PATH = Path(__file__).resolve().parent / "worker1_summarizer_metrics.json"
+
+
 @dataclass
 class SummaryStats:
     """Track compression effectiveness"""
@@ -498,7 +501,7 @@ if __name__ == "__main__":
         "per_test_results": [asdict(s) for s in all_stats]
     }
 
-    with (Path(__file__).resolve().parent / 'worker1_summarizer_metrics.json').open('w', encoding='utf-8') as f:
+    with METRICS_OUTPUT_PATH.open('w', encoding='utf-8') as f:
         json.dump(metrics, f, indent=2)
 
     print(f"\nMetrics exported to: compression/worker1_summarizer_metrics.json")
