@@ -34,7 +34,8 @@ if [ ! -d "$REPO_PATH" ]; then
 fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
-CLAUDE_HOME="$HOME/.claude"
+CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-$HOME/.claude}"
+case "$CLAUDE_HOME" in "~") CLAUDE_HOME="$HOME" ;; "~/"*) CLAUDE_HOME="$HOME/${CLAUDE_HOME#\~/}" ;; esac
 MEMORY_SERVICE_DIR="$REPO_PATH/memory-service"
 
 # Fail before changing user configuration when a required runtime is missing.
@@ -332,7 +333,7 @@ fi
 # Step 8: Setup .mcp.json if not exists
 echo ""
 echo "8. Setting up MCP configuration..."
-MCP_CONFIG="$HOME/.mcp.json"
+MCP_CONFIG="$CLAUDE_HOME/.mcp.json"
 if [ ! -f "$MCP_CONFIG" ]; then
     cat > "$MCP_CONFIG" << 'EOF'
 {
@@ -347,7 +348,7 @@ fi
 # Step 9: Setup model configuration
 echo ""
 echo "9. Setting up model configuration..."
-MODEL_CONFIG="$HOME/.claude/toolkit-models.yaml"
+MODEL_CONFIG="$CLAUDE_HOME/toolkit-models.yaml"
 if [ ! -f "$MODEL_CONFIG" ]; then
     if [ -f "$REPO_PATH/.toolkit-models.yaml.default" ]; then
         cp "$REPO_PATH/.toolkit-models.yaml.default" "$MODEL_CONFIG"
@@ -385,6 +386,9 @@ fi
 # Step 11: Add tools to PATH (shell init)
 echo ""
 echo "11. Adding tools to PATH..."
+if [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" == "1" ]]; then
+    echo "   ℹ Standalone deployment: leaving shell startup files unchanged."
+fi
 SHELL_RC=""
 if [ -f "$HOME/.bashrc" ]; then
     SHELL_RC="$HOME/.bashrc"
@@ -392,7 +396,7 @@ elif [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 fi
 
-if [ -n "$SHELL_RC" ]; then
+if [ -n "$SHELL_RC" ] && [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" != "1" ]]; then
     EXPORT_LINE="export PATH=\"$REPO_PATH/tools:\$PATH\""
     if ! grep -q "claude-ensemble/tools" "$SHELL_RC" 2>/dev/null; then
         echo "" >> "$SHELL_RC"
