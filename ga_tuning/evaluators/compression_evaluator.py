@@ -211,7 +211,7 @@ class CompressionEvaluator:
 
 if __name__ == '__main__':
     # Test evaluator
-    rh_memory_dir = Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory'
+    rh_memory_dir = Path(os.environ.get('CE_MEMORY_DIR', Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory')).expanduser()
     evaluator = CompressionEvaluator(rh_memory_dir)
 
     # Test parameters
