@@ -24,6 +24,9 @@ SOURCE="$WORK/source"
 mkdir -p "$SOURCE/tools"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$SOURCE/install.sh"
 cp "$REPO_ROOT/tools/ce-deployment" "$SOURCE/tools/ce-deployment"
+# Model the developer-only absolute symlink present in the real repository.
+mkdir -p "$WORK/external-rh-skills"
+ln -s "$WORK/external-rh-skills" "$SOURCE/claude-global-skills"
 git -C "$SOURCE" init -q
 git -C "$SOURCE" config user.name "CE staging test"
 git -C "$SOURCE" config user.email "ce-staging-test@example.invalid"
@@ -35,6 +38,9 @@ ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \
   bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
 
 [[ -d "$ROOT/releases/0.1" ]] || { echo "FAIL: release was not staged" >&2; exit 1; }
+[[ ! -e "$ROOT/releases/0.1/claude-global-skills" && ! -L "$ROOT/releases/0.1/claude-global-skills" ]] || {
+  echo "FAIL: developer-only external skills symlink leaked into release" >&2; exit 1;
+}
 [[ -f "$ROOT/deployment.json" ]] || { echo "FAIL: staged manifest is missing" >&2; exit 1; }
 python3 - "$ROOT/deployment.json" "$SOURCE" <<'PY'
 import json, subprocess, sys
