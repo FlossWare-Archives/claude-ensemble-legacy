@@ -76,4 +76,12 @@ esac
   self.assertEqual(os.readlink(self.root/"current"),"releases/0.1")
   self.assertFalse((self.root/"activation.json").exists()); self.assertFalse(backup.exists())
   self.assertEqual(set(self.state.read_text().splitlines()),set(UNITS))
+ def test_activation_refuses_invalid_current_symlink_before_touching_services(self):
+  outside=self.root/"outside"; outside.mkdir()
+  current=self.root/"current"; current.symlink_to("releases/../outside")
+  result=self.run_deployment("activate","0.1",check=False)
+  self.assertNotEqual(result.returncode,0)
+  self.assertIn("current symlink is invalid",result.stdout)
+  self.assertEqual(os.readlink(current),"releases/../outside")
+  self.assertFalse(self.log.exists(),"invalid current link must be rejected before systemctl is invoked")
 if __name__=="__main__": unittest.main(verbosity=2)
