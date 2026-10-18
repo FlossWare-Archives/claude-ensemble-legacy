@@ -20,7 +20,7 @@ HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
   *)
-    printf 'ERROR: Deployment path must be a child of HOME: %s\\n' "$ROOT" >&2
+    printf 'ERROR: Deployment path must be a child of HOME: %s\n' "$ROOT" >&2
     exit 1
     ;;
 esac
@@ -32,16 +32,16 @@ VERSION="$1"
 SOURCE_DIR="${2:-}"
 STAGING_ONLY="${ENSEMBLE_STAGING_ONLY:-0}"
 if [[ "$STAGING_ONLY" != "0" && "$STAGING_ONLY" != "1" ]]; then
-  printf 'ERROR: ENSEMBLE_STAGING_ONLY must be 0 or 1.\\n' >&2
+  printf 'ERROR: ENSEMBLE_STAGING_ONLY must be 0 or 1.\n' >&2
   exit 2
 fi
 if [[ "$STAGING_ONLY" == "1" ]]; then
   [[ -n "${ENSEMBLE_INSTALL_ROOT:-}" ]] || {
-    printf 'ERROR: Staging-only mode requires an explicit ENSEMBLE_INSTALL_ROOT beneath HOME.\\n' >&2
+    printf 'ERROR: Staging-only mode requires an explicit ENSEMBLE_INSTALL_ROOT beneath HOME.\n' >&2
     exit 2
   }
   if [[ -e "$ROOT" && -n "$(find "$ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
-    printf 'ERROR: Staging-only mode requires a new or empty install root: %s\\n' "$ROOT" >&2
+    printf 'ERROR: Staging-only mode requires a new or empty install root: %s\n' "$ROOT" >&2
     exit 1
   fi
 fi
@@ -138,7 +138,7 @@ mv -- "$STAGED" "$RELEASE"
 
 if ! ENSEMBLE_INSTALL_ROOT="$ROOT" bash "$RELEASE/tools/ce-deployment" validate "$VERSION"; then
   rm -rf -- "$RELEASE"
-  printf 'ERROR: Staged release failed structural validation.\\n' >&2
+  printf 'ERROR: Staged release failed structural validation.\n' >&2
   exit 1
 fi
 
@@ -160,10 +160,10 @@ with open(path, "w", encoding="utf-8") as output:
 PY
 if [[ "$STAGING_ONLY" == "1" ]]; then
   mv -f -- "$MANIFEST_TMP" "$ROOT/deployment.json"
-  printf 'Staged Claude Ensemble %s at %s/releases/%s\\n' "$VERSION" "$ROOT" "$VERSION"
-  printf 'Source commit: %s\\n' "$SOURCE_COMMIT"
-  printf 'Validation: structural only; no service, systemd unit, current symlink, or Claude profile was changed.\\n'
-  printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
+  printf 'Staged Claude Ensemble %s at %s/releases/%s\n' "$VERSION" "$ROOT" "$VERSION"
+  printf 'Source commit: %s\n' "$SOURCE_COMMIT"
+  printf 'Validation: structural only; no service, systemd unit, current symlink, or Claude profile was changed.\n'
+  printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
   exit 0
 fi
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
