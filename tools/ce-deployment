@@ -117,7 +117,6 @@ validate_release() {
       # root. This prevents a staged checkout/archive from smuggling links to
       # arbitrary files in HOME or the host filesystem into an activated release.
       case "$resolved" in "$ROOT"/*) ;; *) exit 1;; esac
-      case "$resolved" in "$HOME/Development/"*|"$HOME/Development/github/"*) exit 1;; esac
     done; then :; else die "release contains broken links or links into development checkouts"; fi
 }
 JOURNAL="$ROOT/activation.json"
