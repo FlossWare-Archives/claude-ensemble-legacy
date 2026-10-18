@@ -140,7 +140,7 @@ CLAUDE_CONFIG_TOOL="$REPO_PATH/tools/claude-config/lib/json_tool.py"
 if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" ]; then
     python3 "$CLAUDE_CONFIG_TOOL" install-hook \
         "$SETTINGS_FILE" \
-        "~/.claude/hooks/memory-search-on-prompt.js" \
+        "$CLAUDE_HOME/hooks/memory-search-on-prompt.js" \
         "$REPO_PATH/hooks/memory-search-on-prompt.js"
     echo "   ✓ Normalized CE UserPromptSubmit memory hook"
 fi
@@ -211,7 +211,7 @@ echo "4c. Installing ensemble practices guide..."
 CLAUDE_ENSEMBLE_SOURCE="$REPO_PATH/CLAUDE.ENSEMBLE.md"
 install_managed_copy "$CLAUDE_HOME/CLAUDE.ENSEMBLE.md" "$CLAUDE_ENSEMBLE_SOURCE" "CLAUDE.ENSEMBLE.md"
 if [ -f "$CLAUDE_ENSEMBLE_SOURCE" ]; then
-    echo "   ℹ Users can create their own ~/.claude/CLAUDE.md with additional practices"
+    echo "   ℹ Users can create their own $CLAUDE_HOME/CLAUDE.md with additional practices"
 fi
 
 # Step 4d: Install the CE Jira-backed review skill. Preserve custom skill files
@@ -421,7 +421,7 @@ if [ -t 0 ] && [ -t 1 ]; then
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         bash "$CONFIG_SOURCE"
     else
-        echo "   ℹ You can configure anytime by running: ~/.claude/config.sh"
+        echo "   ℹ You can configure anytime by running: $CLAUDE_HOME/config.sh"
     fi
 else
     echo "   ℹ Non-interactive install: keeping default feature configuration."
@@ -433,11 +433,11 @@ echo "  Installation Complete!"
 echo "================================================"
 echo ""
 echo "Next steps:"
-echo "1. Edit ~/.mcp.json with your credentials"
+echo "1. Edit $CLAUDE_HOME/.mcp.json with your credentials"
 echo "2. Ensure API tokens are set in environment"
 echo "3. Exit and restart your terminal"
-echo "4. Run: ensemble-init.sh (should be automatic at shell start)"
-echo "5. To reconfigure tools/features: ~/.claude/config.sh"
+echo "4. Run: $CLAUDE_HOME/ensemble-init.sh (should be automatic at shell start)"
+echo "5. To reconfigure tools/features: $CLAUDE_HOME/config.sh"
 echo ""
 echo "Verify installation:"
 echo "  cost-dashboard.py (view cost tracking)"
