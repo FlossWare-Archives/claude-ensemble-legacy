@@ -249,6 +249,27 @@ assert manifest["validation"] == "activated"
 VERIFY_MANIFEST
 echo "Versioned installer migration contract tests passed."
 
+# Standalone activation must use deployment-owned credential configuration and
+# must never create the legacy global secrets.env file.
+grep -Fq 'ENSEMBLE_INSTALL_ROOT="$ROOT"' "$SCRIPT" || { echo "FAIL: activation does not pass its deployment root to install.sh" >&2; exit 1; }
+python3 - "$SCRIPT_DIR/../install.sh" <<'CREDENTIAL_CONTRACT'
+import sys
+from pathlib import Path
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("# Step 10: Setup credentials file")
+end = source.index("# Step 11: Add tools to PATH", start)
+block = source[start:end]
+standalone = block.index('if [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" == "1" ]]')
+global_file = block.index('SECRETS_FILE="$HOME/.FlossWare/secrets.env"')
+assert standalone < global_file, "standalone guard must precede legacy global credentials path"
+standalone_block = block[standalone:block.index("\nelse\n", standalone)]
+assert "ENSEMBLE_INSTALL_ROOT" in standalone_block
+assert "shared/config/environment" in standalone_block
+assert "not creating ~/.FlossWare/secrets.env" in standalone_block
+assert "cat >" not in standalone_block, "standalone mode must not create credential files"
+CREDENTIAL_CONTRACT
+echo "Standalone credential isolation contract passed."
+
 # Exercise the real seven service installers through a logical current symlink.
 # They must render stable-current ExecStart paths rather than pinned release paths.
 SERVICE_HOME="$TMP/service-home"

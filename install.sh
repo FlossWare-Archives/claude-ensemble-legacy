@@ -361,12 +361,25 @@ else
 fi
 
 # Step 10: Setup credentials file
-echo ""
-echo "10. Setting up credentials..."
-SECRETS_FILE="$HOME/.FlossWare/secrets.env"
-mkdir -p "$(dirname "$SECRETS_FILE")"
-if [ ! -f "$SECRETS_FILE" ]; then
-    cat > "$SECRETS_FILE" << 'EOF'
+# A managed release must not create or mutate a global credentials file outside
+# its deployment. Its service units optionally read shared/config/environment;
+# credential provisioning is deliberately separate from release activation.
+if [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" == "1" ]]; then
+    if [[ -z "${ENSEMBLE_INSTALL_ROOT:-}" ]]; then
+        echo "ERROR: Standalone install requires ENSEMBLE_INSTALL_ROOT; refusing global credential fallback." >&2
+        exit 1
+    fi
+    CREDENTIALS_ENV="${ENSEMBLE_INSTALL_ROOT%/}/shared/config/environment"
+    echo "   ℹ Standalone deployment: not creating ~/.FlossWare/secrets.env."
+    echo "   ℹ Optional managed service environment file: $CREDENTIALS_ENV"
+    echo "   ℹ Provision credentials separately; this installer does not copy or create secrets."
+else
+    # Compatibility for legacy development installs only. Managed standalone
+    # deployments must use their deployment-owned configuration/credential flow.
+    SECRETS_FILE="$HOME/.FlossWare/secrets.env"
+    mkdir -p "$(dirname "$SECRETS_FILE")"
+    if [ ! -f "$SECRETS_FILE" ]; then
+        cat > "$SECRETS_FILE" << 'EOF'
 # Claude Ensemble API Credentials
 # Source this file in your shell or set these in your environment
 #
@@ -374,13 +387,14 @@ if [ ! -f "$SECRETS_FILE" ]; then
 # export GOOGLE_API_KEY="your-key-here"
 # export CURSOR_API_KEY="your-key-here"
 EOF
-    echo "   ✓ Created $SECRETS_FILE"
-    echo "   ℹ Edit it with your API keys:"
-    echo "     - ANTHROPIC_API_KEY (for Claude models)"
-    echo "     - GOOGLE_API_KEY (for Gemini)"
-    echo "     - CURSOR_API_KEY (for JetBrains Cursor)"
-else
-    echo "   ✓ $SECRETS_FILE already exists"
+        echo "   ✓ Created $SECRETS_FILE"
+        echo "   ℹ Edit it with your API keys:"
+        echo "     - ANTHROPIC_API_KEY (for Claude models)"
+        echo "     - GOOGLE_API_KEY (for Gemini)"
+        echo "     - CURSOR_API_KEY (for Cursor-compatible providers)"
+    else
+        echo "   ✓ $SECRETS_FILE already exists"
+    fi
 fi
 
 # Step 11: Add tools to PATH (shell init)
