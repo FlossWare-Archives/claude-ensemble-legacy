@@ -72,6 +72,14 @@ if bash "$SCRIPT" validate 0.1.1 >/dev/null 2>&1; then
   exit 1
 fi
 
+# Release symlinks may target shared deployment state, never arbitrary host paths.
+ln -s /etc/passwd "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+if bash "$SCRIPT" validate 0.1 >/dev/null 2>&1; then
+  echo 'FAIL: release symlink escaping deployment root was accepted' >&2
+  exit 1
+fi
+rm "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+
 # First activation should start all seven mocked services.
 bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
