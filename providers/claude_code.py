@@ -178,7 +178,7 @@ class ClaudeCodeProvider(ModelProvider):
         else:
             # Isolate the CLI and its descendants so timeout cleanup cannot signal
             # the gateway process or leave child processes holding our pipes open.
-            kwargs["start_new_session"] = True.
+            kwargs["start_new_session"] = True
 
         try:
             return subprocess.Popen(command, **kwargs)
