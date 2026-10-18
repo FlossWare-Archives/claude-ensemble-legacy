@@ -95,7 +95,7 @@ class GeneticAlgorithm:
     def initialize_evaluators(self):
         """Initialize all 5 evaluators"""
         logger.info("Initializing evaluators...")
-        rh_memory_dir = Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory'
+        rh_memory_dir = Path(os.environ.get('CE_MEMORY_DIR', Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory')).expanduser()
 
         self.evaluators['compression'] = CompressionEvaluator(rh_memory_dir)
         self.evaluators['thompson'] = ThompsonEvaluator()
