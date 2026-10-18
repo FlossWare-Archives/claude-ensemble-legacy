@@ -212,7 +212,7 @@ All reports are JSON with structure:
 }
 ```
 
-Sample report: ``$HOME/.claude/cost_tracking/sample_report.json``
+Sample report: `$HOME/.claude/cost_tracking/sample_report.json`
 
 ## Usage Patterns
 
@@ -398,5 +398,5 @@ cat ~/.claude/cost_tracking/sample_report.json | python3 -m json.tool | less
 ---
 
 **Status**: ✓ Complete and tested  
-**Module Location**: ``cost_tracking/aggregator.py``  
+**Module Location**: `cost_tracking/aggregator.py`  
 **Sample Report**: `~/.claude/cost_tracking/sample_report.json` (33 KB)
