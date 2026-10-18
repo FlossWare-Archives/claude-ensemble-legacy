@@ -162,7 +162,7 @@ if [[ ! -f "$STAGING/install.sh" || -d "$STAGING/.git" ]]; then
   exit 1
 fi
 
-BACKUP_ROOT="${DEPLOY_ROOT}.previous.$"
+BACKUP_ROOT="${DEPLOY_ROOT}.previous.$$"
 if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
   printf 'ERROR: Backup path already exists: %s\n' "$BACKUP_ROOT" >&2
   exit 1
