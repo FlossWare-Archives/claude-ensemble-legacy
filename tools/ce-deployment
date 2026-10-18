@@ -240,6 +240,10 @@ case "$cmd" in
     mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
     validate_release "$version"
     previous="$(active_version || true)"
+    if [[ -f "$KNOWN_GOOD" ]]; then
+      recorded_active="$(known_good_field active)" || die "known-good state is invalid"
+      [[ "$recorded_active" == "$previous" ]] || die "current release ${previous:-none} does not match known-good state $recorded_active; recover or reconcile deployment state first"
+    fi
     [[ "$previous" != "$version" ]] || { printf "Release %s is already active.\n" "$version"; exit 0; }
     backup="$BACKUPS/activation.$(date +%Y%m%d%H%M%S).$$"
     mkdir -m 700 "$backup"
