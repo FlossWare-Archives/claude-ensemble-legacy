@@ -11,7 +11,7 @@
 
 set -Eeuo pipefail
 
-DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.local/opt/claude-ensemble}"
+DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 case "$DEPLOY_ROOT" in
   "~") DEPLOY_ROOT="$HOME" ;;
   "~/"*) DEPLOY_ROOT="$HOME/${DEPLOY_ROOT#\~/}" ;;

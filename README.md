@@ -48,7 +48,7 @@ Workflow outcomes pass through the Learning service only when they have durable,
 curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tools/install-ce-standalone.sh | bash
 ```
 
-This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.local/opt/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Managed files in the Claude Code profile are copies, not symlinks into your development checkout. The deployment can therefore keep running if you move, clean, or update the working Git repository.
+This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.FlossWare/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Managed files in the Claude Code profile are copies, not symlinks into your development checkout. The deployment can therefore keep running if you move, clean, or update the working Git repository.
 
 To deploy the current contents of an existing checkout, including its uncommitted changes, run:
 
@@ -61,7 +61,7 @@ Set `ENSEMBLE_INSTALL_ROOT` to choose a different deployment directory. Re-runni
 The lower-level `install.sh [checkout-path]` remains available for direct installation from a chosen tree. Prefer the standalone installer when the deployed runtime must be independent of a developer checkout.
 
 The installer:
-1. Deploys CE under `~/.local/opt/claude-ensemble` by default, without copying Git metadata
+1. Deploys CE under `~/.FlossWare/claude-ensemble` by default, without copying Git metadata
 2. Installs hooks and managed toolkit files as independent copies under `~/.claude/`
 3. Installs the complete `/ce-*` skill set unless different existing skills must be preserved
 4. Sets up credentials storage at `~/.FlossWare/secrets.env`
