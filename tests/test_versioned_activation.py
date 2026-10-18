@@ -43,9 +43,12 @@ esac
   for version in ("0.1","0.2"):
    release=self.root/"releases"/version; (release/"tools").mkdir(parents=True)
    shutil.copy2(DEPLOYMENT_SOURCE,release/"tools"/"ce-deployment")
+   shutil.copy2(REPO/"tools"/"managed_unit_config.py",release/"tools"/"managed_unit_config.py")
+   for service_dir in ("memory-service","thompson-service","learning-service","alert_service","session-messaging","graph-service","server"):
+    shutil.copytree(REPO/service_dir,release/service_dir)
    (release/"claude-code").symlink_to("../../shared/claude-code")
    installer=release/"install.sh"
-   installer.write_text("#!/usr/bin/env bash\nset -euo pipefail\nunit_dir=\"$ENSEMBLE_USER_UNIT_DIR\"\nmkdir -p \"$unit_dir\"\nfor unit in "+" ".join(UNITS)+"; do printf 'ExecStart=%s\\n' \"$1\" > \"$unit_dir/$unit\"; done\n")
+   installer.write_text("#!/usr/bin/env bash\nset -euo pipefail\nunit_dir=\"$ENSEMBLE_USER_UNIT_DIR\"\nmkdir -p \"$unit_dir\"\nfor unit in "+" ".join(UNITS)+"; do printf '[Unit]\\nDescription=test\\n[Service]\\nType=simple\\nExecStart=%s/fake-service\\n[Install]\\nWantedBy=default.target\\n' \"$1\" > \"$unit_dir/$unit\"; done\n")
    installer.chmod(0o755)
  def run_deployment(self,*args,check=True,extra_env=None):
   env=self.env.copy()

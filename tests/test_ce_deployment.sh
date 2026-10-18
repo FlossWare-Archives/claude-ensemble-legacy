@@ -17,6 +17,7 @@ set -Eeuo pipefail
 [[ "${1:-}" == --user ]] && shift
 command="${1:-}"
 [[ $# -eq 0 ]] || shift
+touch "$CE_TEST_STATE/systemctl-called"
 case "$command" in
   show-environment|daemon-reload|enable) exit 0 ;;
   stop)
@@ -54,6 +55,10 @@ chmod +x "$TMP/bin/systemctl" "$TMP/bin/python3"
 export PATH="$TMP/bin:$PATH"
 
 for version in 0.1 0.2; do
+  for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+    cp -a "$SCRIPT_DIR/../$service_dir" "$ENSEMBLE_INSTALL_ROOT/releases/$version/"
+  done
+  cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$ENSEMBLE_INSTALL_ROOT/releases/$version/tools/managed_unit_config.py"
   cat > "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh" <<'MOCK_INSTALL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -68,6 +73,8 @@ done
 
 # Version labels and release structure are validated without touching services.
 bash "$SCRIPT" validate 0.1
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: validate changed current' >&2; exit 1; }
+[[ ! -e "$CE_TEST_STATE/systemctl-called" ]] || { echo 'FAIL: validate invoked systemctl' >&2; exit 1; }
 if bash "$SCRIPT" validate 0.1.1 >/dev/null 2>&1; then
   echo 'FAIL: patch version unexpectedly accepted' >&2
   exit 1
@@ -80,6 +87,19 @@ if bash "$SCRIPT" validate 0.1 >/dev/null 2>&1; then
   exit 1
 fi
 rm "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+
+# A structurally valid release with a broken generated unit must fail preflight
+# before activation, systemd calls, or current-symlink mutation.
+GRAPH_TEMPLATE="$ENSEMBLE_INSTALL_ROOT/releases/0.2/graph-service/claude-graph.service.template"
+cp "$GRAPH_TEMPLATE" "$TMP/graph-template.backup"
+sed -i '/^ExecStart=/d' "$GRAPH_TEMPLATE"
+if bash "$SCRIPT" validate 0.2 >/dev/null 2>&1; then
+  echo 'FAIL: preflight accepted a service unit without ExecStart' >&2
+  exit 1
+fi
+mv "$TMP/graph-template.backup" "$GRAPH_TEMPLATE"
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: failed preflight changed current' >&2; exit 1; }
+[[ ! -e "$CE_TEST_STATE/systemctl-called" ]] || { echo 'FAIL: failed preflight invoked systemctl' >&2; exit 1; }
 
 # The helper itself enforces the same path boundary as the installer.
 if ENSEMBLE_INSTALL_ROOT="$TMP/outside-root" bash "$SCRIPT" status >/dev/null 2>&1; then
@@ -170,6 +190,10 @@ INSTALL_HOME="$TMP/install-home"
 INSTALL_ROOT="$INSTALL_HOME/.FlossWare/claude-ensemble"
 SOURCE_FIXTURE="$TMP/source-fixture"
 mkdir -p "$INSTALL_HOME/.FlossWare/claude-ensemble-profile" "$INSTALL_ROOT/claude-code" "$INSTALL_ROOT/shared/claude-code" "$SOURCE_FIXTURE/tools"
+for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+  cp -a "$SCRIPT_DIR/../$service_dir" "$SOURCE_FIXTURE/"
+done
+cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$SOURCE_FIXTURE/tools/managed_unit_config.py"
 printf '{"custom":"legacy-settings"}\n' > "$INSTALL_ROOT/claude-code/settings.json"
 printf '{"custom":"keep-me"}\n' > "$INSTALL_ROOT/claude-code/legacy-only.json"
 printf '{"custom":"top-level-legacy"}\n' > "$INSTALL_HOME/.FlossWare/claude-ensemble-profile/legacy-only.json"
