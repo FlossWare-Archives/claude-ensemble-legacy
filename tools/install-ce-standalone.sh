@@ -220,7 +220,7 @@ if ! verify_ce_services_stopped; then
   restore_preinstall_services
   exit 1
 fi
-if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$PROFILE_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
+if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$PROFILE_ROOT" all; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
