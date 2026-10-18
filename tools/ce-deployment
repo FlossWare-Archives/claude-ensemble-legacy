@@ -88,6 +88,7 @@ start_services() {
   # switching current. Its service installers then render units against current,
   # while all mutable Claude configuration remains in shared/.
   ENSEMBLE_STANDALONE_INSTALL=1 \
+    ENSEMBLE_INSTALL_ROOT="$ROOT" \
     ENSEMBLE_USER_UNIT_DIR="$UNIT_DIR" \
     ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
     ENSEMBLE_DEFER_SERVICE_START=1 \
