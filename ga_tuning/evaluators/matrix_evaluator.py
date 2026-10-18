@@ -14,6 +14,7 @@ Uses heuristic complexity scoring from file content.
 """
 
 import logging
+import os
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -317,7 +318,7 @@ class MatrixEvaluator:
 
 if __name__ == '__main__':
     # Test evaluator
-    rh_memory_dir = Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory'
+    rh_memory_dir = Path(os.environ.get('CE_MEMORY_DIR', Path.home() / 'Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory')).expanduser()
     evaluator = MatrixEvaluator(rh_memory_dir)
 
     test_params = {
