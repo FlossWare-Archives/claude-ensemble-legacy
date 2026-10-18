@@ -7,8 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ce-staging-test.XXXXXX")"
 trap 'rm -rf -- "$WORK"' EXIT
 
 export HOME="$WORK/home"
-mkdir -p "$HOME/.FlossWare/claude-ensemble-profile" "$HOME/.claude" "$WORK/mock-bin"
-printf 'legacy-profile-sentinel\n' > "$HOME/.FlossWare/claude-ensemble-profile/sentinel"
+mkdir -p "$HOME" "$HOME/.claude" "$WORK/mock-bin"
 printf 'ordinary-profile-sentinel\n' > "$HOME/.claude/sentinel"
 SYSTEMCTL_LOG="$WORK/systemctl.log"
 export SYSTEMCTL_LOG
@@ -49,7 +48,8 @@ grep -q 'must be a real directory, not a symlink' "$WORK/symlink.out" || {
   exit 1
 }
 rm "$HOME/.FlossWare"
-mkdir "$HOME/.FlossWare"
+mkdir -p "$HOME/.FlossWare/claude-ensemble-profile"
+printf 'legacy-profile-sentinel\n' > "$HOME/.FlossWare/claude-ensemble-profile/sentinel"
 
 ROOT="$HOME/.FlossWare/staging-target"
 ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \
