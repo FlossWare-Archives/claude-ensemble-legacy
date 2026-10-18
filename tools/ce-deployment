@@ -42,6 +42,36 @@ active_version() {
   [[ -d "$RELEASES/$version" && ! -L "$RELEASES/$version" ]] || return 1
   printf '%s\n' "$version"
 }
+preflight_units() {
+  local version="$1" temp installer
+  local installers=(
+    memory-service/install.sh
+    thompson-service/install.sh
+    learning-service/install.sh
+    alert_service/install.sh
+    session-messaging/install.sh
+    graph-service/install.sh
+    server/install.sh
+  )
+  temp="$(mktemp -d "${TMPDIR:-/tmp}/ce-unit-preflight.XXXXXX")" || die "could not create unit preflight directory"
+  for installer in "${installers[@]}"; do
+    if ! SYSTEMCTL_BIN=true ENSEMBLE_STANDALONE_INSTALL=1 \
+      ENSEMBLE_USER_UNIT_DIR="$temp" \
+      ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
+      ENSEMBLE_DEFER_SERVICE_START=1 \
+      bash "$RELEASES/$version/$installer"; then
+      rm -rf -- "$temp"
+      die "unit preflight failed while running $installer"
+    fi
+  done
+  if ! python3 "$RELEASES/$version/tools/managed_unit_config.py" configure \
+    "$temp" "$ROOT" "$CURRENT" "$RELEASES/$version"; then
+    rm -rf -- "$temp"
+    die "generated service units failed preflight for release $version"
+  fi
+  rm -rf -- "$temp"
+}
+
 stop_services() {
   local unit
   for unit in "${STOP_ORDER[@]}"; do "$SYSTEMCTL_BIN" --user stop "$unit" >/dev/null 2>&1 || true; done
@@ -65,50 +95,7 @@ start_services() {
   # Keep managed deployment state out of the development profile and global config.
   mkdir -p "$ROOT/shared/config" "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
     "$ROOT/shared/data/alerts" "$ROOT/shared/logs" "$ROOT/shared/runtime"
-  python3 - "$UNIT_DIR" "$ROOT" "$CURRENT" <<'PY'
-import sys
-from pathlib import Path
-
-unit_dir, root, current = map(Path, sys.argv[1:])
-units = {
-    "claude-memory.service": {"ENSEMBLE_MEMORY_DIR": root / "shared/data/memory", "ENSEMBLE_MEMORY_SOCKET": root / "shared/runtime/memory.sock"},
-    "claude-thompson.service": {"ENSEMBLE_THOMPSON_STATE_FILE": root / "shared/data/thompson-sampling-state.json", "ENSEMBLE_THOMPSON_SOCKET": root / "shared/runtime/thompson.sock"},
-    "claude-learning.service": {"ENSEMBLE_LEARNING_DIR": root / "shared/data/learning", "ENSEMBLE_LEARNING_SOCKET": root / "shared/runtime/learning.sock"},
-    "claude-alert.service": {"ENSEMBLE_ALERT_DIR": root / "shared/data/alerts", "ENSEMBLE_ALERT_SOCKET": root / "shared/runtime/alert.sock"},
-    "claude-messenger.service": {"CLAUDE_MESSENGER_SOCKET": root / "shared/runtime/messenger.sock"},
-    "claude-graph.service": {"ENSEMBLE_GRAPH_STORE": root / "shared/data/graph.json"},
-    "claude-ensemble.service": {},
-}
-environment_file = root / "shared/config/environment"
-common = {
-    "ENSEMBLE_LOG_DIR": root / "shared/logs",
-    "ENSEMBLE_RUNTIME_DIR": root / "shared/runtime",
-    "ENSEMBLE_REPO_ROOT": current,
-    "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": root / "shared/claude-code",
-}
-def quote_env(value):
-    return str(value).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
-def escape_path(value):
-    return str(value).replace("%", "%%").replace("\\", "\\\\").replace(" ", "\\x20").replace("\t", "\\x09")
-for unit, specific in units.items():
-    path = unit_dir / unit
-    if not path.is_file():
-        raise SystemExit(f"missing generated service unit: {path}")
-    lines = path.read_text(encoding="utf-8").splitlines()
-    lines = [line for line in lines if not line.startswith("EnvironmentFile=")]
-    try:
-        service_index = lines.index("[Service]")
-    except ValueError as exc:
-        raise SystemExit(f"generated unit has no [Service] section: {path}") from exc
-    lines.insert(service_index + 1, f"EnvironmentFile=-{escape_path(environment_file)}")
-    values = {**common, **specific}
-    names = set(values)
-    lines = [line for line in lines if not any(line.startswith(f'Environment="{name}=') for name in names)]
-    env_lines = [f'Environment="{name}={quote_env(value)}"' for name, value in values.items()]
-    install_index = next((i for i, line in enumerate(lines) if line == "[Install]"), len(lines))
-    lines[install_index:install_index] = env_lines
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
+  python3 "$CURRENT/tools/managed_unit_config.py" configure "$UNIT_DIR" "$ROOT" "$CURRENT"
   local unit file
   for unit in "${UNITS[@]}"; do
     file="$UNIT_DIR/$unit"
@@ -283,14 +270,16 @@ case "$cmd" in
   validate)
     [[ $# -eq 2 ]] || die "usage: ce-deployment validate MAJOR.MINOR"
     validate_release "$2"
-    printf 'Release %s passed structural validation.\n' "$2"
+    preflight_units "$2"
+    printf 'Release %s and its generated service units passed validation.\n' "$2"
     ;;
   activate)
     [[ $# -eq 2 ]] || die "usage: ce-deployment activate MAJOR.MINOR"
     [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
     version="$2"
-    mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
     validate_release "$version"
+    preflight_units "$version"
+    mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
     if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
       previous="$(active_version)" || die "current symlink is invalid; refusing activation"
     else
