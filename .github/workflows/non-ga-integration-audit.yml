@@ -61,14 +61,17 @@ jobs:
           cache: npm
       - name: Install JavaScript dependencies
         run: npm ci
-      - name: Run JavaScript tests
+      - name: Run JavaScript unit tests (no PostgreSQL required)
+        run: npm test
+
+      - name: Run required PostgreSQL integration test
         env:
           PGHOST: 127.0.0.1
           PGPORT: 5432
           PGDATABASE: learning
           PGUSER: ensemble
           PGPASSWORD: ensemble-test
-        run: npm test
+        run: npm run test:integration:postgres
       - name: Run JavaScript lint
         run: npm run lint
 

@@ -1,13 +1,21 @@
 # Audit finding: PostgreSQL integration test environment
 
 **Tracking:** [GitHub issue #526](https://github.com/FlossWare/claude-ensemble/issues/526)  
-**Status:** Open  
-**Priority:** Test reliability.
+**Status:** In progress  
+**Priority:** Keep integration coverage required while separating it from local unit tests.
 
 ## Description
-When running `npm test`, `learning/test_dcab_critical.cjs` connects to PostgreSQL using `PGHOST` / `PGPORT` and related environment variables, defaulting to `127.0.0.1:5432`. A machine without the expected database receives a connection failure.
+`learning/test_dcab_critical.cjs` verifies a real PostgreSQL connection and transaction round trip. It must not silently skip or mock database access when PostgreSQL is unavailable.
 
-## Triage guidance
-Do not automatically mock or silently skip this integration test when PostgreSQL is unavailable. Separate environment-independent unit tests from database integration tests; provision PostgreSQL in CI for the required integration job, and make any intentionally omitted integration run explicit and visible.
+## Resolution approach
+- `npm test` runs environment-independent JavaScript unit tests and syntax checks.
+- `npm run test:integration:postgres` runs the real PostgreSQL integration test.
+- GitHub Actions provisions PostgreSQL and runs the integration test in a dedicated required step.
+- GitLab CI has a dedicated PostgreSQL service job for the same integration test.
+- Connection errors include the configured host, port, database, and user (never the password), with the original error retained as the cause.
 
-See [issue #526](https://github.com/FlossWare/claude-ensemble/issues/526) for acceptance criteria.
+## Local integration test
+Start PostgreSQL, create/configure a test database, then set `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` for that test environment and run `npm run test:integration:postgres`. See `learning/README.md`.
+
+## Source
+Audit recorded in commit [3462918](https://github.com/FlossWare/claude-ensemble/commit/34629180fd9d66e13c546175f9c6eece4ddd20c8).

@@ -38,6 +38,26 @@ test:
     - npm test
   <<: *default_rules
 
+test-postgres-integration:
+  stage: test
+  <<: *node_image
+  <<: *node_cache
+  services:
+    - name: postgres:16
+      alias: postgres
+  variables:
+    POSTGRES_DB: learning
+    POSTGRES_USER: ensemble
+    POSTGRES_PASSWORD: ensemble-test
+    PGHOST: postgres
+    PGPORT: "5432"
+    PGDATABASE: learning
+    PGUSER: ensemble
+    PGPASSWORD: ensemble-test
+  script:
+    - npm run test:integration:postgres
+  <<: *default_rules
+
 # Syntax lint for all tracked JavaScript modules. This is a required gate.
 lint:
   stage: quality
