@@ -7,8 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ce-staging-test.XXXXXX")"
 trap 'rm -rf -- "$WORK"' EXIT
 
 export HOME="$WORK/home"
-mkdir -p "$HOME/.FlossWare/claude-ensemble-profile" "$HOME/.claude" "$WORK/mock-bin"
-printf 'legacy-profile-sentinel\n' > "$HOME/.FlossWare/claude-ensemble-profile/sentinel"
+mkdir -p "$HOME" "$HOME/.claude" "$WORK/mock-bin"
 printf 'ordinary-profile-sentinel\n' > "$HOME/.claude/sentinel"
 SYSTEMCTL_LOG="$WORK/systemctl.log"
 export SYSTEMCTL_LOG
@@ -32,6 +31,25 @@ git -C "$SOURCE" config user.name "CE staging test"
 git -C "$SOURCE" config user.email "ce-staging-test@example.invalid"
 git -C "$SOURCE" add install.sh tools/ce-deployment
 git -C "$SOURCE" -c user.name="CE staging test" -c user.email="ce-staging-test@example.invalid" commit -qm "fixture"
+
+# Exercise the real-host layout where a .FlossWare symlink resolves under Development.
+# A symlinked ~/.FlossWare must be rejected rather than silently staging into
+# a development checkout or another redirected location.
+mkdir -p "$WORK/redirected"
+ln -s "$WORK/redirected" "$HOME/.FlossWare"
+if ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/staging-target" ENSEMBLE_STAGING_ONLY=1 \
+    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE" >"$WORK/symlink.out" 2>&1; then
+  echo "FAIL: installer accepted a symlinked ~/.FlossWare" >&2
+  exit 1
+fi
+grep -q 'must be a real directory, not a symlink' "$WORK/symlink.out" || {
+  cat "$WORK/symlink.out" >&2
+  echo "FAIL: symlinked ~/.FlossWare refused for an unexpected reason" >&2
+  exit 1
+}
+rm "$HOME/.FlossWare"
+mkdir -p "$HOME/.FlossWare/claude-ensemble-profile"
+printf 'legacy-profile-sentinel\n' > "$HOME/.FlossWare/claude-ensemble-profile/sentinel"
 
 ROOT="$HOME/.FlossWare/staging-target"
 ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \

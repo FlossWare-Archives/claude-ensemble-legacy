@@ -9,6 +9,15 @@
 # tree is how rollback plans become folklore.
 set -Eeuo pipefail
 
+# ~/.FlossWare is the canonical home for CE deployment state. Do not silently
+# follow a symlink here: that can relocate staging/releases into a development
+# checkout and defeats the intended separation between deployed state and source.
+FLOSSWARE_HOME="$HOME/.FlossWare"
+if [[ -L "$FLOSSWARE_HOME" ]]; then
+  printf 'ERROR: %s must be a real directory, not a symlink. Resolve the path explicitly before installing.\n' "$FLOSSWARE_HOME" >&2
+  exit 1
+fi
+
 ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
 ROOT="${ROOT%/}"
