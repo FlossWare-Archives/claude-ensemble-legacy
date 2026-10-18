@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_NAME="claude-graph.service"
 SERVICE_TEMPLATE="$REPO_ROOT/graph-service/claude-graph.service.template"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
-SYSTEMD_DIR="${HOME}/.config/systemd/user"
+SYSTEMD_DIR="${ENSEMBLE_USER_UNIT_DIR:-${HOME}/.config/systemd/user}"
 SERVICE_FILE="$SYSTEMD_DIR/$SERVICE_NAME"
 
 if [[ ! -f "$SERVICE_TEMPLATE" ]]; then

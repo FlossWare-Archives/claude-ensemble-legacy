@@ -7,7 +7,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVICE_NAME="claude-messenger"
 SERVICE_TEMPLATE="$REPO_ROOT/session-messaging/${SERVICE_NAME}.service.template"
-SERVICE_DIR="$HOME/.config/systemd/user"
+SERVICE_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
 
 if [ ! -f "$SERVICE_TEMPLATE" ]; then
