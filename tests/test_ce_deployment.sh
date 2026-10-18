@@ -80,6 +80,18 @@ if bash "$SCRIPT" validate 0.1 >/dev/null 2>&1; then
 fi
 rm "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
 
+# The helper itself enforces the same path boundary as the installer.
+if ENSEMBLE_INSTALL_ROOT="$TMP/outside-root" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment root outside HOME was accepted' >&2
+  exit 1
+fi
+ln -s "$ENSEMBLE_INSTALL_ROOT" "$HOME/ce-root-link"
+if ENSEMBLE_INSTALL_ROOT="$HOME/ce-root-link" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: symlinked deployment root was accepted' >&2
+  exit 1
+fi
+rm "$HOME/ce-root-link"
+
 # First activation should start all seven mocked services.
 bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
