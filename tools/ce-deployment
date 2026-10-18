@@ -7,6 +7,8 @@
 set -Eeuo pipefail
 
 ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
+SYSTEMCTL_BIN="${ENSEMBLE_SYSTEMCTL_BIN:-systemctl}"
+UNIT_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
 ROOT="${ROOT%/}"
 ROOT_PARENT="$(dirname -- "$ROOT")"
@@ -39,9 +41,9 @@ active_version() {
 }
 stop_services() {
   local unit
-  for unit in "${STOP_ORDER[@]}"; do systemctl --user stop "$unit" >/dev/null 2>&1 || true; done
+  for unit in "${STOP_ORDER[@]}"; do "$SYSTEMCTL_BIN" --user stop "$unit" >/dev/null 2>&1 || true; done
   for unit in "${UNITS[@]}"; do
-    if systemctl --user is-active --quiet "$unit"; then
+    if "$SYSTEMCTL_BIN" --user is-active --quiet "$unit"; then
       printf 'ERROR: service remained active after stop: %s\n' "$unit" >&2
       return 1
     fi
@@ -53,12 +55,13 @@ start_services() {
   # switching current. Its service installers then render units against current,
   # while all mutable Claude configuration remains in shared/.
   ENSEMBLE_STANDALONE_INSTALL=1 \
+    ENSEMBLE_USER_UNIT_DIR="$UNIT_DIR" \
     ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
     ENSEMBLE_DEFER_SERVICE_START=1 \
     bash "$CURRENT/install.sh" "$CURRENT"
   local unit file
   for unit in "${UNITS[@]}"; do
-    file="$HOME/.config/systemd/user/$unit"
+    file="$UNIT_DIR/$unit"
     [[ -f "$file" ]] || { printf 'ERROR: generated unit is missing: %s\n' "$unit" >&2; return 1; }
     grep -Fq "$CURRENT" "$file" || { printf 'ERROR: unit does not use stable current path: %s\n' "$unit" >&2; return 1; }
     if grep -Eq 'releases/[0-9]+\.[0-9]+' "$file"; then
@@ -66,10 +69,10 @@ start_services() {
       return 1
     fi
   done
-  systemctl --user daemon-reload
-  for unit in "${START_ORDER[@]}"; do systemctl --user start "$unit"; done
+  "$SYSTEMCTL_BIN" --user daemon-reload
+  for unit in "${START_ORDER[@]}"; do "$SYSTEMCTL_BIN" --user start "$unit"; done
   for unit in "${UNITS[@]}"; do
-    systemctl --user is-active --quiet "$unit" || {
+    "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" || {
       printf 'ERROR: service failed to become active: %s\n' "$unit" >&2
       return 1
     }
@@ -81,7 +84,7 @@ import time
 import urllib.error
 import urllib.request
 
-url = "http://127.0.0.1:8080/api/v1/ready"
+url = __import__("os").environ.get("ENSEMBLE_READY_URL", "http://127.0.0.1:8080/api/v1/ready")
 deadline = time.monotonic() + 20
 last_error = "readiness endpoint did not become ready"
 while time.monotonic() < deadline:
@@ -161,11 +164,11 @@ PY
 restore_units() {
   local backup="$1" active_file="$2" unit file
   for unit in "${UNITS[@]}"; do
-    file="$HOME/.config/systemd/user/$unit"
+    file="$UNIT_DIR/$unit"
     if [[ -e "$backup/$unit" || -L "$backup/$unit" ]]; then cp -a -- "$backup/$unit" "$file"; else rm -f -- "$file"; fi
   done
-  systemctl --user daemon-reload
-  while IFS= read -r unit; do [[ -n "$unit" ]] && systemctl --user start "$unit"; done < "$active_file"
+  "$SYSTEMCTL_BIN" --user daemon-reload
+  while IFS= read -r unit; do [[ -n "$unit" ]] && "$SYSTEMCTL_BIN" --user start "$unit"; done < "$active_file"
 }
 
 recover_activation() {
@@ -209,9 +212,9 @@ case "$cmd" in
     active_file="$backup/active-before.txt"
     : > "$active_file"
     for unit in "${UNITS[@]}"; do
-      file="$HOME/.config/systemd/user/$unit"
+      file="$UNIT_DIR/$unit"
       if [[ -e "$file" || -L "$file" ]]; then cp -a -- "$file" "$backup/$unit"; fi
-      systemctl --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
+      "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
     done
     write_journal "$previous" "$version" "$backup" "$active_file"
     [[ -f "$JOURNAL" ]] || die "failed to persist activation journal at $JOURNAL"
