@@ -63,7 +63,7 @@ start_services() {
     ENSEMBLE_DEFER_SERVICE_START=1 \
     bash "$CURRENT/install.sh" "$CURRENT"
   # Keep managed deployment state out of the development profile and global config.
-  mkdir -p "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
+  mkdir -p "$ROOT/shared/config" "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
     "$ROOT/shared/data/alerts" "$ROOT/shared/logs" "$ROOT/shared/runtime"
   python3 - "$UNIT_DIR" "$ROOT" "$CURRENT" <<'PY'
 import sys
@@ -79,7 +79,7 @@ units = {
     "claude-graph.service": {"ENSEMBLE_GRAPH_STORE": root / "shared/data/graph.json"},
     "claude-ensemble.service": {},
 }
-environment_file = root / "shared/claude-code/environment"
+environment_file = root / "shared/config/environment"
 common = {
     "ENSEMBLE_LOG_DIR": root / "shared/logs",
     "ENSEMBLE_RUNTIME_DIR": root / "shared/runtime",
