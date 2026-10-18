@@ -12,6 +12,15 @@
 set -Eeuo pipefail
 
 DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
+PROFILE_ROOT="$HOME/.FlossWare/claude-ensemble-profile"
+if [[ -L "$PROFILE_ROOT" ]]; then
+  printf 'ERROR: Refusing to install into a symlinked Claude profile: %s\n' "$PROFILE_ROOT" >&2
+  exit 1
+fi
+if [[ -e "$PROFILE_ROOT" && ! -d "$PROFILE_ROOT" ]]; then
+  printf 'ERROR: Claude profile path exists and is not a directory: %s\n' "$PROFILE_ROOT" >&2
+  exit 1
+fi
 case "$DEPLOY_ROOT" in
   "~") DEPLOY_ROOT="$HOME" ;;
   "~/"*) DEPLOY_ROOT="$HOME/${DEPLOY_ROOT#\~/}" ;;
@@ -162,7 +171,7 @@ if [[ ! -f "$STAGING/install.sh" || -d "$STAGING/.git" ]]; then
   exit 1
 fi
 
-BACKUP_ROOT="${DEPLOY_ROOT}.previous.$"
+BACKUP_ROOT="${DEPLOY_ROOT}.previous.$$"
 if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
   printf 'ERROR: Backup path already exists: %s\n' "$BACKUP_ROOT" >&2
   exit 1
@@ -190,7 +199,7 @@ if ! mv -- "$STAGING" "$DEPLOY_ROOT"; then
   exit 1
 fi
 printf '\nInstalling Claude Ensemble from independent deployment: %s\n\n' "$DEPLOY_ROOT"
-if ENSEMBLE_DEFER_SERVICE_START=1 bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
+if ENSEMBLE_STANDALONE_INSTALL=1 ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$PROFILE_ROOT" ENSEMBLE_DEFER_SERVICE_START=1 bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
   :
 else
   status=$?
@@ -212,7 +221,7 @@ if ! verify_ce_services_stopped; then
   restore_preinstall_services
   exit 1
 fi
-if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
+if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$PROFILE_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
