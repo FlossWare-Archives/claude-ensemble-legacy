@@ -34,7 +34,24 @@ git -C "$SOURCE" add install.sh tools/ce-deployment
 git -C "$SOURCE" -c user.name="CE staging test" -c user.email="ce-staging-test@example.invalid" commit -qm "fixture"
 
 # Exercise the real-host layout where a .FlossWare symlink resolves under Development.
-ROOT="$HOME/Development/FlossWare/staging-target"
+# A symlinked ~/.FlossWare must be rejected rather than silently staging into
+# a development checkout or another redirected location.
+mkdir -p "$WORK/redirected"
+ln -s "$WORK/redirected" "$HOME/.FlossWare"
+if ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/staging-target" ENSEMBLE_STAGING_ONLY=1 \
+    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE" >"$WORK/symlink.out" 2>&1; then
+  echo "FAIL: installer accepted a symlinked ~/.FlossWare" >&2
+  exit 1
+fi
+grep -q 'must be a real directory, not a symlink' "$WORK/symlink.out" || {
+  cat "$WORK/symlink.out" >&2
+  echo "FAIL: symlinked ~/.FlossWare refused for an unexpected reason" >&2
+  exit 1
+}
+rm "$HOME/.FlossWare"
+mkdir "$HOME/.FlossWare"
+
+ROOT="$HOME/.FlossWare/staging-target"
 ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \
   bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
 
