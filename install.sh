@@ -307,23 +307,27 @@ for SERVICE_INSTALLER in "${SERVICE_INSTALLERS[@]}"; do
     bash "$REPO_PATH/$SERVICE_INSTALLER"
 done
 
-# Verify the entire managed service set, including Messenger's installer which
-# reports status but historically did not fail when the unit stayed inactive.
-for unit in \
-    claude-memory.service \
-    claude-thompson.service \
-    claude-learning.service \
-    claude-alert.service \
-    claude-messenger.service \
-    claude-graph.service \
-    claude-ensemble.service; do
-    if ! systemctl --user is-active --quiet "$unit"; then
-        echo "ERROR: Required CE service is not active: $unit" >&2
-        echo "       Inspect with: journalctl --user -u $unit -n 80 --no-pager" >&2
-        exit 1
-    fi
-    echo "   ✓ Verified $unit"
-done
+# Verify the entire managed service set unless the standalone installer has
+# explicitly deferred startup until the full installation and symlink audit finish.
+if [[ "${ENSEMBLE_DEFER_SERVICE_START:-0}" != "1" ]]; then
+    for unit in \
+        claude-memory.service \
+        claude-thompson.service \
+        claude-learning.service \
+        claude-alert.service \
+        claude-messenger.service \
+        claude-graph.service \
+        claude-ensemble.service; do
+        if ! systemctl --user is-active --quiet "$unit"; then
+            echo "ERROR: Required CE service is not active: $unit" >&2
+            echo "       Inspect with: journalctl --user -u $unit -n 80 --no-pager" >&2
+            exit 1
+        fi
+        echo "   ✓ Verified $unit"
+    done
+else
+    echo "   ✓ Service startup deferred until installation and symlink audit complete"
+fi
 
 # Step 8: Setup .mcp.json if not exists
 echo ""

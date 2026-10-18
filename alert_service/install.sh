@@ -25,6 +25,10 @@ echo "Reloading systemd configuration..."
 
 echo "Enabling $SERVICE_NAME service (auto-start)..."
 "$SYSTEMCTL_BIN" --user enable "${SERVICE_NAME}.service"
+if [ "${ENSEMBLE_DEFER_SERVICE_START:-0}" = "1" ]; then
+    echo "$SERVICE_NAME installed and enabled; start deferred to the top-level installer."
+    exit 0
+fi
 
 echo "Starting $SERVICE_NAME service..."
 "$SYSTEMCTL_BIN" --user start "${SERVICE_NAME}.service"
