@@ -17,6 +17,7 @@ set -Eeuo pipefail
 [[ "${1:-}" == --user ]] && shift
 command="${1:-}"
 [[ $# -eq 0 ]] || shift
+touch "$CE_TEST_STATE/systemctl-called"
 case "$command" in
   show-environment|daemon-reload|enable) exit 0 ;;
   stop)
@@ -73,7 +74,7 @@ done
 # Version labels and release structure are validated without touching services.
 bash "$SCRIPT" validate 0.1
 [[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: validate changed current' >&2; exit 1; }
-[[ ! -s "$SYSTEMCTL_LOG" ]] || { echo 'FAIL: validate invoked systemctl' >&2; exit 1; }
+[[ ! -e "$CE_TEST_STATE/systemctl-called" ]] || { echo 'FAIL: validate invoked systemctl' >&2; exit 1; }
 if bash "$SCRIPT" validate 0.1.1 >/dev/null 2>&1; then
   echo 'FAIL: patch version unexpectedly accepted' >&2
   exit 1
@@ -98,7 +99,7 @@ if bash "$SCRIPT" validate 0.2 >/dev/null 2>&1; then
 fi
 mv "$TMP/graph-template.backup" "$GRAPH_TEMPLATE"
 [[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: failed preflight changed current' >&2; exit 1; }
-[[ ! -s "$SYSTEMCTL_LOG" ]] || { echo 'FAIL: failed preflight invoked systemctl' >&2; exit 1; }
+[[ ! -e "$CE_TEST_STATE/systemctl-called" ]] || { echo 'FAIL: failed preflight invoked systemctl' >&2; exit 1; }
 
 # The helper itself enforces the same path boundary as the installer.
 if ENSEMBLE_INSTALL_ROOT="$TMP/outside-root" bash "$SCRIPT" status >/dev/null 2>&1; then
