@@ -60,6 +60,15 @@ stop_ce_services() {
   local unit
   for unit in "${STOP_ORDER[@]}"; do systemctl --user stop "$unit" >/dev/null 2>&1 || true; done
 }
+verify_ce_services_stopped() {
+  local unit
+  for unit in "${SERVICE_UNITS[@]}"; do
+    if systemctl --user is-active --quiet "$unit"; then
+      printf 'ERROR: CE service did not stop cleanly: %s\\n' "$unit" >&2
+      return 1
+    fi
+  done
+}
 restore_preinstall_services() {
   local unit
   systemctl --user daemon-reload >/dev/null 2>&1 || true
@@ -146,6 +155,10 @@ fi
 
 printf '\nStopping Claude Ensemble services before deployment update...\n'
 stop_ce_services
+if ! verify_ce_services_stopped; then
+  restore_preinstall_services
+  exit 1
+fi
 if [[ -e "$DEPLOY_ROOT" ]]; then mv -- "$DEPLOY_ROOT" "$BACKUP_ROOT"; fi
 if ! mv -- "$STAGING" "$DEPLOY_ROOT"; then
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
@@ -169,6 +182,13 @@ fi
 # Component installers can start units before the last configuration steps finish.
 # Stop them again so the definitive start follows the completed install and link audit.
 stop_ce_services
+if ! verify_ce_services_stopped; then
+  printf 'ERROR: Could not stop all CE services for post-install verification.\\n' >&2
+  rm -rf -- "$DEPLOY_ROOT"
+  if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
+  restore_preinstall_services
+  exit 1
+fi
 if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
