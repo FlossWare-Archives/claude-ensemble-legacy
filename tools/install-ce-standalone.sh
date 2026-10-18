@@ -45,7 +45,7 @@ if [[ -d "$DEPLOY_ROOT/.git" || -f "$DEPLOY_ROOT/.git" ]]; then
   exit 1
 fi
 
-for required in curl tar find readlink systemctl git; do
+for required in curl tar find readlink systemctl git cp; do
   command -v "$required" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$required" >&2; exit 1; }
 done
 systemctl --user show-environment >/dev/null 2>&1 || { printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2; exit 1; }
@@ -69,8 +69,23 @@ verify_ce_services_stopped() {
     fi
   done
 }
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+UNIT_BACKUP=""
 restore_preinstall_services() {
-  local unit
+  local unit unit_file backup_file
+  if [[ -n "$UNIT_BACKUP" && -d "$UNIT_BACKUP" ]]; then
+    mkdir -p "$SYSTEMD_USER_DIR"
+    for unit in "${SERVICE_UNITS[@]}"; do
+      unit_file="$SYSTEMD_USER_DIR/$unit"
+      backup_file="$UNIT_BACKUP/$unit"
+      if [[ -e "$backup_file" || -L "$backup_file" ]]; then
+        rm -f -- "$unit_file"
+        cp -a -- "$backup_file" "$unit_file"
+      else
+        rm -f -- "$unit_file"
+      fi
+    done
+  fi
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   for unit in "${ACTIVE_BEFORE[@]}"; do systemctl --user start "$unit" >/dev/null 2>&1 || true; done
 }
@@ -147,11 +162,19 @@ if [[ ! -f "$STAGING/install.sh" || -d "$STAGING/.git" ]]; then
   exit 1
 fi
 
-BACKUP_ROOT="${DEPLOY_ROOT}.previous.$$"
+BACKUP_ROOT="${DEPLOY_ROOT}.previous.$"
 if [[ -e "$BACKUP_ROOT" || -L "$BACKUP_ROOT" ]]; then
   printf 'ERROR: Backup path already exists: %s\n' "$BACKUP_ROOT" >&2
   exit 1
 fi
+
+UNIT_BACKUP="$WORK_ROOT/systemd-units"
+mkdir -p "$UNIT_BACKUP" "$SYSTEMD_USER_DIR"
+for unit in "${SERVICE_UNITS[@]}"; do
+  if [[ -e "$SYSTEMD_USER_DIR/$unit" || -L "$SYSTEMD_USER_DIR/$unit" ]]; then
+    cp -a -- "$SYSTEMD_USER_DIR/$unit" "$UNIT_BACKUP/$unit"
+  fi
+done
 
 printf '\nStopping Claude Ensemble services before deployment update...\n'
 stop_ce_services
