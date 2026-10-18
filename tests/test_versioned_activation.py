@@ -19,12 +19,12 @@ class ActivationTests(unittest.TestCase):
   self.bin=self.base/"bin"; self.bin.mkdir(); self.systemctl=self.bin/"systemctl"
   self.systemctl.write_text("""#!/usr/bin/env bash
 set -eu
-printf '%s\\n' "$*" >> "$SYSTEMCTL_LOG"
+echo "$*" >> "$SYSTEMCTL_LOG"
 [[ "${1:-}" == "--user" ]] && shift
 action="${1:-}"; shift || true
 case "$action" in
  stop) unit="$1"; grep -Fxv "$unit" "$SYSTEMCTL_STATE" > "$SYSTEMCTL_STATE.tmp" || true; mv "$SYSTEMCTL_STATE.tmp" "$SYSTEMCTL_STATE" ;;
- start) unit="$1"; current="$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)"; if [[ "${FAIL_VERSION:-}" != "" && "$current" == "$DEPLOY_ROOT/releases/$FAIL_VERSION" && "$unit" == "claude-ensemble.service" ]]; then exit 1; fi; grep -Fxq "$unit" "$SYSTEMCTL_STATE" 2>/dev/null || printf '%s\\n' "$unit" >> "$SYSTEMCTL_STATE" ;;
+ start) unit="$1"; current="$(readlink -f "$DEPLOY_ROOT/current" 2>/dev/null || true)"; if [[ "${FAIL_VERSION:-}" != "" && "$current" == "$DEPLOY_ROOT/releases/$FAIL_VERSION" && "$unit" == "claude-ensemble.service" ]]; then exit 1; fi; grep -Fxq "$unit" "$SYSTEMCTL_STATE" 2>/dev/null || echo "$unit" >> "$SYSTEMCTL_STATE" ;;
  is-active) unit="$2"; grep -Fxq "$unit" "$SYSTEMCTL_STATE" ;;
  daemon-reload|show-environment) ;;
  *) exit 2 ;;
