@@ -3,21 +3,32 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_REAL="$(readlink -f "${BASH_SOURCE[0]}")"
-REPO_ROOT="$(cd "$(dirname "$SCRIPT_REAL")/.." && pwd)"
-RESULTS_DIR="$REPO_ROOT/ga_tuning/results"
-EVOLUTION_LOG="$REPO_ROOT/ga_tuning/parameter_evolution.md"
-SETTINGS_PATH="${CLAUDE_SETTINGS_PATH:-$HOME/.claude/settings.json}"
-LOG_FILE="$REPO_ROOT/tools/ga-tuning-schedule.log"
+DEPLOY_ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
+DATA_DIR="$DEPLOY_ROOT/shared/data/ga-tuning"
+LOG_DIR="$DEPLOY_ROOT/shared/logs"
+SETTINGS_PATH="${CLAUDE_SETTINGS_PATH:-$DEPLOY_ROOT/shared/claude-code/settings.json}"
+if [[ -f "$DEPLOY_ROOT/current/ga_tuning/ga_tuner.py" ]]; then
+  # Installed execution always follows the stable current symlink, never a
+  # mutable development checkout or a release-specific physical path.
+  REPO_ROOT="$DEPLOY_ROOT/current"
+else
+  # Development/test mode remains usable, but persistent state still lives in
+  # the isolated deployment root unless explicitly overridden.
+  SCRIPT_REAL="$(readlink -f "${BASH_SOURCE[0]}")"
+  REPO_ROOT="$(cd "$(dirname "$SCRIPT_REAL")/.." && pwd)"
+fi
+RESULTS_DIR="${CE_GA_RESULTS_DIR:-$DATA_DIR/results}"
+EVOLUTION_LOG="${CE_GA_EVOLUTION_LOG:-$DATA_DIR/parameter_evolution.md}"
+LOG_FILE="${CE_GA_LOG_FILE:-$LOG_DIR/ga-tuning-schedule.log}"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ga-tuning.XXXXXX")"
-LOCK_FILE="${XDG_RUNTIME_DIR:-$HOME/.cache}/claude-ensemble-ga-tuning.lock"
+LOCK_FILE="${CE_GA_LOCK_FILE:-$DATA_DIR/ga-tuning.lock}"
 
 cleanup() {
   rm -rf -- "$WORK_DIR"
 }
 trap cleanup EXIT
 
-mkdir -p "$(dirname "$LOCK_FILE")" "$RESULTS_DIR"
+mkdir -p "$(dirname "$LOCK_FILE")" "$RESULTS_DIR" "$(dirname "$EVOLUTION_LOG")" "$(dirname "$LOG_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   printf '[%s] Another GA tuning run is active; exiting.\n' "$(date +'%Y-%m-%d %H:%M:%S')" | tee -a "$LOG_FILE"
@@ -41,7 +52,7 @@ log "Runtime settings: $SETTINGS_PATH"
 
 # GAConfig uses ./results, so run from ga_tuning to keep output in the canonical directory.
 log "Step 1: Running local GA optimization..."
-if ! (cd "$REPO_ROOT/ga_tuning" && python3 ga_tuner.py) >"$WORK_DIR/ga-output.log" 2>&1; then
+if ! (cd "$REPO_ROOT/ga_tuning" && CE_GA_RESULTS_DIR="$RESULTS_DIR" python3 ga_tuner.py) >"$WORK_DIR/ga-output.log" 2>&1; then
   log "ERROR: GA optimization failed; details are appended to $LOG_FILE"
   cat "$WORK_DIR/ga-output.log" >>"$LOG_FILE"
   exit 1

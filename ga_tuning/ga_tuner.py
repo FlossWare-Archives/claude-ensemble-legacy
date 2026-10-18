@@ -413,6 +413,9 @@ def load_config(config_file: Path | None = None) -> GAConfig:
 def main():
     """Main entry point"""
     config = load_config()
+    # The scheduled runner supplies a durable, deployment-owned output path.
+    # Explicit config remains the default for direct development runs.
+    config.output_dir = os.environ.get("CE_GA_RESULTS_DIR", config.output_dir)
     ga = GeneticAlgorithm(config)
     summary = ga.run()
 
