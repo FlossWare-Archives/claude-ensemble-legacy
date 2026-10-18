@@ -155,20 +155,33 @@ if [ -f "$SETTINGS_FILE" ] && [ -f "$CLAUDE_CONFIG_TOOL" ] && [ -f "$CLAUDE_HOME
     echo "   ✓ Normalized CE SessionEnd memory capture hook"
 fi
 
-# Managed repository links are defaults, not permission to delete user data.
-# Existing paths are left untouched unless they already point to the intended
-# source. This makes repeated installs idempotent and avoids replacing custom
-# files or symlinks to user-managed locations.
-install_managed_link() {
-    local destination="$1" source="$2" label="$3"
+# Install managed runtime assets as independent files, never repository symlinks.
+# This allows a standalone deployment to remain usable when the developer's
+# checkout is moved, cleaned, or updated. User-owned paths are preserved.
+install_managed_copy() {
+    local destination="$1" source="$2" label="$3" source_mode
     [ -f "$source" ] || return 0
-    if [ -L "$destination" ] && [ "$(readlink -f "$destination" 2>/dev/null || true)" = "$(readlink -f "$source")" ]; then
-        echo "   ✓ $label already points to repository source"
-    elif [ -e "$destination" ] || [ -L "$destination" ]; then
-        echo "   ! Preserved existing $destination; it is not the repository-managed link."
+    if [ -L "$destination" ]; then
+        if [ "$(readlink -f "$destination" 2>/dev/null || true)" = "$(readlink -f "$source")" ]; then
+            rm -- "$destination"
+            source_mode="$(stat -c '%a' "$source")"
+            install -m "$source_mode" -- "$source" "$destination"
+            echo "   ✓ Replaced repository symlink with independent copy: $label"
+        else
+            echo "   ! Preserved user-managed symlink at $destination."
+        fi
+    elif [ -e "$destination" ]; then
+        if [ -f "$destination" ] && cmp -s -- "$source" "$destination"; then
+            source_mode="$(stat -c '%a' "$source")"
+            chmod "$source_mode" "$destination"
+            echo "   ✓ $label is current; independent copy verified"
+        else
+            echo "   ! Preserved existing $destination; repository version differs."
+        fi
     else
-        ln -s "$source" "$destination"
-        echo "   ✓ Installed $label"
+        source_mode="$(stat -c '%a' "$source")"
+        install -m "$source_mode" -- "$source" "$destination"
+        echo "   ✓ Installed independent copy: $label"
     fi
 }
 
@@ -177,14 +190,14 @@ echo ""
 echo "4. Installing toolkit scripts..."
 INIT_SOURCE="$REPO_PATH/scripts/ensemble-init.sh"
 CONFIG_SOURCE="$REPO_PATH/scripts/config.sh"
-install_managed_link "$CLAUDE_HOME/ensemble-init.sh" "$INIT_SOURCE" "ensemble-init.sh"
-install_managed_link "$CLAUDE_HOME/config.sh" "$CONFIG_SOURCE" "config.sh"
+install_managed_copy "$CLAUDE_HOME/ensemble-init.sh" "$INIT_SOURCE" "ensemble-init.sh"
+install_managed_copy "$CLAUDE_HOME/config.sh" "$CONFIG_SOURCE" "config.sh"
 
 # Step 4c: Install ensemble practices guide
 echo ""
 echo "4c. Installing ensemble practices guide..."
 CLAUDE_ENSEMBLE_SOURCE="$REPO_PATH/CLAUDE.ENSEMBLE.md"
-install_managed_link "$CLAUDE_HOME/CLAUDE.ENSEMBLE.md" "$CLAUDE_ENSEMBLE_SOURCE" "CLAUDE.ENSEMBLE.md"
+install_managed_copy "$CLAUDE_HOME/CLAUDE.ENSEMBLE.md" "$CLAUDE_ENSEMBLE_SOURCE" "CLAUDE.ENSEMBLE.md"
 if [ -f "$CLAUDE_ENSEMBLE_SOURCE" ]; then
     echo "   ℹ Users can create their own ~/.claude/CLAUDE.md with additional practices"
 fi
@@ -249,13 +262,13 @@ fi
 echo ""
 echo "5. Installing GA parameter evolution..."
 GA_SOURCE="$REPO_PATH/ga_tuning/parameter_evolution.md"
-install_managed_link "$CLAUDE_HOME/ga_parameter_evolution.md" "$GA_SOURCE" "ga_parameter_evolution.md"
+install_managed_copy "$CLAUDE_HOME/ga_parameter_evolution.md" "$GA_SOURCE" "ga_parameter_evolution.md"
 
 # Step 6: Install memory service client link
 echo ""
 echo "6. Installing memory service client..."
 MEMORY_SOURCE="$MEMORY_SERVICE_DIR/memory_client.py"
-install_managed_link "$CLAUDE_HOME/memory-client.py" "$MEMORY_SOURCE" "memory-client.py"
+install_managed_copy "$CLAUDE_HOME/memory-client.py" "$MEMORY_SOURCE" "memory-client.py"
 
 # Step 7: Install and start systemd user services
 # Each service owns its own unit installation and lifecycle. Calling the
