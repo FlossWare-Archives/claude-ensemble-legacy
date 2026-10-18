@@ -9,13 +9,13 @@ trap 'rm -rf -- "$TMP_ROOT"' EXIT
 export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
 SOURCE="$TMP_ROOT/source"
-DEPLOY="$HOME/opt/claude-ensemble"
+DEPLOY="$HOME/.FlossWare/claude-ensemble"
 mkdir -p "$SOURCE/.git" "$SOURCE/tools"
 printf '%s\n' '#!/usr/bin/env bash' '[[ -f "$0" ]]' > "$SOURCE/install.sh"
 printf '%s\n' 'v1' > "$SOURCE/payload.txt"
 printf '%s\n' 'git metadata must not deploy' > "$SOURCE/.git/config"
 
-ENSEMBLE_INSTALL_ROOT="$DEPLOY" bash "$ROOT/tools/install-ce-standalone.sh" "$SOURCE"
+bash "$ROOT/tools/install-ce-standalone.sh" "$SOURCE"
 [[ -f "$DEPLOY/install.sh" ]]
 [[ -f "$DEPLOY/payload.txt" ]]
 [[ ! -e "$DEPLOY/.git" ]]
