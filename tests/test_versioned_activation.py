@@ -84,4 +84,13 @@ esac
   self.assertIn("current symlink is invalid",result.stdout)
   self.assertEqual(os.readlink(current),"releases/../outside")
   self.assertFalse(self.log.exists(),"invalid current link must be rejected before systemctl is invoked")
+ def test_validation_rejects_links_into_other_releases(self):
+  release=self.root/"releases"/"0.1"
+  other=self.root/"releases"/"0.2"
+  (other/"sentinel").write_text("other release data",encoding="utf-8")
+  (release/"cross-release-link").symlink_to("../0.2/sentinel")
+  result=self.run_deployment("validate","0.1",check=False)
+  self.assertNotEqual(result.returncode,0)
+  self.assertIn("release contains broken links or links into development checkouts",result.stdout)
+  self.assertTrue((other/"sentinel").is_file(),"validation must not mutate the target release")
 if __name__=="__main__": unittest.main(verbosity=2)
