@@ -190,6 +190,10 @@ INSTALL_HOME="$TMP/install-home"
 INSTALL_ROOT="$INSTALL_HOME/.FlossWare/claude-ensemble"
 SOURCE_FIXTURE="$TMP/source-fixture"
 mkdir -p "$INSTALL_HOME/.FlossWare/claude-ensemble-profile" "$INSTALL_ROOT/claude-code" "$INSTALL_ROOT/shared/claude-code" "$SOURCE_FIXTURE/tools"
+for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+  cp -a "$SCRIPT_DIR/../$service_dir" "$SOURCE_FIXTURE/"
+done
+cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$SOURCE_FIXTURE/tools/managed_unit_config.py"
 printf '{"custom":"legacy-settings"}\n' > "$INSTALL_ROOT/claude-code/settings.json"
 printf '{"custom":"keep-me"}\n' > "$INSTALL_ROOT/claude-code/legacy-only.json"
 printf '{"custom":"top-level-legacy"}\n' > "$INSTALL_HOME/.FlossWare/claude-ensemble-profile/legacy-only.json"
