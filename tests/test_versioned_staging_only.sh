@@ -23,13 +23,17 @@ SOURCE="$WORK/source"
 mkdir -p "$SOURCE/tools"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$SOURCE/install.sh"
 cp "$REPO_ROOT/tools/ce-deployment" "$SOURCE/tools/ce-deployment"
+cp "$REPO_ROOT/tools/managed_unit_config.py" "$SOURCE/tools/managed_unit_config.py"
+for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+  cp -a "$REPO_ROOT/$service_dir" "$SOURCE/"
+done
 # Model the developer-only absolute symlink present in the real repository.
 mkdir -p "$WORK/external-rh-skills"
 ln -s "$WORK/external-rh-skills" "$SOURCE/claude-global-skills"
 git -C "$SOURCE" init -q
 git -C "$SOURCE" config user.name "CE staging test"
 git -C "$SOURCE" config user.email "ce-staging-test@example.invalid"
-git -C "$SOURCE" add install.sh tools/ce-deployment
+git -C "$SOURCE" add install.sh tools/ce-deployment tools/managed_unit_config.py memory-service thompson-service learning-service alert_service session-messaging graph-service server
 git -C "$SOURCE" -c user.name="CE staging test" -c user.email="ce-staging-test@example.invalid" commit -qm "fixture"
 
 # Exercise the real-host layout where a .FlossWare symlink resolves under Development.
