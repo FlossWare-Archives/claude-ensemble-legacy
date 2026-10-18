@@ -13,6 +13,10 @@ sed "s|%REPO_PATH%|$REPO_ROOT|g" "$SERVICE_TEMPLATE" > "$SERVICE_FILE"
 chmod 0644 "$SERVICE_FILE"
 "$SYSTEMCTL_BIN" --user daemon-reload
 "$SYSTEMCTL_BIN" --user enable "$SERVICE_NAME"
+if [[ "${ENSEMBLE_DEFER_SERVICE_START:-0}" == "1" ]]; then
+  echo "Service installed and enabled; start deferred to the top-level installer: $SERVICE_NAME"
+  exit 0
+fi
 "$SYSTEMCTL_BIN" --user start "$SERVICE_NAME"
 if "$SYSTEMCTL_BIN" --user is-active --quiet "$SERVICE_NAME"; then
   echo "Memory service installed and running: $SERVICE_NAME"
