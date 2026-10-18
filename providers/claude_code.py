@@ -175,9 +175,10 @@ class ClaudeCodeProvider(ModelProvider):
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        # Note: start_new_session=True on Unix breaks stdin/stdout communication
-        # due to process group and tty interaction. Omit it; terminate_process_tree
-        # handles cleanup with signal groups instead.
+        else:
+            # Isolate the CLI and its descendants so timeout cleanup cannot signal
+            # the gateway process or leave child processes holding our pipes open.
+            kwargs["start_new_session"] = True.
 
         try:
             return subprocess.Popen(command, **kwargs)
@@ -186,7 +187,7 @@ class ClaudeCodeProvider(ModelProvider):
 
     @staticmethod
     def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-        """Terminate Claude Code and its children."""
+        """Terminate Claude Code and its descendants with bounded cleanup."""
         if os.name == "nt":
             if process.poll() is None:
                 process.terminate()
@@ -202,30 +203,17 @@ class ClaudeCodeProvider(ModelProvider):
                     ) from exc
             return
 
-        # On Unix, terminate the process directly. Since we don't use
-        # start_new_session, we can't kill by process group. This is acceptable
-        # because the Claude Code CLI handles its own child cleanup.
-        if process.poll() is None:
-            process.terminate()
-        try:
-            process.communicate(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.communicate(timeout=1.0)
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(
-                    "Claude Code process cleanup did not complete after kill"
-                ) from exc
-        return
-
-        # Old code path kept for reference but unreachable:
+        # _start_process creates a fresh session, making the child PID the process
+        # group ID. TERM first, then escalate to KILL if the group or its inherited
+        # pipes survive the bounded grace period.
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
         except OSError:
-            pass
+            # Preserve a best-effort fallback if process-group signaling is denied.
+            if process.poll() is None:
+                process.terminate()
 
         try:
             os.killpg(process.pid, 0)
@@ -250,6 +238,8 @@ class ClaudeCodeProvider(ModelProvider):
                     "Claude Code process cleanup did not complete after SIGKILL"
                 ) from exc
         else:
+            # The direct child can exit while a descendant keeps the process group
+            # alive and stdout/stderr pipes open. Check the group again before return.
             try:
                 os.killpg(process.pid, 0)
             except ProcessLookupError:
@@ -263,8 +253,12 @@ class ClaudeCodeProvider(ModelProvider):
                     return
                 except OSError:
                     process.kill()
-                process.communicate()
-
+                try:
+                    process.communicate(timeout=1.0)
+                except subprocess.TimeoutExpired as exc:
+                    raise RuntimeError(
+                        "Claude Code process cleanup did not complete after SIGKILL"
+                    ) from exc
     def _parse_response(
         self,
         payload: Any,
