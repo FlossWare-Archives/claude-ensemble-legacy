@@ -64,7 +64,7 @@ verify_ce_services_stopped() {
   local unit
   for unit in "${SERVICE_UNITS[@]}"; do
     if systemctl --user is-active --quiet "$unit"; then
-      printf 'ERROR: CE service did not stop cleanly: %s\\n' "$unit" >&2
+      printf 'ERROR: CE service did not stop cleanly: %s\n' "$unit" >&2
       return 1
     fi
   done
@@ -183,7 +183,7 @@ fi
 # Stop them again so the definitive start follows the completed install and link audit.
 stop_ce_services
 if ! verify_ce_services_stopped; then
-  printf 'ERROR: Could not stop all CE services for post-install verification.\\n' >&2
+  printf 'ERROR: Could not stop all CE services for post-install verification.\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
   restore_preinstall_services
