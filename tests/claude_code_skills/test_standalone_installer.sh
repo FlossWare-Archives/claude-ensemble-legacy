@@ -12,10 +12,10 @@ FAKE_BIN="$TMP_ROOT/bin"
 mkdir -p "$FAKE_BIN"
 export CE_SYSTEMCTL_LOG="$TMP_ROOT/systemctl.log"
 export CE_SYSTEMCTL_STATE="$TMP_ROOT/systemctl.active"
-printf '%s\\n' claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service > "$CE_SYSTEMCTL_STATE"
+printf '%s\n' claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service > "$CE_SYSTEMCTL_STATE"
 cat > "$FAKE_BIN/systemctl" <<'SYSTEMCTL'
 #!/usr/bin/env bash
-printf '%s\\n' "$*" >> "$CE_SYSTEMCTL_LOG"
+printf '%s\n' "$*" >> "$CE_SYSTEMCTL_LOG"
 case "${2:-}" in
   show-environment|daemon-reload|enable) exit 0 ;;
   is-active) grep -qx -- "${4:-}" "$CE_SYSTEMCTL_STATE" ;;
@@ -25,7 +25,7 @@ case "${2:-}" in
     exit 0
     ;;
   start)
-    grep -qx -- "${3:-}" "$CE_SYSTEMCTL_STATE" || printf '%s\\n' "${3:-}" >> "$CE_SYSTEMCTL_STATE"
+    grep -qx -- "${3:-}" "$CE_SYSTEMCTL_STATE" || printf '%s\n' "${3:-}" >> "$CE_SYSTEMCTL_STATE"
     exit 0
     ;;
   *) exit 0 ;;
