@@ -6,8 +6,10 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf -- "$TMP_ROOT"' EXIT
 
+export HOME="$TMP_ROOT/home"
+mkdir -p "$HOME"
 SOURCE="$TMP_ROOT/source"
-DEPLOY="$TMP_ROOT/opt/claude-ensemble"
+DEPLOY="$HOME/opt/claude-ensemble"
 mkdir -p "$SOURCE/.git" "$SOURCE/tools"
 printf '%s\n' '#!/usr/bin/env bash' '[[ -f "$0" ]]' > "$SOURCE/install.sh"
 printf '%s\n' 'v1' > "$SOURCE/payload.txt"
