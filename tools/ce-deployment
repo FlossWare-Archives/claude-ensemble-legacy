@@ -133,7 +133,7 @@ for version in (previous, target):
         raise SystemExit("invalid known-good release version")
 with open(path, "w", encoding="utf-8") as out:
     json.dump({"schema_version": 1, "active": target, "previous": previous or None}, out, indent=2)
-    out.write("\\n")
+    out.write("\n")
 os.replace(path, os.path.join(os.path.dirname(path), "known-good.json"))
 PY
 }
