@@ -111,11 +111,22 @@ if ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/.." bash "$SCRIPT" status >/dev/null 
   exit 1
 fi
 [[ ! -e "$HOME/releases" ]] || { echo 'FAIL: rejected deployment traversal created a releases directory in HOME' >&2; exit 1; }
+ESCAPE_PARENT="$TMP/escape-parent"
+if ENSEMBLE_INSTALL_ROOT="$HOME/../escape-parent/root" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment path escaping HOME through parent traversal was accepted' >&2
+  exit 1
+fi
+[[ ! -e "$ESCAPE_PARENT" ]] || { echo 'FAIL: rejected deployment traversal created a directory outside HOME' >&2; exit 1; }
 if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/.FlossWare/.." bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.3 /nonexistent >/dev/null 2>&1; then
   echo 'FAIL: versioned installer accepted a deployment root ending in ..' >&2
   exit 1
 fi
 [[ ! -e "$HOME/releases" ]] || { echo 'FAIL: rejected installer traversal created a releases directory in HOME' >&2; exit 1; }
+if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/../escape-parent/root" bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.3 /nonexistent >/dev/null 2>&1; then
+  echo 'FAIL: versioned installer accepted a path escaping HOME through parent traversal' >&2
+  exit 1
+fi
+[[ ! -e "$ESCAPE_PARENT" ]] || { echo 'FAIL: rejected installer traversal created a directory outside HOME' >&2; exit 1; }
 ln -s "$ENSEMBLE_INSTALL_ROOT" "$HOME/ce-root-link"
 if ENSEMBLE_INSTALL_ROOT="$HOME/ce-root-link" bash "$SCRIPT" status >/dev/null 2>&1; then
   echo 'FAIL: symlinked deployment root was accepted' >&2
