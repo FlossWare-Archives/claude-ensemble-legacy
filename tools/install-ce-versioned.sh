@@ -20,7 +20,7 @@ HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
   *)
-    printf 'ERROR: Deployment path must be a child of HOME: %s\\n' "$ROOT" >&2
+    printf 'ERROR: Deployment path must be a child of HOME: %s\n' "$ROOT" >&2
     exit 1
     ;;
 esac
@@ -30,6 +30,21 @@ if [[ "$#" -lt 1 || "$#" -gt 2 || ! "$1" =~ ^[0-9]+\.[0-9]+$ ]]; then
 fi
 VERSION="$1"
 SOURCE_DIR="${2:-}"
+STAGING_ONLY="${ENSEMBLE_STAGING_ONLY:-0}"
+if [[ "$STAGING_ONLY" != "0" && "$STAGING_ONLY" != "1" ]]; then
+  printf 'ERROR: ENSEMBLE_STAGING_ONLY must be 0 or 1.\n' >&2
+  exit 2
+fi
+if [[ "$STAGING_ONLY" == "1" ]]; then
+  [[ -n "${ENSEMBLE_INSTALL_ROOT:-}" ]] || {
+    printf 'ERROR: Staging-only mode requires an explicit ENSEMBLE_INSTALL_ROOT beneath HOME.\n' >&2
+    exit 2
+  }
+  if [[ -e "$ROOT" && -n "$(find "$ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    printf 'ERROR: Staging-only mode requires a new or empty install root: %s\n' "$ROOT" >&2
+    exit 1
+  fi
+fi
 RELEASES="$ROOT/releases"
 RELEASE="$RELEASES/$VERSION"
 SHARED="$ROOT/shared"
@@ -38,13 +53,16 @@ STAGED="$WORK/release"
 cleanup() { rm -rf -- "$WORK"; }
 trap cleanup EXIT
 
-for command in tar curl systemctl python3 git; do
+for command in tar curl python3 git; do
   command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$command" >&2; exit 1; }
 done
-systemctl --user show-environment >/dev/null 2>&1 || {
-  printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2
-  exit 1
-}
+if [[ "$STAGING_ONLY" != "1" ]]; then
+  command -v systemctl >/dev/null 2>&1 || { printf 'ERROR: Required command not found: systemctl\n' >&2; exit 1; }
+  systemctl --user show-environment >/dev/null 2>&1 || {
+    printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2
+    exit 1
+  }
+fi
 [[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
 LEGACY_MIGRATION=0
 LEGACY_SNAPSHOT="$WORK/legacy"
@@ -83,15 +101,18 @@ if [[ "$LEGACY_MIGRATION" == "1" ]]; then
 fi
 # Import legacy CE profile files without overwriting the shared profile. Keep the
 # source directories until activation succeeds so a failed install is reversible.
-for legacy_profile in "$ROOT/claude-code" "$HOME/.FlossWare/claude-ensemble-profile"; do
-  if [[ -L "$legacy_profile" ]]; then
-    printf 'ERROR: Refusing to migrate symlinked profile directory: %s\n' "$legacy_profile" >&2
-    exit 1
-  fi
-  if [[ -d "$legacy_profile" ]]; then
-    cp -a --update=none -- "$legacy_profile/." "$SHARED/claude-code/"
-  fi
-done
+# Staging-only mode intentionally imports no user profile data.
+if [[ "$STAGING_ONLY" != "1" ]]; then
+  for legacy_profile in "$ROOT/claude-code" "$HOME/.FlossWare/claude-ensemble-profile"; do
+    if [[ -L "$legacy_profile" ]]; then
+      printf 'ERROR: Refusing to migrate symlinked profile directory: %s\n' "$legacy_profile" >&2
+      exit 1
+    fi
+    if [[ -d "$legacy_profile" ]]; then
+      cp -a --update=none -- "$legacy_profile/." "$SHARED/claude-code/"
+    fi
+  done
+fi
 mkdir -p "$STAGED"
 if [[ -n "$SOURCE_DIR" ]]; then
   [[ -f "$SOURCE_DIR/install.sh" ]] || { printf 'ERROR: Source checkout lacks install.sh: %s\n' "$SOURCE_DIR" >&2; exit 1; }
@@ -115,6 +136,12 @@ ln -s ../../shared/claude-code "$STAGED/claude-code"
 mkdir -p "$RELEASES"
 mv -- "$STAGED" "$RELEASE"
 
+if ! ENSEMBLE_INSTALL_ROOT="$ROOT" bash "$RELEASE/tools/ce-deployment" validate "$VERSION"; then
+  rm -rf -- "$RELEASE"
+  printf 'ERROR: Staged release failed structural validation.\n' >&2
+  exit 1
+fi
+
 MANIFEST_TMP="$WORK/deployment.json"
 python3 - "$MANIFEST_TMP" "$VERSION" "$SOURCE_COMMIT" <<'PY'
 import datetime
@@ -131,6 +158,14 @@ with open(path, "w", encoding="utf-8") as output:
     }, output, indent=2)
     output.write("\n")
 PY
+if [[ "$STAGING_ONLY" == "1" ]]; then
+  mv -f -- "$MANIFEST_TMP" "$ROOT/deployment.json"
+  printf 'Staged Claude Ensemble %s at %s/releases/%s\n' "$VERSION" "$ROOT" "$VERSION"
+  printf 'Source commit: %s\n' "$SOURCE_COMMIT"
+  printf 'Validation: structural only; no service, systemd unit, current symlink, or Claude profile was changed.\n'
+  printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
+  exit 0
+fi
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
   printf 'ERROR: Activation failed. The release was retained for diagnosis and retry.\n' >&2
   exit 1
