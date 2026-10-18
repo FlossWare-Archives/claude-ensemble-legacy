@@ -72,6 +72,8 @@ done
 
 # Version labels and release structure are validated without touching services.
 bash "$SCRIPT" validate 0.1
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: validate changed current' >&2; exit 1; }
+[[ ! -s "$SYSTEMCTL_LOG" ]] || { echo 'FAIL: validate invoked systemctl' >&2; exit 1; }
 if bash "$SCRIPT" validate 0.1.1 >/dev/null 2>&1; then
   echo 'FAIL: patch version unexpectedly accepted' >&2
   exit 1
@@ -84,6 +86,19 @@ if bash "$SCRIPT" validate 0.1 >/dev/null 2>&1; then
   exit 1
 fi
 rm "$ENSEMBLE_INSTALL_ROOT/releases/0.1/tools/outside-host"
+
+# A structurally valid release with a broken generated unit must fail preflight
+# before activation, systemd calls, or current-symlink mutation.
+GRAPH_TEMPLATE="$ENSEMBLE_INSTALL_ROOT/releases/0.2/graph-service/claude-graph.service.template"
+cp "$GRAPH_TEMPLATE" "$TMP/graph-template.backup"
+sed -i '/^ExecStart=/d' "$GRAPH_TEMPLATE"
+if bash "$SCRIPT" validate 0.2 >/dev/null 2>&1; then
+  echo 'FAIL: preflight accepted a service unit without ExecStart' >&2
+  exit 1
+fi
+mv "$TMP/graph-template.backup" "$GRAPH_TEMPLATE"
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo 'FAIL: failed preflight changed current' >&2; exit 1; }
+[[ ! -s "$SYSTEMCTL_LOG" ]] || { echo 'FAIL: failed preflight invoked systemctl' >&2; exit 1; }
 
 # The helper itself enforces the same path boundary as the installer.
 if ENSEMBLE_INSTALL_ROOT="$TMP/outside-root" bash "$SCRIPT" status >/dev/null 2>&1; then
