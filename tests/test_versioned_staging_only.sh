@@ -33,7 +33,8 @@ git -C "$SOURCE" config user.email "ce-staging-test@example.invalid"
 git -C "$SOURCE" add install.sh tools/ce-deployment
 git -C "$SOURCE" -c user.name="CE staging test" -c user.email="ce-staging-test@example.invalid" commit -qm "fixture"
 
-ROOT="$HOME/.FlossWare/staging-target"
+# Exercise the real-host layout where a .FlossWare symlink resolves under Development.
+ROOT="$HOME/Development/FlossWare/staging-target"
 ENSEMBLE_INSTALL_ROOT="$ROOT" ENSEMBLE_STAGING_ONLY=1 \
   bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
 
