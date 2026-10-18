@@ -54,6 +54,10 @@ chmod +x "$TMP/bin/systemctl" "$TMP/bin/python3"
 export PATH="$TMP/bin:$PATH"
 
 for version in 0.1 0.2; do
+  for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+    cp -a "$SCRIPT_DIR/../$service_dir" "$ENSEMBLE_INSTALL_ROOT/releases/$version/"
+  done
+  cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$ENSEMBLE_INSTALL_ROOT/releases/$version/tools/managed_unit_config.py"
   cat > "$ENSEMBLE_INSTALL_ROOT/releases/$version/install.sh" <<'MOCK_INSTALL'
 #!/usr/bin/env bash
 set -Eeuo pipefail
