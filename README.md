@@ -82,12 +82,12 @@ Rollback selects the recorded previous known-good release, not simply the highes
 
 For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The legacy `install.sh [checkout-path]` remains available for direct installation from a chosen tree, but the versioned installer is preferred when rollback and separation from development checkouts matter.
 
-The installer:
-1. Deploys CE under `~/.FlossWare/claude-ensemble` by default, without copying Git metadata
-2. Uses `~/.FlossWare/claude-ensemble-profile` as the isolated Claude Code profile, leaving `~/.claude/` untouched
-3. Installs the complete `/ce-*` skill set into the isolated profile unless conflicting user-owned skills must be preserved
-4. Sets up credentials storage at `~/.FlossWare/secrets.env`
-5. Prompts for optional tool configuration in an interactive terminal
+The versioned installer:
+1. Keeps immutable release trees under `~/.FlossWare/claude-ensemble/releases/` without Git metadata
+2. Selects the active release through `current` and retains the active and previous known-good release
+3. Keeps mutable CE configuration and profile state under `shared/`, without modifying ordinary `~/.claude/`
+4. Refuses broken links, links outside the deployment root, and inconsistent known-good history
+5. Writes a deployment manifest and preserves the previous release when activation fails
 
 The `/ce-review` skill runs the worker/arbiter code review without Jira; `/ce-jira-review` adds Jira acceptance criteria; `/ce-solve` investigates and implements a coding fix; `/ce-status` reports profile and service status; `/ce-diagnose` runs deeper diagnostics; `/ce-memory` distinguishes Memory from durable Knowledge; `/ce-learning` inspects learning and Thompson outcomes; and `/ce-ga` inspects genetic-algorithm tuning evidence. Diagnostic skills default to read-only. `/ce-solve` may edit the current repository but does not commit, push, merge, deploy, or perform destructive operations without authorization. All skills use the authenticated Claude Code runtime and must not send proprietary source to external reviewer providers. To install the full set into an explicitly selected CE profile, run:
 
