@@ -56,9 +56,18 @@ ENSEMBLE_STAGING_ONLY=1 \
   bash tools/install-ce-versioned.sh 0.1 /path/to/clean/claude-ensemble
 ```
 
-Staging-only mode requires an explicit `ENSEMBLE_INSTALL_ROOT` beneath `HOME` and a new or empty target root. It does not import the legacy CE profile, does not require an active systemd user manager, does not write service unit files, does not create or switch `current`, and does not activate services. It copies the release, checks its structural contract (including symlink containment), writes a manifest with validation status `staged`, and exits. The developer-checkout symlink `claude-global-skills` (which points into a Red Hat checkout) is deliberately omitted from standalone releases; it is host-specific and must not be shipped or followed. Other unexpected external symlinks still fail validation. A failed structural validation removes the newly staged release and exits nonzero.
+Staging-only mode requires an explicit `ENSEMBLE_INSTALL_ROOT` beneath `HOME` and a new or empty target root. It does not import the legacy CE profile, does not require an active systemd user manager, does not write host service unit files, does not create or switch `current`, and does not activate services. It copies the release, checks structural containment, and preflights all seven generated service units in a disposable directory with systemd commands replaced by a no-op. The preflight checks stable `current` paths and ensures service configuration, persistent data, logs, sockets, and runtime paths resolve under `shared/`. It then writes a manifest with validation status `staged` and exits. The developer-checkout symlink `claude-global-skills` (which points into a Red Hat checkout) is deliberately omitted from standalone releases; it is host-specific and must not be shipped or followed. Other unexpected external symlinks still fail validation. A failed structural validation removes the newly staged release and exits nonzero.
 
-The test root must be separate from the live deployment. Inspect the staged release and manifest before running the normal installer against the actual deployment root. Staging is structural validation, not proof that services start or that the gateway is healthy.
+The test root must be separate from the live deployment. Inspect the staged release and manifest before running the normal installer against the actual deployment root. Staging validates the generated unit contract but is not proof that services start or that the gateway is healthy.
+
+To rerun the generated-unit preflight explicitly against a staged release:
+
+```bash
+ENSEMBLE_INSTALL_ROOT="$TEST_ROOT" \
+  bash "$TEST_ROOT/releases/0.1/tools/ce-deployment" validate 0.1
+```
+
+This command renders units into a temporary directory and uses no-op systemd commands. It must not write the host's unit directory, invoke the host systemd manager, or change `current`. Activation repeats the same preflight before it creates an activation journal, snapshots units, stops services, or switches the active release.
 
 ## Inspect and roll back
 
@@ -84,7 +93,8 @@ Pruning keeps the active release and one other retained release. It should only 
 - A release label must use MAJOR.MINOR format.
 - Existing releases are never overwritten.
 - A development checkout containing `.git` is not accepted as the install root.
-- Activation stops all seven CE services, switches `current`, reruns the canonical installer through that stable path, verifies generated unit paths, restarts in dependency order, and checks the gateway readiness endpoint.
+- `ce-deployment validate VERSION` renders and validates all seven service units in a temporary directory before any activation side effects. It checks stable `current` execution paths and deployment-owned shared state paths without invoking the real systemd manager.
+- Activation repeats preflight before it creates the journal or stops services, then switches `current`, reruns the canonical installer through that stable path, configures deployment-owned service paths, restarts in dependency order, and checks the gateway readiness endpoint.
 - Before stopping services, activation writes a durable journal and unit/state backup under `shared/activation-backups/`. If the process is interrupted, `status` warns and `recover` restores the previous release (or original unit files on first install). Activation and pruning refuse to proceed while recovery is pending.
 - If activation fails after a previous release was active, the helper attempts to restore the previous pointer and restart that release.
 - Existing legacy profile files are copied without overwriting shared files. Original legacy directories are retained for manual review.
