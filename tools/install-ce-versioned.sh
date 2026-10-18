@@ -21,15 +21,32 @@ fi
 ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
 ROOT="${ROOT%/}"
-ROOT_PARENT="$(dirname -- "$ROOT")"
-mkdir -p -- "$ROOT_PARENT"
-ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
-ROOT="$ROOT_PARENT/$(basename -- "$ROOT")"
+command -v python3 >/dev/null 2>&1 || {
+  printf 'ERROR: python3 is required to validate the deployment path.\n' >&2
+  exit 1
+}
+ROOT="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$ROOT")"
 HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
   *)
     printf 'ERROR: Deployment path must be a child of HOME: %s\n' "$ROOT" >&2
+    exit 1
+    ;;
+esac
+ROOT_BASE="$(basename -- "$ROOT")"
+[[ -n "$ROOT_BASE" && "$ROOT_BASE" != "." && "$ROOT_BASE" != ".." ]] || {
+  printf 'ERROR: Deployment root must name a child directory, not a dot segment: %s\n' "$ROOT" >&2
+  exit 1
+}
+ROOT_PARENT="$(dirname -- "$ROOT")"
+mkdir -p -- "$ROOT_PARENT"
+ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
+ROOT="$ROOT_PARENT/$ROOT_BASE"
+case "$ROOT" in
+  "$HOME_REAL"/*) ;;
+  *)
+    printf 'ERROR: Deployment path must resolve to a child of HOME: %s\n' "$ROOT" >&2
     exit 1
     ;;
 esac
