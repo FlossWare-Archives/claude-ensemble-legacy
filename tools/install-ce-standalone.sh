@@ -142,10 +142,16 @@ fi
 
 if [[ "$#" -eq 1 ]]; then
   SOURCE_DIR="$1"
-elif [[ -f "${BASH_SOURCE[0]}" ]]; then
-  CANDIDATE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd -P)"
-  if [[ -f "$CANDIDATE/install.sh" ]]; then
-    SOURCE_DIR="$CANDIDATE"
+else
+  # When this script is piped to Bash (for example, curl ... | bash),
+  # BASH_SOURCE may be empty under set -u. In that case, download the
+  # published source archive instead of trying to locate a checkout.
+  SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+  if [[ -n "$SCRIPT_PATH" && -f "$SCRIPT_PATH" ]]; then
+    CANDIDATE="$(cd -- "$(dirname -- "$SCRIPT_PATH")/.." 2>/dev/null && pwd -P)"
+    if [[ -f "$CANDIDATE/install.sh" ]]; then
+      SOURCE_DIR="$CANDIDATE"
+    fi
   fi
 fi
 
