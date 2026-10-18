@@ -17,6 +17,20 @@ case "$DEPLOY_ROOT" in
   "~/"*) DEPLOY_ROOT="$HOME/${DEPLOY_ROOT#\~/}" ;;
 esac
 
+# Canonicalize the parent, but do not follow a symlink at the deployment path.
+TMP_PARENT="$(dirname -- "$DEPLOY_ROOT")"
+mkdir -p -- "$TMP_PARENT"
+TMP_PARENT="$(cd -- "$TMP_PARENT" && pwd -P)"
+DEPLOY_ROOT="$TMP_PARENT/$(basename -- "$DEPLOY_ROOT")"
+HOME_REAL="$(cd -- "$HOME" && pwd -P)"
+case "$DEPLOY_ROOT" in
+  "$HOME_REAL"/*) ;;
+  *)
+    printf 'ERROR: Deployment path must be a child of HOME, not HOME itself: %s\n' "$DEPLOY_ROOT" >&2
+    exit 1
+    ;;
+esac
+
 if [[ -L "$DEPLOY_ROOT" ]]; then
   printf 'ERROR: Refusing to replace symlinked deployment path: %s\n' "$DEPLOY_ROOT" >&2
   exit 1
@@ -25,9 +39,6 @@ if [[ -e "$DEPLOY_ROOT" && ! -d "$DEPLOY_ROOT" ]]; then
   printf 'ERROR: Deployment path exists and is not a directory: %s\n' "$DEPLOY_ROOT" >&2
   exit 1
 fi
-
-TMP_PARENT="$(dirname -- "$DEPLOY_ROOT")"
-mkdir -p -- "$TMP_PARENT"
 WORK_ROOT="$(mktemp -d "$TMP_PARENT/.claude-ensemble-install.XXXXXX")"
 STAGING="$WORK_ROOT/deployment"
 SOURCE_DIR=""
