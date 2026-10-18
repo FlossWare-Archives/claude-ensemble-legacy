@@ -48,9 +48,9 @@ Workflow outcomes pass through the Learning service only when they have durable,
 curl -fsSL https://raw.githubusercontent.com/FlossWare/claude-ensemble/main/tools/install-ce-standalone.sh | bash
 ```
 
-This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.FlossWare/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Claude Code's isolated profile is the deployment directory itself, `~/.FlossWare/claude-ensemble`; the installer does not modify `~/.claude`, `~/.mcp.json`, or shell startup files in standalone mode. Managed files are independent of your development checkout. Start Claude Code with `CLAUDE_CONFIG_DIR="$HOME/.FlossWare/claude-ensemble" claude` to use the isolated CE profile.
+This is the recommended deployment installer. It downloads a source archive into a staging directory, installs an independent deployment under `~/.FlossWare/claude-ensemble` (without a `.git` directory), and runs the installer from that deployment. Claude Code's isolated profile lives separately at `~/.FlossWare/claude-ensemble-profile`, so updating the replaceable runtime deployment does not erase profile settings or skills. Standalone mode does not modify `~/.claude`, `~/.mcp.json`, or shell startup files. Start Claude Code with `CLAUDE_CONFIG_DIR="$HOME/.FlossWare/claude-ensemble-profile" claude` to use the isolated CE profile.
 
-The standalone installer stops the seven CE user services before replacing the deployment, runs the installation against the isolated profile, checks runtime symlinks under the deployment and `~/.claude` for links into Git checkouts, reloads systemd, starts services in dependency order, and verifies every service is active. If installation or verification fails, it restores the prior deployment when available and attempts to restore the services that were active before the update.
+The standalone installer stops the seven CE user services before replacing the deployment, runs the installation against the isolated profile, checks runtime symlinks under the deployment, isolated profile, and `~/.claude` for links into Git checkouts, reloads systemd, starts services in dependency order, and verifies every service is active. If installation or verification fails, it restores the prior deployment when available and attempts to restore the services that were active before the update.
 
 To deploy the current contents of an existing checkout, including its uncommitted changes, run:
 
@@ -64,7 +64,7 @@ The lower-level `install.sh [checkout-path]` remains available for direct instal
 
 The installer:
 1. Deploys CE under `~/.FlossWare/claude-ensemble` by default, without copying Git metadata
-2. Uses `~/.FlossWare/claude-ensemble` as the isolated Claude Code profile, leaving `~/.claude/` untouched
+2. Uses `~/.FlossWare/claude-ensemble-profile` as the isolated Claude Code profile, leaving `~/.claude/` untouched
 3. Installs the complete `/ce-*` skill set into the isolated profile unless conflicting user-owned skills must be preserved
 4. Sets up credentials storage at `~/.FlossWare/secrets.env`
 5. Prompts for optional tool configuration in an interactive terminal
