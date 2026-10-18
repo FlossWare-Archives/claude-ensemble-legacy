@@ -35,10 +35,12 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 valid_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; }
 active_version() {
   [[ -L "$CURRENT" ]] || return 1
-  local target
+  local target version
   target="$(readlink -- "$CURRENT")"
-  [[ "$target" == releases/* ]] || return 1
-  printf '%s\n' "${target#releases/}"
+  [[ "$target" =~ ^releases/([0-9]+\.[0-9]+)$ ]] || return 1
+  version="${BASH_REMATCH[1]}"
+  [[ -d "$RELEASES/$version" && ! -L "$RELEASES/$version" ]] || return 1
+  printf '%s\n' "$version"
 }
 stop_services() {
   local unit
@@ -238,7 +240,11 @@ case "$cmd" in
     version="$2"
     mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
     validate_release "$version"
-    previous="$(active_version || true)"
+    if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
+      previous="$(active_version)" || die "current symlink is invalid; refusing activation"
+    else
+      previous=""
+    fi
     if [[ -f "$KNOWN_GOOD" ]]; then
       recorded_active="$(known_good_field active)" || die "known-good state is invalid"
       [[ "$recorded_active" == "$previous" ]] || die "current release ${previous:-none} does not match known-good state $recorded_active; recover or reconcile deployment state first"
