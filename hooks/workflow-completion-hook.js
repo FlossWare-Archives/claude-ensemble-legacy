@@ -1,15 +1,16 @@
 /**
- * Workflow Completion Hook
+ * DEPRECATED legacy workflow-completion hook. It is not registered by the
+ * supported Claude Code settings and is not the canonical learning path.
  *
- * Automatically called after workflow completion to:
- * 1. Extract reaction signals from ai-reaction-tracker
- * 2. Store in workflows.learnings table
- * 3. Generate embeddings for semantic search
- * 4. Track traceability via run_id
+ * Supported workflow outcomes flow through:
+ * shared/learning-outcome-bridge.js -> tools/record_workflow_outcome.py
+ * -> Learning service. That contract stores evidence-backed outcome artifacts
+ * and Thompson updates; it does not require semantic embeddings.
  *
- * Usage:
- *   const hook = require('./hooks/workflow-completion-hook');
- *   await hook.recordWorkflowLearning({ run_id, workflow, result, ... });
+ * This legacy module writes directly to an external workflows.* PostgreSQL
+ * schema that is not defined or migrated in this repository. Do not re-enable
+ * it until that schema, nullability, and all consumers have an explicit,
+ * tested contract. In particular, this module does not own embedding generation.
  */
 
 const { getDB } = require('../../learning/postgres-adapter');
@@ -79,7 +80,7 @@ async function recordWorkflowLearning(params) {
     duration_ms,
     cost_usd,
     metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
-    embedding: null // TODO: Generate embedding if needed
+    embedding: null // Legacy schema field; this deprecated hook does not own embeddings
   };
 
   // Insert into database

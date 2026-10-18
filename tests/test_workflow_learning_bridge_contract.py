@@ -50,6 +50,17 @@ class WorkflowLearningBoundaryTests(unittest.TestCase):
         self.assertIn("evidence", source)
         self.assertNotIn("from learning.learning_client import", source)
         self.assertNotIn("ThompsonClient", source)
+ 
+    def test_legacy_embedding_hook_is_explicitly_deprecated_and_unregistered(self) -> None:
+        legacy = (ROOT / "hooks/workflow-completion-hook.js").read_text(encoding="utf-8")
+        settings = (ROOT / "settings.json.default").read_text(encoding="utf-8")
+        with self.subTest(contract="legacy hook"):
+            self.assertIn("DEPRECATED legacy workflow-completion hook", legacy)
+            self.assertIn("does not own embedding generation", legacy)
+            self.assertNotIn("TODO: Generate embedding", legacy)
+        with self.subTest(contract="default hook registration"):
+            self.assertNotIn("workflow-completion-hook.js", settings)
+
 
 
 if __name__ == "__main__":
