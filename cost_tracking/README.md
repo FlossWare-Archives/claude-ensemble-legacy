@@ -248,8 +248,8 @@ Ready for:
 ## File Locations
 
 - **Log file**: `~/.claude/cost_tracking/cost.log`
-- **Module**: ``cost_tracking/aggregator.py``
-- **Tests**: ``cost_tracking/test_aggregator.py``
+- **Module**: `cost_tracking/aggregator.py`
+- **Tests**: `cost_tracking/test_aggregator.py`
 - **Sample**: `~/.claude/cost_tracking/sample_report.json`
 
 
