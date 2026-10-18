@@ -8,6 +8,17 @@ trap 'rm -rf -- "$TMP_ROOT"' EXIT
 
 export HOME="$TMP_ROOT/home"
 mkdir -p "$HOME"
+FAKE_BIN="$TMP_ROOT/bin"
+mkdir -p "$FAKE_BIN"
+export CE_SYSTEMCTL_LOG="$TMP_ROOT/systemctl.log"
+cat > "$FAKE_BIN/systemctl" <<'SYSTEMCTL'
+#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$CE_SYSTEMCTL_LOG"
+if [[ "$*" == *"is-active"* || "$*" == *"show-environment"* ]]; then exit 0; fi
+exit 0
+SYSTEMCTL
+chmod +x "$FAKE_BIN/systemctl"
+export PATH="$FAKE_BIN:$PATH"
 SOURCE="$TMP_ROOT/source"
 DEPLOY="$HOME/.FlossWare/claude-ensemble"
 mkdir -p "$SOURCE/.git" "$SOURCE/tools"
@@ -44,5 +55,10 @@ if grep -q 'exit 42' "$DEPLOY/install.sh"; then
   printf 'failed deployment was not rolled back\n' >&2
   exit 1
 fi
+
+# Verify lifecycle operations include service stops, reload, and post-install starts.
+grep -q -- '--user stop claude-ensemble.service' "$CE_SYSTEMCTL_LOG"
+grep -q -- '--user start claude-memory.service' "$CE_SYSTEMCTL_LOG"
+grep -q -- '--user daemon-reload' "$CE_SYSTEMCTL_LOG"
 
 printf 'Standalone copy installer tests passed.\n'
