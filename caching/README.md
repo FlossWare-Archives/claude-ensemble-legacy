@@ -304,8 +304,8 @@ caching/
 ## References
 
 **RH Memory System:**
-- ``<global-skills-root>/memory/MEMORY.md``
-- ``<global-skills-root>/CLAUDE.md``
+- `<global-skills-root>/memory/MEMORY.md`
+- `<global-skills-root>/CLAUDE.md`
 
 **Anthropic Cache Control API:**
 - Supported in Claude 3.5 Sonnet (and newer models)
