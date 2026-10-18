@@ -421,7 +421,7 @@ if [ -t 0 ] && [ -t 1 ]; then
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         bash "$CONFIG_SOURCE"
     else
-        echo "   ℹ You can configure anytime by running: ~/.claude/config.sh"
+        echo "   ℹ You can configure anytime by running: $CLAUDE_HOME/config.sh"
     fi
 else
     echo "   ℹ Non-interactive install: keeping default feature configuration."
