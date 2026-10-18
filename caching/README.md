@@ -135,7 +135,7 @@ Projected results:
 ### Run All Tests
 
 ```bash
-cd /home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/caching
+cd "$(git rev-parse --show-toplevel)/caching"
 python3 test_cases.py                # Show test definitions
 python3 run_integration_tests.py      # Execute all tests
 ```
@@ -304,8 +304,8 @@ caching/
 ## References
 
 **RH Memory System:**
-- `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory/MEMORY.md`
-- `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/CLAUDE.md`
+- ``<global-skills-root>/memory/MEMORY.md``
+- ``<global-skills-root>/CLAUDE.md``
 
 **Anthropic Cache Control API:**
 - Supported in Claude 3.5 Sonnet (and newer models)
