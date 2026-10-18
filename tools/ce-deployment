@@ -110,7 +110,7 @@ switch_link() {
 validate_release() {
   local version="$1" release="$RELEASES/$1" unit
   valid_version "$version" || die "release version must be MAJOR.MINOR, got: $version"
-  [[ -d "$release" && -f "$release/install.sh" ]] || die "release is incomplete: $release"
+  [[ -d "$release" && ! -L "$release" && -f "$release/install.sh" ]] || die "release is incomplete or is a symlink: $release"
   [[ ! -e "$release/.git" && ! -L "$release/.git" ]] || die "release contains Git metadata: $release"
   if find "$release" -type l -print0 | while IFS= read -r -d '' link; do
       resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
@@ -212,9 +212,13 @@ recover_activation() {
   target="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<< "$data")"
   backup="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["unit_backup"])' <<< "$data")"
   active_file="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["active_before_file"])' <<< "$data")"
+  # Validate the rollback target before stopping anything or switching current.
+  # The journal is durable state, not proof that the referenced release is safe.
+  if [[ -n "$previous" ]]; then
+    validate_release "$previous" || die "previous release $previous is not safe to recover; activation journal retained"
+  fi
   stop_services || die "services could not be stopped; activation journal retained"
   if [[ -n "$previous" ]]; then
-    [[ -d "$RELEASES/$previous" ]] || die "previous release $previous is missing; activation journal retained"
     switch_link "$previous"
     start_services || die "previous release $previous selected but health checks failed; journal retained"
   else
