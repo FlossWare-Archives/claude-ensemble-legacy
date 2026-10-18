@@ -209,7 +209,7 @@ From test run with 115 entries:
 
 ### Run Tests
 ```bash
-cd /home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/cost_tracking
+cd "$(git rev-parse --show-toplevel)/cost_tracking"
 python3 test_aggregator.py
 ```
 
@@ -385,7 +385,7 @@ print(json.dumps(reports, indent=2))
 
 ## Support & Questions
 
-- **Module location**: `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/cost_tracking/aggregator.py`
+- **Module location**: ``cost_tracking/aggregator.py``
 - **Log location**: `~/.claude/cost_tracking/cost.log`
 - **Sample report**: `~/.claude/cost_tracking/sample_report.json`
 
