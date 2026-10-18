@@ -250,7 +250,7 @@ echo "Versioned installer migration contract tests passed."
 
 # Standalone activation must use deployment-owned credential configuration and
 # must never create the legacy global secrets.env file.
-grep -Fq 'ENSEMBLE_INSTALL_ROOT="$ROOT" \\' "$SCRIPT" || { echo "FAIL: activation does not pass its deployment root to install.sh" >&2; exit 1; }
+grep -Fq 'ENSEMBLE_INSTALL_ROOT="$ROOT"' "$SCRIPT" || { echo "FAIL: activation does not pass its deployment root to install.sh" >&2; exit 1; }
 python3 - "$SCRIPT_DIR/../install.sh" <<'CREDENTIAL_CONTRACT'
 import sys
 from pathlib import Path
