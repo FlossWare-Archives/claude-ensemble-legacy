@@ -138,7 +138,7 @@ done
 echo "Interrupted activation recovery contract passed."
 bash "$SCRIPT" prune
 [[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.1" ]]
-[[ -d "$ENSEMBLE_INSTALL_ROOT/releases/0.2" ]]
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: prune retained a failed release instead of only known-good releases" >&2; exit 1; }
 echo 'Versioned deployment contract tests passed.'
 
 # Exercise the real installer against a temporary legacy deployment and mocked
