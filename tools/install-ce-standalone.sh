@@ -75,15 +75,20 @@ start_and_verify_services() {
   done
 }
 audit_runtime_links() {
-  local tree="$1" link resolved git_root
+  local tree="$1" scope="${2:-all}" link resolved git_root
   [[ -d "$tree" ]] || return 0
   while IFS= read -r -d '' link; do
     resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
-    [[ -n "$resolved" ]] || continue
+    if [[ -z "$resolved" ]]; then
+      printf 'ERROR: Broken symlink: %s\\n' "$link" >&2
+      return 1
+    fi
     git_root="$(git -C "$(dirname -- "$resolved")" rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$git_root" && "$resolved" == "$git_root/"* && "$git_root" != "$DEPLOY_ROOT" ]]; then
-      printf 'ERROR: Symlink points into a Git checkout: %s -> %s\\n' "$link" "$resolved" >&2
-      return 1
+      if [[ "$scope" == all || "$(basename -- "$git_root")" == "claude-ensemble" ]]; then
+        printf 'ERROR: Symlink points into a Git checkout: %s -> %s (repo: %s)\\n' "$link" "$resolved" "$git_root" >&2
+        return 1
+      fi
     fi
   done < <(find "$tree" -type l -print0)
 }
@@ -163,7 +168,7 @@ fi
 # Component installers can start units before the last configuration steps finish.
 # Stop them again so the definitive start follows the completed install and link audit.
 stop_ce_services
-if ! audit_runtime_links "$DEPLOY_ROOT" || ! audit_runtime_links "$HOME/.claude"; then
+if ! audit_runtime_links "$DEPLOY_ROOT" all || ! audit_runtime_links "$HOME/.claude" ce-only; then
   printf 'ERROR: Symlink audit failed; restoring prior deployment when available.\\n' >&2
   rm -rf -- "$DEPLOY_ROOT"
   if [[ -e "$BACKUP_ROOT" ]]; then mv -- "$BACKUP_ROOT" "$DEPLOY_ROOT"; fi
