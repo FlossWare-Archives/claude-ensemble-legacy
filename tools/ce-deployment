@@ -129,7 +129,7 @@ write_known_good() {
 import json, os, re, sys
 path, previous, target = sys.argv[1:]
 for version in (previous, target):
-    if version and not re.fullmatch(r"[0-9]+\\.[0-9]+", version):
+    if version and not re.fullmatch(r"[0-9]+\.[0-9]+", version):
         raise SystemExit("invalid known-good release version")
 with open(path, "w", encoding="utf-8") as out:
     json.dump({"schema_version": 1, "active": target, "previous": previous or None}, out, indent=2)
@@ -147,9 +147,9 @@ with open(sys.argv[1], encoding="utf-8") as source: data = json.load(source)
 if data.get("schema_version") != 1: raise SystemExit("unsupported known-good state schema")
 field = sys.argv[2]; value = data.get(field)
 if field == "active":
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+\\.[0-9]+", value): raise SystemExit("invalid active release in known-good state")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", value): raise SystemExit("invalid active release in known-good state")
 elif field == "previous":
-    if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9]+\\.[0-9]+", value)): raise SystemExit("invalid previous release in known-good state")
+    if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", value)): raise SystemExit("invalid previous release in known-good state")
 else: raise SystemExit("invalid known-good field")
 print(value or "")
 PY
