@@ -262,12 +262,12 @@ Result: 16/16 PASSED ✓
 
 ## Files Modified
 
-1. ``compression/summarizer.py``
+1. `compression/summarizer.py`
    - Lines 117, 142, 169, 236: Sentence splitting regex fix
    - Line 262: aggressive_burst inverted logic fix
    - Lines 309-325: Division by zero guard
 
-2. ``compression/production_integration_example.py``
+2. `compression/production_integration_example.py`
    - Line 8: Add `OrderedDict` import
    - Line 10: Add `numpy` import
    - Lines 33-35: Change cache to `OrderedDict`
@@ -275,7 +275,7 @@ Result: 16/16 PASSED ✓
    - Lines 63-65: Fix eviction to use `popitem(last=False)`
    - Lines 104-119: Implement Thompson sampling
 
-3. `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/compression/test_critical_fixes.py` (NEW)
+3. ``compression/test_critical_fixes.py`` (NEW)
    - Comprehensive test suite for all 5 fixes
    - 16 tests covering edge cases and expected behavior
 
