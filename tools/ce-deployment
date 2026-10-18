@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# Manage versioned standalone Claude Ensemble releases.
+#
+# This helper deliberately uses the stable logical path "$ROOT/current" when
+# validating or activating service units. Unit files must reference that path,
+# never a resolved releases/<version> directory.
+set -Eeuo pipefail
+
+ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
+case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
+RELEASES="$ROOT/releases"
+CURRENT="$ROOT/current"
+UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
+STOP_ORDER=(claude-ensemble.service claude-graph.service claude-messenger.service claude-alert.service claude-learning.service claude-thompson.service claude-memory.service)
+START_ORDER=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
+
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+valid_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; }
+active_version() {
+  [[ -L "$CURRENT" ]] || return 1
+  local target
+  target="$(readlink -- "$CURRENT")"
+  [[ "$target" == releases/* ]] || return 1
+  printf '%s\n' "${target#releases/}"
+}
+stop_services() {
+  local unit
+  for unit in "${STOP_ORDER[@]}"; do systemctl --user stop "$unit" >/dev/null 2>&1 || true; done
+  for unit in "${UNITS[@]}"; do
+    if systemctl --user is-active --quiet "$unit"; then
+      printf 'ERROR: service remained active after stop: %s\n' "$unit" >&2
+      return 1
+    fi
+  done
+}
+start_services() {
+  local unit
+  # Re-run the canonical installer through the stable logical path after
+  # switching current. Its service installers then render units against current,
+  # while all mutable Claude configuration remains in shared/.
+  ENSEMBLE_STANDALONE_INSTALL=1 \
+    ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
+    ENSEMBLE_DEFER_SERVICE_START=1 \
+    bash "$CURRENT/install.sh" "$CURRENT"
+  local unit file
+  for unit in "${UNITS[@]}"; do
+    file="$HOME/.config/systemd/user/$unit"
+    [[ -f "$file" ]] || { printf 'ERROR: generated unit is missing: %s\n' "$unit" >&2; return 1; }
+    grep -Fq "$CURRENT" "$file" || { printf 'ERROR: unit does not use stable current path: %s\n' "$unit" >&2; return 1; }
+    if grep -Eq 'releases/[0-9]+\.[0-9]+' "$file"; then
+      printf 'ERROR: unit pins a release directory: %s\n' "$unit" >&2
+      return 1
+    fi
+  done
+  systemctl --user daemon-reload
+  for unit in "${START_ORDER[@]}"; do systemctl --user start "$unit"; done
+  for unit in "${UNITS[@]}"; do
+    systemctl --user is-active --quiet "$unit" || {
+      printf 'ERROR: service failed to become active: %s\n' "$unit" >&2
+      return 1
+    }
+  done
+  # The gateway readiness endpoint verifies application/dependency health, not
+  # merely systemd process liveness.
+  python3 - <<'PY'
+import time
+import urllib.error
+import urllib.request
+
+url = "http://127.0.0.1:8080/api/v1/ready"
+deadline = time.monotonic() + 20
+last_error = "readiness endpoint did not become ready"
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            if response.status == 200:
+                raise SystemExit(0)
+            last_error = f"HTTP {response.status}"
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        last_error = str(exc)
+    time.sleep(0.5)
+raise SystemExit(f"gateway readiness failed: {last_error}")
+PY
+}
+switch_link() {
+  local version="$1" tmp="$ROOT/.current.$$"
+  ln -s "releases/$version" "$tmp"
+  mv -Tf -- "$tmp" "$CURRENT"
+}
+validate_release() {
+  local version="$1" release="$RELEASES/$1" unit
+  valid_version "$version" || die "release version must be MAJOR.MINOR, got: $version"
+  [[ -d "$release" && -f "$release/install.sh" ]] || die "release is incomplete: $release"
+  [[ ! -e "$release/.git" && ! -L "$release/.git" ]] || die "release contains Git metadata: $release"
+  if find "$release" -type l -print0 | while IFS= read -r -d '' link; do
+      resolved="$(readlink -f -- "$link" 2>/dev/null || true)"
+      [[ -n "$resolved" ]] || exit 1
+      case "$resolved" in "$HOME/Development/"*|"$HOME/Development/github/"*) exit 1;; esac
+    done; then :; else die "release contains broken links or links into development checkouts"; fi
+}
+JOURNAL="$ROOT/activation.json"
+BACKUPS="$ROOT/shared/activation-backups"
+
+write_journal() {
+  local previous="$1" target="$2" backup="$3" active_file="$4" tmp="$ROOT/.activation.json.${BASHPID}"
+  python3 - "$tmp" "$previous" "$target" "$backup" "$active_file" <<'PY'
+import json, os, sys
+path, previous, target, backup, active_file = sys.argv[1:]
+payload = {"schema_version": 1, "previous": previous or None, "target": target, "unit_backup": backup, "active_before_file": active_file}
+with open(path, "w", encoding="utf-8") as out:
+    json.dump(payload, out, indent=2)
+    out.write("\n")
+os.replace(path, os.path.join(os.path.dirname(path), "activation.json"))
+PY
+}
+
+load_journal() {
+  [[ -f "$JOURNAL" ]] || die "no interrupted activation journal exists"
+  python3 - "$JOURNAL" "$ROOT" <<'PY'
+import json, os, sys
+path, root = sys.argv[1:]
+with open(path, encoding="utf-8") as source: data = json.load(source)
+backup = os.path.realpath(data.get("unit_backup", ""))
+allowed = os.path.realpath(os.path.join(root, "shared", "activation-backups")) + os.sep
+if not backup.startswith(allowed) or not os.path.isdir(backup):
+    raise SystemExit("activation journal references an invalid/missing backup directory")
+previous, target = data.get("previous"), data.get("target")
+for version in (previous, target):
+    if version is not None and (not isinstance(version, str) or not __import__("re").fullmatch(r"[0-9]+\.[0-9]+", version)):
+        raise SystemExit("activation journal contains an invalid release version")
+active_file = data.get("active_before_file")
+expected_active_file = os.path.join(backup, "active-before.txt")
+if active_file != expected_active_file or not os.path.isfile(active_file):
+    raise SystemExit("activation journal is missing valid active-service state")
+allowed_units = {"claude-memory.service", "claude-thompson.service", "claude-learning.service", "claude-alert.service", "claude-messenger.service", "claude-graph.service", "claude-ensemble.service"}
+with open(active_file, encoding="utf-8") as source:
+    if any(line.rstrip("\n") not in allowed_units for line in source):
+        raise SystemExit("active-service state contains an unknown unit")
+print(json.dumps(data))
+PY
+}
+
+restore_units() {
+  local backup="$1" active_file="$2" unit file
+  for unit in "${UNITS[@]}"; do
+    file="$HOME/.config/systemd/user/$unit"
+    if [[ -e "$backup/$unit" || -L "$backup/$unit" ]]; then cp -a -- "$backup/$unit" "$file"; else rm -f -- "$file"; fi
+  done
+  systemctl --user daemon-reload
+  while IFS= read -r unit; do [[ -n "$unit" ]] && systemctl --user start "$unit"; done < "$active_file"
+}
+
+recover_activation() {
+  local data previous target backup active_file
+  data="$(load_journal)" || die "cannot safely recover; fix journal/backup then retry"
+  previous="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("previous") or "")' <<< "$data")"
+  target="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["target"])' <<< "$data")"
+  backup="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["unit_backup"])' <<< "$data")"
+  active_file="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["active_before_file"])' <<< "$data")"
+  stop_services || die "services could not be stopped; activation journal retained"
+  if [[ -n "$previous" ]]; then
+    [[ -d "$RELEASES/$previous" ]] || die "previous release $previous is missing; activation journal retained"
+    switch_link "$previous"
+    start_services || die "previous release $previous selected but health checks failed; journal retained"
+  else
+    rm -f -- "$CURRENT"
+    restore_units "$backup" "$active_file" || die "original unit restoration failed; journal retained"
+  fi
+  rm -f -- "$JOURNAL"
+  rm -rf -- "$backup"
+  rm -f -- "$active_file"
+  printf "Recovered interrupted activation of %s; restored %s.\n" "$target" "${previous:-no prior release}"
+}
+cmd="${1:-help}"
+case "$cmd" in
+  validate)
+    [[ $# -eq 2 ]] || die "usage: ce-deployment validate MAJOR.MINOR"
+    validate_release "$2"
+    printf 'Release %s passed structural validation.\n' "$2"
+    ;;
+  activate)
+    [[ $# -eq 2 ]] || die "usage: ce-deployment activate MAJOR.MINOR"
+    [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
+    version="$2"
+    mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
+    validate_release "$version"
+    previous="$(active_version || true)"
+    [[ "$previous" != "$version" ]] || { printf "Release %s is already active.\n" "$version"; exit 0; }
+    backup="$BACKUPS/activation.$(date +%Y%m%d%H%M%S).$$"
+    mkdir -m 700 "$backup"
+    active_file="$backup/active-before.txt"
+    : > "$active_file"
+    for unit in "${UNITS[@]}"; do
+      file="$HOME/.config/systemd/user/$unit"
+      if [[ -e "$file" || -L "$file" ]]; then cp -a -- "$file" "$backup/$unit"; fi
+      systemctl --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
+    done
+    write_journal "$previous" "$version" "$backup" "$active_file"
+    [[ -f "$JOURNAL" ]] || die "failed to persist activation journal at $JOURNAL"
+    stop_services || die "could not stop all CE services; run ce-deployment recover; journal retained"
+    if ! switch_link "$version"; then
+      restore_units "$backup" "$active_file" || die "switch failed and unit restoration failed; journal retained"
+      rm -f -- "$JOURNAL"; rm -rf -- "$backup"
+      die "atomic current symlink switch failed; prior unit files restored"
+    fi
+    if start_services; then
+      rm -f -- "$JOURNAL"; rm -rf -- "$backup"
+      printf "Activated Claude Ensemble release %s. Previous release: %s\n" "$version" "${previous:-none}"
+      exit 0
+    fi
+    printf "Activation failed; restoring previous release.\n" >&2
+    stop_services || die "failed activation left services running; inspect status and run recover"
+    if [[ -n "$previous" ]]; then
+      switch_link "$previous"
+      start_services || die "rollback selected $previous but health checks failed; activation journal retained"
+    else
+      rm -f -- "$CURRENT"
+      restore_units "$backup" "$active_file" || die "original unit restoration failed; activation journal retained"
+    fi
+    rm -f -- "$JOURNAL"
+    rm -rf -- "$backup"
+    exit 1
+    ;;
+  recover)
+    [[ $# -eq 1 ]] || die "usage: ce-deployment recover"
+    recover_activation
+    ;;
+  rollback)
+    previous="$(active_version)" || die "no active release"
+    candidates=()
+    for dir in "$RELEASES"/*; do
+      [[ -d "$dir" ]] || continue
+      version="${dir##*/}"
+      [[ "$version" != "$previous" ]] && candidates+=("$version")
+    done
+    (("${#candidates[@]}" > 0)) || die "no prior release available"
+    # Sort numeric major/minor versions and choose the highest non-active release.
+    target="$(printf '%s\n' "${candidates[@]}" | sort -t. -k1,1n -k2,2n | tail -n 1)"
+    "$0" activate "$target"
+    ;;
+  status)
+    if [[ -e "$JOURNAL" ]]; then printf "WARNING: interrupted activation journal exists; run ce-deployment recover.\n" >&2; fi
+    printf 'Root: %s\n' "$ROOT"
+    printf 'Current: %s\n' "$(active_version || printf 'not activated')"
+    printf 'Releases:\n'
+    find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' 2>/dev/null | sort -V || true
+    ;;
+  prune)
+    [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
+    active="$(active_version)" || die "no active release"
+    previous="$(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -vxF "$active" | sort -V | tail -n 1 || true)"
+    for dir in "$RELEASES"/*; do
+      [[ -d "$dir" ]] || continue
+      version="${dir##*/}"
+      if [[ "$version" != "$active" && "$version" != "$previous" ]]; then
+        printf 'Removing old release %s\n' "$version"
+        rm -rf -- "$dir"
+      fi
+    done
+    ;;
+  help|--help|-h)
+    cat <<'USAGE'
+Usage: ce-deployment COMMAND [MAJOR.MINOR]
+Commands:
+  validate VERSION  Validate a staged release and stable service-unit paths.
+  activate VERSION  Stop services, atomically switch current, restart and health-check.
+  rollback          Activate the highest version other than the current one.
+  status            Show active and retained release versions.
+  prune             Keep active and highest other release; remove older releases.
+USAGE
+    ;;
+  *) die "unknown command: $cmd" ;;
+esac
