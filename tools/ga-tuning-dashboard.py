@@ -9,6 +9,7 @@ Shows genetic algorithm optimization progress:
 """
 
 import json
+import os
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple
@@ -22,7 +23,20 @@ class GATuningDashboard:
 
     def __init__(self, results_dir: Path = None):
         if results_dir is None:
-            results_dir = Path(__file__).parent.parent / 'ga_tuning' / 'results'
+            configured = os.environ.get("CE_GA_RESULTS_DIR")
+            if configured:
+                results_dir = Path(configured)
+            else:
+                deploy_root = Path(os.environ.get(
+                    "ENSEMBLE_INSTALL_ROOT",
+                    Path.home() / ".FlossWare" / "claude-ensemble",
+                ))
+                deployed_results = deploy_root / "shared" / "data" / "ga-tuning" / "results"
+                if (deploy_root / "current").is_symlink() or deployed_results.exists():
+                    results_dir = deployed_results
+                else:
+                    # Direct development runs retain their repository-local default.
+                    results_dir = Path(__file__).parent.parent / "ga_tuning" / "results"
         self.results_dir = Path(results_dir)
 
     def get_latest_results(self) -> Tuple[Path, Path, Path]:
