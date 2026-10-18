@@ -3,7 +3,7 @@
 **Project:** Expand capability matrix from N=1 to N=5+ with proper statistics  
 **Status:** ✅ COMPLETE  
 **Date:** 2026-09-25  
-**Location:** `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/learning/`
+**Location:** `learning/` (relative to the repository root)
 
 ---
 

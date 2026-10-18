@@ -5,8 +5,11 @@ Get optimal parameters for your 5 RH tools in 30 seconds.
 ## TL;DR
 
 ```bash
-# 1. Run GA tuning
-cd /home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/ga_tuning
+# 1. From the repository root, optionally configure the memory corpus
+# export CE_MEMORY_DIR="$HOME/.claude/memory"
+# export RH_TOOLS_ROOT="/path/to/global-skills-checkout"
+# Then run GA tuning
+cd ga_tuning
 python ga_tuner.py
 
 # 2. View best parameters

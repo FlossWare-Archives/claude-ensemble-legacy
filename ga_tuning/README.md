@@ -262,10 +262,10 @@ Duration: 2-4 weeks of production traffic
 
 ### "No test files found in RH memory directory"
 
-Check that memory files exist:
+Set `CE_MEMORY_DIR` to the intended memory corpus and check that memory files exist:
 
 ```bash
-ls -la ~/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/memory/
+ls -la "${CE_MEMORY_DIR:-$HOME/.claude/memory}"
 ```
 
 ### Low fitness scores
