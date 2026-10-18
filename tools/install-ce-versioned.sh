@@ -125,6 +125,13 @@ else
   curl -fsSL "https://github.com/FlossWare/claude-ensemble/archive/$SOURCE_COMMIT.tar.gz" \
     | tar -xz -C "$STAGED" --strip-components=1
 fi
+# The development checkout has a convenience symlink to a Red Hat-owned
+# claude-global-skills checkout. It is host-specific and must never ship in a
+# standalone release (including archive-based installs). Keep other symlinks
+# intact so structural validation can reject unexpected external links.
+if [[ -L "$STAGED/claude-global-skills" ]]; then
+  rm -- "$STAGED/claude-global-skills"
+fi
 [[ -f "$STAGED/install.sh" && ! -e "$STAGED/.git" && ! -L "$STAGED/.git" ]] || {
   printf 'ERROR: Source archive is incomplete or contains Git metadata.\n' >&2
   exit 1
