@@ -190,7 +190,7 @@ if ! mv -- "$STAGING" "$DEPLOY_ROOT"; then
   exit 1
 fi
 printf '\nInstalling Claude Ensemble from independent deployment: %s\n\n' "$DEPLOY_ROOT"
-if bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
+if ENSEMBLE_DEFER_SERVICE_START=1 bash "$DEPLOY_ROOT/install.sh" "$DEPLOY_ROOT"; then
   :
 else
   status=$?
