@@ -1,6 +1,6 @@
 # Versioned standalone deployment
 
-> **Preview:** the versioned installer is under active development. Do not use it for a production deployment until the activation, rollback, and migration checks in PR #507 pass on the target host.
+> **Host acceptance is still pending.** CI and mocked staging/rollback tests pass, but they do not prove this installation is safe on the target host. First run the staging-only procedure below and inspect the generated manifest and service units. Do not run normal install/activation until staging acceptance is recorded; activation requires a separate, explicit maintenance-window decision.
 
 ## Layout
 
