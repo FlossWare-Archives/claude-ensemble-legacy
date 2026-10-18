@@ -8,6 +8,20 @@ set -Eeuo pipefail
 
 ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
+ROOT="${ROOT%/}"
+ROOT_PARENT="$(dirname -- "$ROOT")"
+mkdir -p -- "$ROOT_PARENT"
+ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
+ROOT="$ROOT_PARENT/$(basename -- "$ROOT")"
+HOME_REAL="$(cd -- "$HOME" && pwd -P)"
+case "$ROOT" in
+  "$HOME_REAL"/*) ;;
+  *)
+    printf 'ERROR: Deployment path must be a child of HOME: %s\\n' "$ROOT" >&2
+    exit 1
+    ;;
+esac
+[[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\\n' "$ROOT" >&2; exit 1; }
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
 UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
