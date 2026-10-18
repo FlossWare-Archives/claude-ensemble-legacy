@@ -39,6 +39,9 @@ mkdir -p "$SOURCE/.git" "$SOURCE/tools"
 cat > "$SOURCE/install.sh" <<'INSTALL'
 #!/usr/bin/env bash
 [[ -f "$0" ]] || exit 2
+[[ "${ENSEMBLE_STANDALONE_INSTALL:-}" == "1" ]] || exit 3
+[[ "${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-}" == "$HOME/.FlossWare/claude-ensemble" ]] || exit 4
+[[ "${ENSEMBLE_DEFER_SERVICE_START:-}" == "1" ]] || exit 5
 # The standalone wrapper must not start any service before this installer exits.
 awk '
   /--user stop claude-ensemble.service/ { last_stop = NR }
