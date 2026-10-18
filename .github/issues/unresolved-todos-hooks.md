@@ -1,13 +1,16 @@
-# Audit finding: workflow completion hook embedding contract
+# Audit finding: unresolved workflow hook TODOs
 
 **Tracking:** [GitHub issue #527](https://github.com/FlossWare/claude-ensemble/issues/527)  
-**Status:** Open  
-**Priority:** Investigate contract before implementation.
+**Status:** Partially resolved; external schema evidence still required.
 
-## Description
-In `hooks/workflow-completion-hook.js`, a learning record is currently created with `embedding: null` and a TODO to generate an embedding. The intended ownership and requiredness of embedding generation have not yet been established.
+## Resolution completed
+- Marked `hooks/workflow-completion-hook.js` as a deprecated legacy path, not registered in `settings.json.default`.
+- Documented the supported outcome path: `shared/learning-outcome-bridge.js` -> `tools/record_workflow_outcome.py` -> Learning service.
+- Clarified that the supported evidence-backed outcome contract does not require semantic embeddings.
+- Removed the misleading embedding-generation TODO from the legacy hook and added a regression test preventing it from being presented as the supported path.
 
-## Triage guidance
-Inspect the schema, write path, and semantic-search consumers before changing behavior. Confirm whether embeddings are optional, generated asynchronously, or required from this hook. Avoid duplicate generation and new provider dependencies without an established contract.
+## Remaining limitation
+The legacy hook writes directly to `workflows.learnings`, but the table schema/migrations and complete set of consumers are not defined in this repository. We cannot honestly certify the external column nullability or consumer contract from repository evidence alone. Do not reactivate or extend that path until the owning database schema and consumers are available for review.
 
-See [issue #527](https://github.com/FlossWare/claude-ensemble/issues/527) for acceptance criteria.
+## Source
+Audit recorded in commit [3462918](https://github.com/FlossWare/claude-ensemble/commit/34629180fd9d66e13c546175f9c6eece4ddd20c8).
