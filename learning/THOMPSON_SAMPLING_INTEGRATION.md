@@ -350,8 +350,8 @@ state_tracker.save()
 
 ## Files
 
-- **Implementation**: `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/shared/thompson_router.py`
-- **State**: `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/learning/thompson-sampling-state.json`
+- **Implementation**: ``shared/thompson_router.py``
+- **State**: ``learning/thompson-sampling-state.json``
 - **Docs**: This file
 
 ---
