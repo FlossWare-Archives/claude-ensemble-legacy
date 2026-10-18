@@ -212,7 +212,7 @@ All reports are JSON with structure:
 }
 ```
 
-Sample report: `/home/sfloess/.claude/cost_tracking/sample_report.json`
+Sample report: ``$HOME/.claude/cost_tracking/sample_report.json``
 
 ## Usage Patterns
 
@@ -353,7 +353,7 @@ ALL TESTS PASSED ✓
 
 ### Run Tests
 ```bash
-cd /home/sfloess/.../cost_tracking
+cd "$(git rev-parse --show-toplevel)/cost_tracking"
 python3 test_aggregator.py
 ```
 
@@ -398,5 +398,5 @@ cat ~/.claude/cost_tracking/sample_report.json | python3 -m json.tool | less
 ---
 
 **Status**: ✓ Complete and tested  
-**Module Location**: `/home/sfloess/Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills/cost_tracking/aggregator.py`  
+**Module Location**: ``cost_tracking/aggregator.py``  
 **Sample Report**: `~/.claude/cost_tracking/sample_report.json` (33 KB)
