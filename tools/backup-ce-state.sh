@@ -68,14 +68,14 @@ if [[ -e "$BACKUP/files/deployment-root" ]]; then
   [[ -d "$BACKUP/files/deployment-root" ]] || exit 1
 fi
 if [[ -n "$PROFILE_DIR" ]]; then
-  [[ ! -L "$PROFILE_DIR" ]] || { printf 'ERROR: refusing to snapshot a symlinked profile directory: %s\\n' "$PROFILE_DIR" >&2; exit 1; }
+  [[ ! -L "$PROFILE_DIR" ]] || { printf 'ERROR: refusing to snapshot a symlinked profile directory: %s\n' "$PROFILE_DIR" >&2; exit 1; }
   PROFILE_DIR="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$PROFILE_DIR")"
-  case "$PROFILE_DIR" in "$HOME_REAL"/*) ;; *) printf 'ERROR: selected profile must resolve beneath HOME: %s\\n' "$PROFILE_DIR" >&2; exit 1;; esac
+  case "$PROFILE_DIR" in "$HOME_REAL"/*) ;; *) printf 'ERROR: selected profile must resolve beneath HOME: %s\n' "$PROFILE_DIR" >&2; exit 1;; esac
   if [[ -d "$PROFILE_DIR" ]]; then
     cp -a -- "$PROFILE_DIR" "$BACKUP/files/selected-profile"
-    printf 'selected_profile_path=%s\\nselected_profile_snapshot=files/selected-profile\\n' "$PROFILE_DIR" >> "$manifest"
+    printf 'selected_profile_path=%s\nselected_profile_snapshot=files/selected-profile\n' "$PROFILE_DIR" >> "$manifest"
   else
-    printf 'selected_profile_path=%s\\nselected_profile_snapshot=absent-before-operation\\n' "$PROFILE_DIR" >> "$manifest"
+    printf 'selected_profile_path=%s\nselected_profile_snapshot=absent-before-operation\n' "$PROFILE_DIR" >> "$manifest"
   fi
 fi
 trap - ERR
