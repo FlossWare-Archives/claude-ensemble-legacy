@@ -225,8 +225,9 @@ class PendingRecoveryTests(unittest.TestCase):
             return_value={"ok": True, "memory": True},
         ):
             with patch.object(self.extractor, "_fsync_directory", side_effect=fail_receipt_sync):
-                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                with self.assertRaisesRegex(RuntimeError, "receipt persistence failed") as raised:
                     self.extractor.recover_pending()
+            self.assertIn("unresolved", str(raised.exception))
             self.assertTrue(pending.exists())
             self.assertTrue((self.results / ".ga-test-001.ingested").exists())
             self.assertEqual(self.extractor.recover_pending(), 1)
@@ -250,8 +251,9 @@ class PendingRecoveryTests(unittest.TestCase):
             return_value={"ok": True, "memory": True},
         ):
             with patch.object(self.extractor, "_fsync_directory", side_effect=fail_third_sync):
-                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                with self.assertRaisesRegex(RuntimeError, "post-ingestion cleanup durability failure") as raised:
                     self.extractor.recover_pending()
+            self.assertIn("pending snapshot path is present", str(raised.exception))
             self.assertTrue(pending.exists(), "failed cleanup must leave a retryable snapshot")
             self.assertTrue((self.results / ".ga-test-001.ingested").exists())
             self.assertEqual(self.extractor.recover_pending(), 1)
