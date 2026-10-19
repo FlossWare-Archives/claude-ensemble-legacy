@@ -83,6 +83,29 @@ class PendingRecoveryTests(unittest.TestCase):
         self.assertTrue(pending.exists())
         self.assertFalse((self.results / ".ga-test-001.ingested").exists())
 
+    def test_recovery_rejects_false_and_truthy_non_boolean_acknowledgements(self):
+        cases = (
+            ("memory-false", {"ok": True, "memory": False}),
+            ("ok-int", {"ok": 1, "memory": True}),
+            ("ok-string", {"ok": "true", "memory": True}),
+            ("memory-int", {"ok": True, "memory": 1}),
+            ("memory-string", {"ok": True, "memory": "true"}),
+        )
+        for run_id, response in cases:
+            with self.subTest(acknowledgement=run_id):
+                _, pending = self.make_pending(run_id=run_id)
+                with patch.object(
+                    module.LearningClient,
+                    "record_artifact",
+                    return_value=response,
+                ) as send:
+                    with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                        self.extractor.recover_pending()
+                send.assert_called_once()
+                self.assertTrue(pending.exists())
+                self.assertFalse((self.results / f".{run_id}.ingested").exists())
+
+
     def test_filename_run_id_mismatch_fails_closed(self):
         _, pending = self.make_pending(filename_run_id="ga-wrong-name")
         with patch.object(module.LearningClient, "record_artifact") as send:
