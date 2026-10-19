@@ -573,21 +573,17 @@ tools/ce diagnose --json
 
 ## Uninstalling a standalone deployment
 
-Use the selected immutable release's helper to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer. Capture the release path **before** uninstalling, because the command removes `current`:
+Use the repository's `uninstall.sh` entry point to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
 
 ```bash
-ROOT="$HOME/.FlossWare/claude-ensemble"
-CE_RELEASE="$(readlink -f "$ROOT/current")"
-test -x "$CE_RELEASE/tools/ce-deployment"
-bash "$CE_RELEASE/tools/ce-deployment" uninstall
+SOURCE="$HOME/.FlossWare/ce-source"
+bash "$SOURCE/uninstall.sh"
 ```
 
-The default uninstall **preserves** immutable releases and all data under `shared/`, including Memory, Learning, logs, and the managed Claude Code profile. This permits later inspection or reactivation without destroying user state. Keep the `CE_RELEASE` variable in the same shell if you may choose to purge later.
-
-Permanent removal of the entire deployment root and its shared data requires the separate, explicit destructive option. Run this only after confirming that no data must be retained:
+The default uninstall **preserves** immutable releases and all data under `shared/`, including Memory, Learning, logs, and the managed Claude Code profile. This permits later inspection or reactivation without destroying user state. Because the source checkout remains available, the same command can be used for explicit purge after the active pointer has been removed:
 
 ```bash
-bash "$CE_RELEASE/tools/ce-deployment" uninstall --purge
+bash "$SOURCE/uninstall.sh" --purge
 ```
 
-If you opened a new shell after the default uninstall, choose an existing immutable release explicitly, for example `CE_RELEASE="$ROOT/releases/0.1"`, and verify its helper exists before invoking it. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
+Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
