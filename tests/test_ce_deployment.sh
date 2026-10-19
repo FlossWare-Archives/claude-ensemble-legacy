@@ -309,7 +309,7 @@ echo "Versioned installer migration contract tests passed."
 
 # Exercise the supported upgrade wrapper and complete install -> upgrade ->
 # uninstall -> purge lifecycle entirely inside the disposable HOME.
-bash "$SCRIPT_DIR/../tools/upgrade-ce-versioned.sh" 0.2 "$SOURCE_FIXTURE"
+bash "$SCRIPT_DIR/../upgrade.sh" 0.2 "$SOURCE_FIXTURE"
 [[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.2 ]] || { echo "FAIL: upgrade did not activate 0.2" >&2; exit 1; }
 /usr/bin/python3 - "$INSTALL_ROOT/deployment.json" <<'VERIFY_UPGRADED_MANIFEST'
 import json, sys
