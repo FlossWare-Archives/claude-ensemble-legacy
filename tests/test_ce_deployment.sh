@@ -357,3 +357,42 @@ if compgen -G "$SERVICE_HOME/.config/systemd/user/claude-*.service" >/dev/null; 
 fi
 unset ENSEMBLE_USER_UNIT_DIR
 echo "Stable-current service installer path contract passed."
+
+# Safe versioned uninstall contract: default uninstall stops/removes only CE units
+# and the active pointer while preserving releases and shared user data.
+UNINSTALL_HOME="$TMP/uninstall-home"
+UNINSTALL_ROOT="$UNINSTALL_HOME/.FlossWare/claude-ensemble"
+UNINSTALL_UNITS="$UNINSTALL_HOME/.config/systemd/user"
+mkdir -p "$UNINSTALL_ROOT/releases/0.1" "$UNINSTALL_ROOT/shared/data/memory" "$UNINSTALL_UNITS" "$TMP/uninstall-bin"
+ln -s releases/0.1 "$UNINSTALL_ROOT/current"
+printf '{"schema_version":1,"active":"0.1","previous":null}\n' > "$UNINSTALL_ROOT/known-good.json"
+printf 'preserve-me\n' > "$UNINSTALL_ROOT/shared/data/memory/record.jsonl"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  printf '[Service]\nExecStart=/test/current/service\n' > "$UNINSTALL_UNITS/$unit"
+done
+cat > "$TMP/uninstall-bin/systemctl-mock" <<'MOCK_SYSTEMCTL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+case "${2:-}" in
+  stop|daemon-reload) exit 0 ;;
+  is-active) exit 1 ;;
+  *) exit 0 ;;
+esac
+MOCK_SYSTEMCTL
+chmod +x "$TMP/uninstall-bin/systemctl-mock"
+HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall
+[[ ! -e "$UNINSTALL_ROOT/current" && ! -L "$UNINSTALL_ROOT/current" ]] || { echo "FAIL: uninstall retained current symlink" >&2; exit 1; }
+[[ ! -e "$UNINSTALL_ROOT/known-good.json" ]] || { echo "FAIL: uninstall retained known-good activation state" >&2; exit 1; }
+[[ -f "$UNINSTALL_ROOT/shared/data/memory/record.jsonl" ]] || { echo "FAIL: uninstall deleted shared data without --purge" >&2; exit 1; }
+[[ -d "$UNINSTALL_ROOT/releases/0.1" ]] || { echo "FAIL: uninstall deleted immutable releases without --purge" >&2; exit 1; }
+if compgen -G "$UNINSTALL_UNITS/claude-*.service" >/dev/null; then echo "FAIL: uninstall left managed CE units" >&2; exit 1; fi
+# Purge is a separate explicit action and removes the deployment root only after
+# the managed services and units have been removed.
+ln -s releases/0.1 "$UNINSTALL_ROOT/current"
+printf '{"schema_version":1,"active":"0.1","previous":null}\n' > "$UNINSTALL_ROOT/known-good.json"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  printf '[Service]\nExecStart=/test/current/service\n' > "$UNINSTALL_UNITS/$unit"
+done
+HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall --purge
+[[ ! -e "$UNINSTALL_ROOT" && ! -L "$UNINSTALL_ROOT" ]] || { echo "FAIL: --purge retained deployment root" >&2; exit 1; }
+echo "Versioned uninstall preservation/purge contract passed."
