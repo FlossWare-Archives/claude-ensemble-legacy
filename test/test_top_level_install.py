@@ -68,6 +68,11 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
         encoding="utf-8",
     )
     systemctl.chmod(0o755)
+    # The CI Node.js binary may live outside /usr/bin and /bin. Make it
+    # visible through the isolated PATH without replacing its real runtime.
+    node_binary = shutil.which("node")
+    if node_binary:
+        (bin_dir / "node").symlink_to(node_binary)
     if claude:
         cli = bin_dir / "claude"
         cli.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
