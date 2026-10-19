@@ -13,6 +13,13 @@ import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+INSTALLER_TEXT = (ROOT / "install.sh").read_text(encoding="utf-8")
+if "sys.version_info >= (3, 11)" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer does not enforce Python 3.11 minimum")
+if "major >= 22" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer does not enforce Node.js 22 minimum")
+if "for required in git python3 node systemctl" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer prerequisite list omits Node.js")
 EXPECTED = (
     "claude-memory.service",
     "claude-thompson.service",
