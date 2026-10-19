@@ -4,22 +4,21 @@ The default CI suite is deterministic and must not depend on paid APIs, user cre
 or third-party uptime. The following commands are explicit live checks and can incur provider
 charges or send selected repository content to external providers.
 
-## Anthropic and Google model providers
+## Claude Code runtime
 
-On a trusted machine with credentials already configured in the environment:
+CE's supported model execution path is the authenticated Claude Code CLI. Direct Anthropic
+Messages and Google Gemini provider adapters are not part of the active runtime contract;
+Gemini routing remains parked until deployment acceptance and explicit routing work are complete.
+
+On a trusted machine where Claude Code is already installed and authenticated:
 
 ```bash
-ENSEMBLE_LIVE_PROVIDER_TESTS=1 python -m pytest -q providers/test_live_api_providers.py
+ENSEMBLE_CLAUDE_INTEGRATION=1 python -m pytest -q providers/test_claude_code_integration.py
 ```
 
-Optional model overrides:
-
-- `ENSEMBLE_LIVE_ANTHROPIC_MODEL`
-- `ENSEMBLE_LIVE_GOOGLE_MODEL`
-
-Without the opt-in flag, tests are skipped and no network request is made. With opt-in but
-without a provider key, that provider is reported as skipped due to missing credentials.
-An authenticated request must return the exact expected response and valid token usage to pass.
+Optional model override: `ENSEMBLE_CLAUDE_MODEL` (supported labels are `haiku`, `sonnet`,
+and `opus`). Without the opt-in flag the test is skipped and does not invoke Claude Code.
+The test requires the CLI to return exactly `READY` through CE's orchestration path.
 
 ## Grok, Perplexity, and Jules reviewer MCP
 
