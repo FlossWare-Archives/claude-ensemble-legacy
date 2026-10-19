@@ -31,6 +31,10 @@ function buildSearchUrl() {
   return new URL(MEMORY_SEARCH_PATH, MEMORY_URL.endsWith('/') ? MEMORY_URL : `${MEMORY_URL}/`).toString();
 }
 
+function buildKnowledgeStatusUrl() {
+  return new URL('/memory/knowledge/status', MEMORY_URL.endsWith('/') ? MEMORY_URL : `${MEMORY_URL}/`).toString();
+}
+
 function resultText(result) {
   if (!result || typeof result !== 'object') return '';
   if (typeof result.content !== 'string') return '';
@@ -304,6 +308,30 @@ async function searchKnowledgeContext(query) {
   return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, MAX_RESULTS) };
 }
 
+async function searchKnowledgeStatus() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(buildKnowledgeStatusUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: '{}',
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Knowledge status returned HTTP ${response.status}`);
+    const result = await response.json();
+    if (!result || result.ok !== true
+      || !['available', 'empty'].includes(result.status)
+      || !Number.isInteger(result.indexed_document_count)
+      || result.indexed_document_count < 0) {
+      throw new Error('Knowledge status response did not satisfy the source contract');
+    }
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function emitDiagnostics(eventName, details) {
   if (process.env.FLOSSWARE_CE_HOOK_DIAGNOSTICS !== '1') return;
   // Never log prompt text or retrieved content. The hash correlates one prompt
@@ -323,7 +351,8 @@ async function main() {
   emitDiagnostics('started', { queryHash, cwdPresent: Boolean(event.cwd) });
   let memoryError = null;
   let graphError = null;
-  const [memoryPayload, knowledgePayload, graphResult] = await Promise.all([
+  let knowledgeIndexError = null;
+  const [memoryPayload, knowledgePayload, graphResult, knowledgeIndex] = await Promise.all([
     searchContext(query, 'memory').catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       memoryError = message;
@@ -340,6 +369,12 @@ async function main() {
       graphError = message;
       process.stderr.write(`Graph context unavailable: ${message}\n`);
       return { lines: [], status: 'error' };
+    }),
+    searchKnowledgeStatus().catch(error => {
+      const message = error instanceof Error ? error.message : String(error);
+      knowledgeIndexError = message;
+      process.stderr.write(`Knowledge index status unavailable: ${message}\n`);
+      return null;
     }),
   ]);
 
@@ -364,6 +399,10 @@ async function main() {
     knowledgeStatus: knowledgePayload?.ok !== true ? 'error' : knowledgeResults.length ? 'ok' : 'empty',
     knowledgeResultCount: knowledgeResults.length,
     knowledgeCount: knowledge.length,
+    knowledgeSource: 'claude-code',
+    knowledgeIndexStatus: knowledgeIndexError ? 'error' : knowledgeIndex?.status || 'unavailable',
+    knowledgeIndexedDocumentCount: Number.isInteger(knowledgeIndex?.indexed_document_count)
+      ? knowledgeIndex.indexed_document_count : null,
     graphStatus: graphError ? 'error' : graphResult.status,
     graphCount: graphContext.length,
     contextEmitted: Boolean(additionalContext),
