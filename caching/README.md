@@ -330,3 +330,16 @@ caching/
 **Created:** 2026-09-25  
 **Phase:** 1 (Integration Testing)  
 **Status:** READY FOR PHASE 2 ✓✓✓
+
+
+## Optional live API validation
+
+The active CE model invocation path uses the installed Claude Code runtime. It does not use this direct Anthropic API validation script. `test_anthropic_api.py` is an optional, manual compatibility experiment for the separate cache-control integration and is not required for the default single-runtime path or CI.
+
+Run local cache tests by default. A live Anthropic API request is made only when you explicitly set `ENSEMBLE_LIVE_CACHE_TESTS=1`, have an `ANTHROPIC_API_KEY`, and understand that provider charges may apply:
+
+```bash
+ENSEMBLE_LIVE_CACHE_TESTS=1 python3 caching/test_anthropic_api.py
+```
+
+Without the opt-in flag, the script must not make an API request even if an API key is present. Never put a real API key in source control, shell transcripts, or tool output.
