@@ -182,6 +182,7 @@ for unit in claude-memory.service claude-thompson.service claude-learning.servic
   grep -Fq "ENSEMBLE_LOG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/logs" "$unit_file" || { echo "FAIL: $unit does not isolate logs under shared/" >&2; exit 1; }
   grep -Fq "ENSEMBLE_RUNTIME_DIR=$ENSEMBLE_INSTALL_ROOT/shared/runtime" "$unit_file" || { echo "FAIL: $unit does not isolate runtime state under shared/" >&2; exit 1; }
   grep -Fq "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/claude-code" "$unit_file" || { echo "FAIL: $unit does not isolate Claude Code configuration" >&2; exit 1; }
+  grep -Fq "CLAUDE_CONFIG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/claude-code" "$unit_file" || { echo "FAIL: $unit does not pass the native Claude Code profile override" >&2; exit 1; }
   if grep -Eq '/\.claude(/|$)|/\.local/share/claude-ensemble' "$unit_file"; then
     echo "FAIL: managed unit retains a legacy mutable-state path: $unit" >&2
     exit 1
@@ -253,6 +254,7 @@ for service_dir in memory-service thompson-service learning-service alert_servic
   cp -a "$SCRIPT_DIR/../$service_dir" "$SOURCE_FIXTURE/"
 done
 cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$SOURCE_FIXTURE/tools/managed_unit_config.py"
+cp "$SCRIPT_DIR/../tools/backup-ce-state.sh" "$SOURCE_FIXTURE/tools/backup-ce-state.sh"
 printf '{"custom":"legacy-settings"}\n' > "$INSTALL_ROOT/claude-code/settings.json"
 printf '{"custom":"keep-me"}\n' > "$INSTALL_ROOT/claude-code/legacy-only.json"
 printf '{"custom":"top-level-legacy"}\n' > "$INSTALL_HOME/.FlossWare/claude-ensemble-profile/legacy-only.json"
@@ -290,7 +292,7 @@ MOCK_PYTHON
 chmod +x "$TMP/bin/python3"
 export HOME="$INSTALL_HOME"
 export ENSEMBLE_INSTALL_ROOT="$INSTALL_ROOT"
-bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.1 "$SOURCE_FIXTURE"
+bash "$SCRIPT_DIR/../install-standalone.sh" 0.1 "$SOURCE_FIXTURE"
 [[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.1 ]]
 [[ -d "$INSTALL_ROOT/releases/0.0" ]]
 [[ -L "$INSTALL_ROOT/releases/0.1/claude-code" ]]
@@ -306,6 +308,29 @@ assert manifest["release"] == "0.1"
 assert manifest["validation"] == "activated"
 VERIFY_MANIFEST
 echo "Versioned installer migration contract tests passed."
+
+# Exercise the supported upgrade wrapper and complete install -> upgrade ->
+# uninstall -> purge lifecycle entirely inside the disposable HOME.
+bash "$SCRIPT_DIR/../upgrade.sh" 0.2 "$SOURCE_FIXTURE"
+[[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.2 ]] || { echo "FAIL: upgrade did not activate 0.2" >&2; exit 1; }
+/usr/bin/python3 - "$INSTALL_ROOT/deployment.json" <<'VERIFY_UPGRADED_MANIFEST'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+assert manifest["release"] == "0.2"
+assert manifest["validation"] == "activated"
+VERIFY_UPGRADED_MANIFEST
+grep -q 'shared-wins' "$INSTALL_ROOT/shared/claude-code/settings.json" || { echo "FAIL: upgrade overwrote shared user settings" >&2; exit 1; }
+grep -q 'keep-me' "$INSTALL_ROOT/shared/claude-code/legacy-only.json" || { echo "FAIL: upgrade lost migrated user data" >&2; exit 1; }
+CE_RELEASE="$(readlink -f "$INSTALL_ROOT/current")"
+bash "$SCRIPT_DIR/../uninstall.sh"
+[[ ! -e "$INSTALL_ROOT/current" && ! -L "$INSTALL_ROOT/current" ]] || { echo "FAIL: uninstall retained current pointer" >&2; exit 1; }
+[[ -d "$INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: uninstall deleted releases by default" >&2; exit 1; }
+[[ -f "$INSTALL_ROOT/shared/claude-code/settings.json" ]] || { echo "FAIL: uninstall deleted shared user settings" >&2; exit 1; }
+if compgen -G "$INSTALL_HOME/.config/systemd/user/claude-*.service" >/dev/null; then echo "FAIL: uninstall left managed service units" >&2; exit 1; fi
+bash "$SCRIPT_DIR/../uninstall.sh" --purge
+[[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] || { echo "FAIL: lifecycle purge retained deployment root" >&2; exit 1; }
+echo "Disposable install -> upgrade -> uninstall -> purge lifecycle passed."
 
 # Standalone activation must use deployment-owned credential configuration and
 # must never create the legacy global secrets.env file.
@@ -357,3 +382,76 @@ if compgen -G "$SERVICE_HOME/.config/systemd/user/claude-*.service" >/dev/null; 
 fi
 unset ENSEMBLE_USER_UNIT_DIR
 echo "Stable-current service installer path contract passed."
+
+# Safe versioned uninstall contract: default uninstall stops/removes only CE units
+# and the active pointer while preserving releases and shared user data.
+UNINSTALL_HOME="$TMP/uninstall-home"
+UNINSTALL_ROOT="$UNINSTALL_HOME/.FlossWare/claude-ensemble"
+UNINSTALL_UNITS="$UNINSTALL_HOME/.config/systemd/user"
+mkdir -p "$UNINSTALL_ROOT/releases/0.1" "$UNINSTALL_ROOT/shared/data/memory" "$UNINSTALL_UNITS" "$TMP/uninstall-bin" "$UNINSTALL_HOME/.claude"
+ln -s releases/0.1 "$UNINSTALL_ROOT/current"
+printf '{"schema_version":1,"active":"0.1","previous":null}\n' > "$UNINSTALL_ROOT/known-good.json"
+printf 'preserve-me\n' > "$UNINSTALL_ROOT/shared/data/memory/record.jsonl"
+printf '{"user":"keep"}\n' > "$UNINSTALL_HOME/.claude/settings.json"
+printf '# user shell config\n' > "$UNINSTALL_HOME/.bashrc"
+printf '[Service]\nExecStart=/user/owned/service\n' > "$UNINSTALL_UNITS/claude-user-custom.service"
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  printf '[Service]\nExecStart=/test/current/service\n' > "$UNINSTALL_UNITS/$unit"
+done
+cat > "$TMP/uninstall-bin/systemctl-mock" <<'MOCK_SYSTEMCTL'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+case "${2:-}" in
+  stop|daemon-reload) exit 0 ;;
+  is-active) exit 1 ;;
+  *) exit 0 ;;
+esac
+MOCK_SYSTEMCTL
+chmod +x "$TMP/uninstall-bin/systemctl-mock"
+HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall
+[[ ! -e "$UNINSTALL_ROOT/current" && ! -L "$UNINSTALL_ROOT/current" ]] || { echo "FAIL: uninstall retained current symlink" >&2; exit 1; }
+[[ ! -e "$UNINSTALL_ROOT/known-good.json" ]] || { echo "FAIL: uninstall retained known-good activation state" >&2; exit 1; }
+[[ -f "$UNINSTALL_ROOT/shared/data/memory/record.jsonl" ]] || { echo "FAIL: uninstall deleted shared data without --purge" >&2; exit 1; }
+[[ -d "$UNINSTALL_ROOT/releases/0.1" ]] || { echo "FAIL: uninstall deleted immutable releases without --purge" >&2; exit 1; }
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+  [[ ! -e "$UNINSTALL_UNITS/$unit" ]] || { echo "FAIL: uninstall left managed CE unit $unit" >&2; exit 1; }
+done
+[[ -f "$UNINSTALL_UNITS/claude-user-custom.service" ]] || { echo "FAIL: uninstall removed unrelated user service" >&2; exit 1; }
+grep -q '"user":"keep"' "$UNINSTALL_HOME/.claude/settings.json" || { echo "FAIL: uninstall modified ordinary ~/.claude" >&2; exit 1; }
+grep -q 'user shell config' "$UNINSTALL_HOME/.bashrc" || { echo "FAIL: uninstall modified shell startup file" >&2; exit 1; }
+# The helper must remain callable from the immutable release after the default
+# uninstall removes current. Explicit purge then deletes releases and shared data.
+HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall --purge
+[[ ! -e "$UNINSTALL_ROOT" && ! -L "$UNINSTALL_ROOT" ]] || { echo "FAIL: --purge retained deployment root" >&2; exit 1; }
+echo "Versioned uninstall preservation/purge contract passed."
+
+# Durable pre-operation backup contract: snapshot deployment, selected profile,
+# and the seven managed user units before any install/upgrade mutation.
+BACKUP_PROFILE="$HOME/.config/claude-ensemble/backup-test-profile"
+mkdir -p "$BACKUP_PROFILE" "$HOME/.FlossWare/claude-ensemble-profile"
+printf '{"profile":"before"}\\n' > "$BACKUP_PROFILE/settings.json"
+printf '{"legacy":"before"}\\n' > "$HOME/.FlossWare/claude-ensemble-profile/settings.json"
+BACKUP_UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$BACKUP_UNIT_DIR"
+printf '[Service]\\nExecStart=/before\\n' > "$BACKUP_UNIT_DIR/claude-ensemble.service"
+BACKUP_OUTPUT="$(ENSEMBLE_USER_UNIT_DIR="$BACKUP_UNIT_DIR" bash "$SCRIPT_DIR/../tools/backup-ce-state.sh" test-backup "$ENSEMBLE_INSTALL_ROOT" "$BACKUP_PROFILE")"
+BACKUP_PATH="$(sed -n 's/^Pre-operation backup created: //p' <<< "$BACKUP_OUTPUT")"
+[[ -n "$BACKUP_PATH" && -d "$BACKUP_PATH/files/deployment-root" ]] || { echo "FAIL: backup omitted existing deployment tree" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/selected-profile/settings.json" ]] || { echo "FAIL: backup omitted selected profile" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/legacy-claude-ensemble-profile/settings.json" ]] || { echo "FAIL: backup omitted legacy CE profile" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/systemd-user-units/claude-ensemble.service" ]] || { echo "FAIL: backup omitted managed service unit" >&2; exit 1; }
+[[ "$(stat -c '%a' "$BACKUP_PATH")" == "700" && "$(stat -c '%a' "$BACKUP_PATH/manifest.txt")" == "600" ]] || { echo "FAIL: backup permissions are not private" >&2; exit 1; }
+grep -q '^reason=test-backup$' "$BACKUP_PATH/manifest.txt" || { echo "FAIL: backup manifest missing reason" >&2; exit 1; }
+echo "Pre-operation backup contract passed."
+
+# A failed backup must prevent a first install from creating the deployment root.
+BACKUP_FAIL_HOME="$TMP/backup-fail-home"
+BACKUP_FAIL_ROOT="$BACKUP_FAIL_HOME/.FlossWare/claude-ensemble"
+mkdir -p "$BACKUP_FAIL_HOME/.FlossWare" "$TMP/backup-fail-target"
+ln -s "$TMP/backup-fail-target" "$BACKUP_FAIL_HOME/.FlossWare/claude-ensemble-backups"
+if HOME="$BACKUP_FAIL_HOME" ENSEMBLE_INSTALL_ROOT="$BACKUP_FAIL_ROOT" ENSEMBLE_USER_UNIT_DIR="$TMP/backup-fail-units" bash "$SCRIPT_DIR/../install-standalone.sh" 0.3 "$SOURCE_FIXTURE" >/dev/null 2>&1; then
+  echo "FAIL: installer proceeded when pre-operation backup could not be created" >&2
+  exit 1
+fi
+[[ ! -e "$BACKUP_FAIL_ROOT" ]] || { echo "FAIL: installer created deployment state despite backup failure" >&2; exit 1; }
+echo "Backup failure abort contract passed."

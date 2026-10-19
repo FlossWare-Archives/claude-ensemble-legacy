@@ -74,6 +74,10 @@ for required_path in \
     fi
 done
 
+# Snapshot the selected profile, existing CE deployment state, and managed units
+# before the first configuration or service mutation. If backup fails, stop here.
+bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
+
 echo "================================================"
 echo "  Claude Ensemble Toolkit Installer"
 echo "================================================"

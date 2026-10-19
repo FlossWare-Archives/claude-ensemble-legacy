@@ -304,6 +304,37 @@ recover_activation() {
 }
 cmd="${1:-help}"
 case "$cmd" in
+  uninstall)
+    [[ $# -le 2 ]] || die "usage: ce-deployment uninstall [--purge]"
+    purge=0
+    if [[ $# -eq 2 ]]; then
+      [[ "$2" == "--purge" ]] || die "usage: ce-deployment uninstall [--purge]"
+      purge=1
+    fi
+    [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
+    if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
+      active="$(active_version)" || die "current symlink is invalid; refusing uninstall"
+    fi
+    # Fail before changing services or unit files if the user manager is unavailable.
+    "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
+    # Stop only CE's seven named services and remove only their managed unit files.
+    # Default uninstall preserves immutable releases and all shared user data.
+    stop_services || die "CE services could not be stopped; deployment retained"
+    for unit in "${UNITS[@]}"; do
+      rm -f -- "$UNIT_DIR/$unit"
+    done
+    "$SYSTEMCTL_BIN" --user daemon-reload || die "systemd user manager could not reload after removing CE units"
+    rm -f -- "$CURRENT" "$KNOWN_GOOD"
+    if [[ "$purge" == "1" ]]; then
+      [[ "$ROOT" == "$HOME_REAL/"* ]] || die "refusing to purge a deployment outside HOME"
+      [[ ! -L "$ROOT" ]] || die "refusing to purge a symlinked deployment root"
+      rm -rf -- "$ROOT"
+      printf 'Uninstalled Claude Ensemble and purged releases/shared data at %s.\n' "$ROOT"
+    else
+      printf 'Uninstalled active Claude Ensemble services. Releases and shared data were preserved at %s.\n' "$ROOT"
+      printf 'To permanently delete those releases and user data, explicitly run: ce-deployment uninstall --purge\n'
+    fi
+    ;;
   validate)
     [[ $# -eq 2 ]] || die "usage: ce-deployment validate MAJOR.MINOR"
     validate_release "$2"

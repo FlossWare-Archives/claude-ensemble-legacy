@@ -54,6 +54,9 @@ def configure(unit_dir: Path, root: Path, current: Path, source_root: Path | Non
         "ENSEMBLE_RUNTIME_DIR": root / "shared/runtime",
         "ENSEMBLE_REPO_ROOT": current,
         "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": root / "shared/claude-code",
+        # Native Claude Code processes inherit this variable; the CE-prefixed
+        # variable is retained for CE components that consume its contract.
+        "CLAUDE_CONFIG_DIR": root / "shared/claude-code",
     }
 
     for unit, specific in UNITS.items():
@@ -92,6 +95,7 @@ def validate(unit_dir: Path, root: Path, current: Path) -> None:
         f'Environment="ENSEMBLE_RUNTIME_DIR={_escape_env(root / "shared/runtime")}"',
         f'Environment="ENSEMBLE_REPO_ROOT={_escape_env(current)}"',
         f'Environment="ENSEMBLE_CLAUDE_CODE_CONFIG_DIR={_escape_env(root / "shared/claude-code")}"',
+        f'Environment="CLAUDE_CONFIG_DIR={_escape_env(root / "shared/claude-code")}"',
         environment_file,
     )
     for unit, specific in UNITS.items():

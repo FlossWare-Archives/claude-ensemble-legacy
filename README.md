@@ -54,7 +54,7 @@ STAGE="$HOME/.FlossWare/ce-staging-test"
 git clone https://github.com/FlossWare/claude-ensemble.git "$SOURCE"
 test ! -e "$STAGE"
 ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
-  bash "$SOURCE/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
+  bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
 ```
 
 Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
@@ -62,12 +62,20 @@ Staging-only mode checks release structure and writes `deployment.json`. It does
 After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the seven CE user services**:
 
 ```bash
-bash "$SOURCE/tools/install-ce-versioned.sh" 0.1 "$SOURCE"
+bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
 ```
 
 The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapshots the existing service units and active-service state, validates the release, switches `current` atomically, starts services in dependency order, and checks both service activity and gateway readiness. A failed activation attempts to restore the previous release. Do not run the activation command against a disposable staging root as a substitute for testing on an isolated system: activation controls the current user's systemd units and checks the configured gateway endpoint.
 
-The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases.
+The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases. Every non-staging versioned install or upgrade first writes a private recovery snapshot outside the deployment root under `~/.FlossWare/claude-ensemble-backups/`; if the snapshot fails, installation stops. See [Profiles, installation modes, and backups](docs/PROFILES_AND_BACKUPS.md) for profile boundaries, verification, backup contents, and recovery guidance.
+
+**Upgrade an existing deployment** by selecting a new MAJOR.MINOR release. Never overwrite an existing release directory; it is immutable. The upgrade command requires a valid active release, stages and validates the new release, then activates it with health checks and automatic rollback on failure:
+
+```bash
+bash "$SOURCE/upgrade.sh" 0.2 "$SOURCE"
+```
+
+Choose the next unused release label rather than copying the example blindly. To inspect state or explicitly roll back, use the active release's deployment manager as described below.
 
 The scheduled GA job follows the same isolation boundary. Its results, pending learning artifacts, ingestion receipts, evolution log, lock, and scheduler log live under `~/.FlossWare/claude-ensemble/shared/data/ga-tuning/` and `shared/logs/`; it reads the CE profile at `shared/claude-code/settings.json`, not ordinary `~/.claude/settings.json`. Once deployment acceptance is complete, the crontab entry should call the stable release path:
 
@@ -90,7 +98,7 @@ bash "$ROOT/current/tools/ce-deployment" prune
 
 Rollback selects the recorded previous known-good release, not simply the highest version number. Pruning retains the active and previous known-good releases and refuses to proceed when activation history is missing or inconsistent. If an activation is interrupted, inspect the journal and run `recover` from any retained release, even if `current` is missing: set `VERSION` to an existing release (for example `0.1`) and run `bash "$ROOT/releases/$VERSION/tools/ce-deployment" recover` before attempting another activation.
 
-For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The legacy `install.sh [checkout-path]` remains available for direct installation from a chosen tree, but the versioned installer is preferred when rollback and separation from development checkouts matter.
+For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The root `install.sh` is the per-release runtime installer used by the deployment manager, not the supported first-install or upgrade entry point. Use `install-standalone.sh`, `upgrade.sh`, and `uninstall.sh` for the deployment lifecycle.
 
 The versioned installer:
 1. Keeps immutable release trees under `~/.FlossWare/claude-ensemble/releases/` without Git metadata
@@ -561,3 +569,21 @@ tools/ce diagnose --json
 ```
 
 `doctor` checks the local Claude Code integration and reports actionable configuration, hook-registration, systemd, and REST health findings. `diagnose` uses a shared correlation ID across bounded service probes and checks gateway readiness, including Graph and Memory. Deep mode adds read-only Memory/Graph/Decision checks and an isolated Learning-to-Thompson integration proof using temporary state and sockets. The diagnostic path does not write persistent Memory/Graph data, send alerts, or invoke a model. The pipeline test intentionally exercises isolated temporary state; it is not part of ordinary read-only diagnosis.
+
+
+## Uninstalling a standalone deployment
+
+Use the repository's `uninstall.sh` entry point to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
+
+```bash
+SOURCE="$HOME/.FlossWare/ce-source"
+bash "$SOURCE/uninstall.sh"
+```
+
+The default uninstall **preserves** immutable releases and all data under `shared/`, including Memory, Learning, logs, and the managed Claude Code profile. This permits later inspection or reactivation without destroying user state. Because the source checkout remains available, the same command can be used for explicit purge after the active pointer has been removed:
+
+```bash
+bash "$SOURCE/uninstall.sh" --purge
+```
+
+Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
