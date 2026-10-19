@@ -386,13 +386,8 @@ HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNI
 [[ -f "$UNINSTALL_ROOT/shared/data/memory/record.jsonl" ]] || { echo "FAIL: uninstall deleted shared data without --purge" >&2; exit 1; }
 [[ -d "$UNINSTALL_ROOT/releases/0.1" ]] || { echo "FAIL: uninstall deleted immutable releases without --purge" >&2; exit 1; }
 if compgen -G "$UNINSTALL_UNITS/claude-*.service" >/dev/null; then echo "FAIL: uninstall left managed CE units" >&2; exit 1; fi
-# Purge is a separate explicit action and removes the deployment root only after
-# the managed services and units have been removed.
-ln -s releases/0.1 "$UNINSTALL_ROOT/current"
-printf '{"schema_version":1,"active":"0.1","previous":null}\n' > "$UNINSTALL_ROOT/known-good.json"
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
-  printf '[Service]\nExecStart=/test/current/service\n' > "$UNINSTALL_UNITS/$unit"
-done
+# The helper must remain callable from the immutable release after the default
+# uninstall removes current. Explicit purge then deletes releases and shared data.
 HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall --purge
 [[ ! -e "$UNINSTALL_ROOT" && ! -L "$UNINSTALL_ROOT" ]] || { echo "FAIL: --purge retained deployment root" >&2; exit 1; }
 echo "Versioned uninstall preservation/purge contract passed."
