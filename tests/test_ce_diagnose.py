@@ -128,8 +128,8 @@ class InstalledHookSmokeTests(unittest.TestCase):
 
         report = json.loads(output.getvalue())
         self.assertEqual(0, exit_code)
-        self.assertEqual(1, report["summary"]["skipped"])
-        self.assertEqual("skip", report["checks"][-1]["status"])
+        self.assertEqual(1, report["skipped"])
+        self.assertEqual("skip", report["results"][-1]["status"])
 
 
 if __name__ == "__main__":
