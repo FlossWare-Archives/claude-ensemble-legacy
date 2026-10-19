@@ -11,6 +11,12 @@ from learning.portable_artifacts import LearningArtifact
 
 
 class PendingRecoveryTests(unittest.TestCase):
+    def test_run_acquires_results_directory_lock_before_processing(self):
+        with patch.object(self.extractor, "_run_locked") as run_locked:
+            self.extractor.run()
+        run_locked.assert_called_once_with()
+        self.assertTrue((self.results / ".ga-ingestion.lock").is_file())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
