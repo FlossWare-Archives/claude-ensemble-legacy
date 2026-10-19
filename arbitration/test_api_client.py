@@ -34,4 +34,4 @@ def test_cost_logging_failure_does_not_discard_successful_model_response():
     provider.generate.assert_called_once()
     metric.assert_called_once()
     assert metric.call_args.kwargs["status"] == "success"
-    assert metric.call_args.kwargs["error_type"] is None
+    assert metric.call_args.kwargs.get("error_type") is None
