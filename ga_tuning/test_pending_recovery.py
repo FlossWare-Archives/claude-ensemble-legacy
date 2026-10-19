@@ -2,6 +2,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -67,6 +68,12 @@ class PendingRecoveryTests(unittest.TestCase):
         receipt = json.loads((self.results / ".ga-test-001.ingested").read_text(encoding="utf-8"))
         self.assertEqual(receipt["candidate_digest"], candidate_digest(artifact))
         self.assertEqual(receipt["learning_ack"], {"ok": True, "memory": True})
+        self.assertTrue(receipt["acknowledged_at"].endswith("Z"))
+        acknowledged_at = datetime.fromisoformat(
+            receipt["acknowledged_at"].replace("Z", "+00:00")
+        )
+        self.assertIsNotNone(acknowledged_at.tzinfo)
+        self.assertEqual(acknowledged_at.utcoffset(), timezone.utc.utcoffset(acknowledged_at))
 
     def test_negative_ack_retains_pending_and_writes_no_receipt(self):
         _, pending = self.make_pending()
