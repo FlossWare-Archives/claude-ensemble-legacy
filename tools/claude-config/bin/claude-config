@@ -14,6 +14,7 @@ case "$cmd" in
   verify) verify;;
   doctor) doctor "$@";;
   uninstall) uninstall;;
+  rag-config) exec python3 "$CC_ROOT/lib/rag_config.py" "$@";;
   outcome) exec python3 "$CC_REPO_ROOT/tools/record_workflow_outcome.py";;
   *) cat <<'EOF'
 claude-config
@@ -26,6 +27,7 @@ claude-config
   sync              Reconcile Claude Markdown into Memory
   watch             Watch Claude Markdown and ingest changes
   uninstall         Remove FlossWare-managed configuration
+  rag-config        Show or set profile-scoped RAG hook behavior
   outcome           Submit an evidence-backed workflow outcome from stdin JSON
 Install options: --dry-run --force --non-interactive
 EOF
