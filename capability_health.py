@@ -96,6 +96,21 @@ def _provider_for(registry: Any, model: str) -> tuple[str, str]:
     return provider, canonical
 
 
+def _credential_available(registry: Any, provider: str) -> bool:
+    """Use runtime-owned auth semantics for Claude Code, not the removed API-key pool."""
+    if provider == "claude-code":
+        # Successful model resolution establishes that CE recognizes the runtime.
+        # Operational health remains unknown until usage observations exist.
+        return True
+    if provider == "unknown":
+        return False
+    credentials = registry.credential_status(provider)
+    return any(
+        isinstance(item, dict) and item.get("state") == "available"
+        for item in credentials
+    )
+
+
 def _capabilities_for(model: str) -> tuple[str, ...]:
     configured = os.environ.get("ENSEMBLE_MODEL_CAPABILITIES")
     if configured:
@@ -123,8 +138,7 @@ class CapabilityHealthView:
         entries = []
         for model in self.models:
             provider, canonical = _provider_for(self.registry, model)
-            credentials = self.registry.credential_status(provider) if provider != "unknown" else []
-            credential_available = any(item.get("state") == "available" for item in credentials)
+            credential_available = _credential_available(self.registry, provider)
             entries.append({
                 "model": model,
                 "canonical_model": canonical,
@@ -140,8 +154,7 @@ class CapabilityHealthView:
         entries = []
         for model in self.models:
             provider, canonical = _provider_for(self.registry, model)
-            credentials = self.registry.credential_status(provider) if provider != "unknown" else []
-            credential_available = any(item.get("state") == "available" for item in credentials)
+            credential_available = _credential_available(self.registry, provider)
             raw_perf = thompson.get(model) or thompson.get(canonical) or {}
             perf: dict[str, Any] = raw_perf if isinstance(raw_perf, dict) else {}
             counters = {
@@ -164,8 +177,10 @@ class CapabilityHealthView:
             avg_latency = (latency / calls) if calls > 0 and latency is not None else None
             avg_cost = (total_cost / calls) if calls > 0 and total_cost is not None else None
             success_rate = (successes / calls) if calls > 0 else None
-            if provider == "unknown" or not credential_available:
-                state = "unavailable" if provider != "unknown" and not credential_available else "unknown"
+            if provider == "unknown":
+                state = "unknown"
+            elif not credential_available:
+                state = "unavailable"
             elif calls == 0:
                 state = "unknown"
             elif failures > successes:
