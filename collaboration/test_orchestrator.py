@@ -453,9 +453,8 @@ def test_configured_model_ids_are_preserved_across_follow_up_adjudications():
     result = loop.run()
 
     assert result.status == "accepted"
-    assert [request.model for request in solver.requests] == [
-        "claude-sonnet-5", "claude-sonnet-5",
-    ]
+    # The follow-up re-adjudicates the existing candidate; it does not rerun solvers.
+    assert [request.model for request in solver.requests] == ["claude-sonnet-5"]
     assert [request.model for request in arbiter.requests] == [
         "claude-opus-5", "claude-opus-5",
     ]
