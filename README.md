@@ -69,6 +69,14 @@ The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapsh
 
 The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases.
 
+**Upgrade an existing deployment** by selecting a new MAJOR.MINOR release. Never overwrite an existing release directory; it is immutable. The upgrade command requires a valid active release, stages and validates the new release, then activates it with health checks and automatic rollback on failure:
+
+```bash
+bash "$SOURCE/tools/upgrade-ce-versioned.sh" 0.2 "$SOURCE"
+```
+
+Choose the next unused release label rather than copying the example blindly. To inspect state or explicitly roll back, use the active release's deployment manager as described below.
+
 The scheduled GA job follows the same isolation boundary. Its results, pending learning artifacts, ingestion receipts, evolution log, lock, and scheduler log live under `~/.FlossWare/claude-ensemble/shared/data/ga-tuning/` and `shared/logs/`; it reads the CE profile at `shared/claude-code/settings.json`, not ordinary `~/.claude/settings.json`. Once deployment acceptance is complete, the crontab entry should call the stable release path:
 
 The GA dashboard automatically reads the installed deployment's shared results when a versioned `current` release exists. Direct development runs retain the repository-local `ga_tuning/results/` default. Set `CE_GA_RESULTS_DIR` to override the result directory explicitly.
