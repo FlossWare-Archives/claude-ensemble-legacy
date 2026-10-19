@@ -16,8 +16,8 @@
  * magic prompt keywords such as "remember" or "recall".
  */
 
-const fs = require('node:fs');
-const path = require('node:path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 const MEMORY_URL = process.env.FLOSSWARE_MEMORY_URL || 'http://127.0.0.1:8767';
 const MEMORY_SEARCH_PATH = '/memory/search';
