@@ -321,12 +321,12 @@ VERIFY_UPGRADED_MANIFEST
 grep -q 'shared-wins' "$INSTALL_ROOT/shared/claude-code/settings.json" || { echo "FAIL: upgrade overwrote shared user settings" >&2; exit 1; }
 grep -q 'keep-me' "$INSTALL_ROOT/shared/claude-code/legacy-only.json" || { echo "FAIL: upgrade lost migrated user data" >&2; exit 1; }
 CE_RELEASE="$(readlink -f "$INSTALL_ROOT/current")"
-bash "$CE_RELEASE/tools/ce-deployment" uninstall
+bash "$SCRIPT_DIR/../uninstall.sh"
 [[ ! -e "$INSTALL_ROOT/current" && ! -L "$INSTALL_ROOT/current" ]] || { echo "FAIL: uninstall retained current pointer" >&2; exit 1; }
 [[ -d "$INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: uninstall deleted releases by default" >&2; exit 1; }
 [[ -f "$INSTALL_ROOT/shared/claude-code/settings.json" ]] || { echo "FAIL: uninstall deleted shared user settings" >&2; exit 1; }
 if compgen -G "$INSTALL_HOME/.config/systemd/user/claude-*.service" >/dev/null; then echo "FAIL: uninstall left managed service units" >&2; exit 1; fi
-bash "$CE_RELEASE/tools/ce-deployment" uninstall --purge
+bash "$SCRIPT_DIR/../uninstall.sh" --purge
 [[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] || { echo "FAIL: lifecycle purge retained deployment root" >&2; exit 1; }
 echo "Disposable install -> upgrade -> uninstall -> purge lifecycle passed."
 
