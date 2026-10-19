@@ -46,7 +46,7 @@ class AnthropicCacheValidator:
         self.client = None
         self.has_sdk = False
 
-        # Local cache tests must work without credentials or the optional SDK.
+        # Local cache checks do not require credentials or the optional SDK.
         # Initialize the live API client only when a key was explicitly supplied.
         if self.api_key:
             try:
@@ -337,12 +337,15 @@ def main():
     print("ANTHROPIC API CACHE CONTROL VALIDATION")
     print("=" * 80)
 
-    # Check for API key
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("\n⚠ ANTHROPIC_API_KEY not set")
-        print("Set it before running this test:")
-        print("  export ANTHROPIC_API_KEY='sk-ant-...'")
-        print("\nSkipping API tests (local tests will still run)\n")
+    # Live API calls require an explicit opt-in, even when a key is present.
+    live_api_enabled = os.environ.get("ENSEMBLE_LIVE_CACHE_TESTS") == "1"
+    if not live_api_enabled:
+        print("\nLive Anthropic API validation is disabled by default.")
+        print("Set ENSEMBLE_LIVE_CACHE_TESTS=1 to explicitly enable it.")
+        api_available = False
+    elif not os.environ.get("ANTHROPIC_API_KEY"):
+        print("\nENSEMBLE_LIVE_CACHE_TESTS=1 but ANTHROPIC_API_KEY is not set.")
+        print("Skipping live API test; local tests will still run.")
         api_available = False
     else:
         api_available = True
