@@ -369,6 +369,53 @@ case "$cmd" in
     [[ $# -eq 1 ]] || die "usage: ce-deployment recover"
     recover_activation
     ;;
+  uninstall)
+    purge=0
+    confirm=0
+    for option in "${@:2}"; do
+      case "$option" in
+        --purge) purge=1 ;;
+        --yes) confirm=1 ;;
+        *) die "usage: ce-deployment uninstall [--purge] [--yes]" ;;
+      esac
+    done
+    [[ -d "$RELEASES" && ! -L "$RELEASES" ]] || die "no managed versioned release directory at $RELEASES"
+    [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
+    if [[ "$confirm" != "1" ]]; then
+      [[ -t 0 ]] || die "uninstall requires an interactive confirmation or --yes"
+      if [[ "$purge" == "1" ]]; then
+        printf 'Purge CE releases AND all shared memory/configuration/logs under %s? [y/N] ' "$ROOT"
+      else
+        printf 'Remove CE releases and managed systemd units but preserve shared state under %s? [y/N] ' "$ROOT"
+      fi
+      read -r answer
+      [[ "$answer" == "y" || "$answer" == "Y" ]] || die "uninstall cancelled"
+    fi
+    # Touch only units that still point at this deployment's stable current path.
+    # Same-named user-owned units are preserved.
+    for unit in "${STOP_ORDER[@]}"; do
+      file="$UNIT_DIR/$unit"
+      [[ -f "$file" && ! -L "$file" ]] || continue
+      if grep -Fq "$CURRENT" "$file"; then
+        "$SYSTEMCTL_BIN" --user stop "$unit" >/dev/null 2>&1 || die "could not stop managed unit $unit"
+        "$SYSTEMCTL_BIN" --user disable "$unit" >/dev/null 2>&1 || die "could not disable managed unit $unit"
+        rm -- "$file"
+      fi
+    done
+    "$SYSTEMCTL_BIN" --user daemon-reload
+    rm -f -- "$CURRENT" "$ROOT/deployment.json" "$KNOWN_GOOD" "$JOURNAL"
+    rm -rf -- "$RELEASES" "$BACKUPS"
+    if [[ "$purge" == "1" ]]; then
+      rm -rf -- "$ROOT/shared"
+      rmdir -- "$ROOT" 2>/dev/null || {
+        printf 'CE runtime removed; preserved unexpected files remain under %s.\n' "$ROOT"
+      }
+      printf 'Removed CE deployment and shared state. Normal ~/.claude was not modified.\n'
+    else
+      mkdir -p "$ROOT"
+      printf 'Removed CE releases and managed units. Shared state was preserved at %s/shared.\n' "$ROOT"
+    fi
+    ;;
   rollback)
     active="$(active_version)" || die "no active release"
     [[ -f "$KNOWN_GOOD" ]] || die "no known-good activation history; activate a release successfully before rollback"
