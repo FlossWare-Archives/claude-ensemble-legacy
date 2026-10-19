@@ -46,10 +46,22 @@ function close(server) {
 }
 
 const requests = [];
+const statusRequests = [];
 const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
+    if (req.url === '/memory/knowledge/status') {
+      statusRequests.push({ method: req.method, url: req.url, body });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        source: 'claude-code',
+        status: 'available',
+        indexed_document_count: 1,
+      }));
+      return;
+    }
     requests.push({ method: req.method, url: req.url, body });
     res.writeHead(200, { 'content-type': 'application/json' });
     let payload = {
@@ -124,6 +136,7 @@ try {
 
   assert.equal(result.code, 0);
   assert.equal(requests.length, 2);
+  assert.equal(statusRequests.length, 1);
   assert.ok(requests.every(request => request.method === 'POST' && request.url === '/memory/search'));
   assert.deepEqual(requests.map(request => JSON.parse(request.body).source).sort(), ['claude-code', 'memory']);
   assert.ok(requests.every(request =>
