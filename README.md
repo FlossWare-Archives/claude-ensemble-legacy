@@ -98,7 +98,7 @@ bash "$ROOT/current/tools/ce-deployment" prune
 
 Rollback selects the recorded previous known-good release, not simply the highest version number. Pruning retains the active and previous known-good releases and refuses to proceed when activation history is missing or inconsistent. If an activation is interrupted, inspect the journal and run `recover` from any retained release, even if `current` is missing: set `VERSION` to an existing release (for example `0.1`) and run `bash "$ROOT/releases/$VERSION/tools/ce-deployment" recover` before attempting another activation.
 
-For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The legacy `install.sh [checkout-path]` remains available for direct installation from a chosen tree, but the versioned installer is preferred when rollback and separation from development checkouts matter.
+For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The root `install.sh` is the per-release runtime installer used by the deployment manager, not the supported first-install or upgrade entry point. Use `install-standalone.sh`, `upgrade.sh`, and `uninstall.sh` for the deployment lifecycle.
 
 The versioned installer:
 1. Keeps immutable release trees under `~/.FlossWare/claude-ensemble/releases/` without Git metadata
