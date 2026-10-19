@@ -36,12 +36,20 @@ MEMORY_SERVICE_DIR="$REPO_PATH/memory-service"
 
 # Fail before changing user configuration when a required runtime is missing.
 # Claude Code is intentionally a prerequisite; this installer does not install it.
-for required in git python3 systemctl; do
+for required in git python3 node systemctl; do
     if ! command -v "$required" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $required" >&2
         exit 1
     fi
 done
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+    echo "ERROR: Python 3.11 or newer is required; found $(python3 --version 2>&1)." >&2
+    exit 1
+fi
+if ! node -e 'const [major] = process.versions.node.split(".").map(Number); process.exit(major >= 22 ? 0 : 1)'; then
+    echo "ERROR: Node.js 22 or newer is required; found $(node --version 2>&1)." >&2
+    exit 1
+fi
 if ! command -v claude >/dev/null 2>&1; then
     echo "ERROR: Claude Code CLI was not found on PATH. Install Claude Code first, then rerun install.sh." >&2
     exit 1
