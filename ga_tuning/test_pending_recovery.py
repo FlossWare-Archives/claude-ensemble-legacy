@@ -92,7 +92,7 @@ class PendingRecoveryTests(unittest.TestCase):
         send.assert_not_called()
         self.assertTrue(pending.exists())
 
-    def test_valid_receipt_cleans_pending_without_resubmitting_and_repairs_audit_log(self):
+    def test_valid_receipt_rechecks_persistence_and_repairs_audit_log(self):
         artifact, pending = self.make_pending()
         self.write_receipt(artifact)
         with patch.object(module.LearningClient, "record_artifact", return_value={"ok": True, "memory": True}) as send:
@@ -130,11 +130,16 @@ class PendingRecoveryTests(unittest.TestCase):
     def test_receipt_directory_sync_failure_retains_pending_then_retry_cleans_it(self):
         artifact, pending = self.make_pending()
         self.write_receipt(artifact)
-        with patch.object(self.extractor, "_fsync_directory", side_effect=OSError("sync failed")):
-            with self.assertRaisesRegex(RuntimeError, "unresolved"):
-                self.extractor.recover_pending()
-        self.assertTrue(pending.exists())
-        self.assertEqual(self.extractor.recover_pending(), 1)
+        with patch.object(
+            module.LearningClient,
+            "record_artifact",
+            return_value={"ok": True, "memory": True},
+        ):
+            with patch.object(self.extractor, "_fsync_directory", side_effect=OSError("sync failed")):
+                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                    self.extractor.recover_pending()
+            self.assertTrue(pending.exists())
+            self.assertEqual(self.extractor.recover_pending(), 1)
         self.assertFalse(pending.exists())
 
     def test_mixed_success_and_failure_keeps_failed_snapshot_and_raises(self):
@@ -182,18 +187,17 @@ class PendingRecoveryTests(unittest.TestCase):
                 raise OSError("receipt directory sync failed")
             return real_sync(directory)
 
-        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_receipt_sync):
-            with patch.object(
-                module.LearningClient,
-                "record_artifact",
-                return_value={"ok": True, "memory": True},
-            ):
+        with patch.object(
+            module.LearningClient,
+            "record_artifact",
+            return_value={"ok": True, "memory": True},
+        ):
+            with patch.object(self.extractor, "_fsync_directory", side_effect=fail_receipt_sync):
                 with self.assertRaisesRegex(RuntimeError, "unresolved"):
                     self.extractor.recover_pending()
-        self.assertTrue(pending.exists())
-        self.assertTrue((self.results / ".ga-test-001.ingested").exists())
-
-        self.assertEqual(self.extractor.recover_pending(), 1)
+            self.assertTrue(pending.exists())
+            self.assertTrue((self.results / ".ga-test-001.ingested").exists())
+            self.assertEqual(self.extractor.recover_pending(), 1)
         self.assertFalse(pending.exists())
 
     def test_post_unlink_directory_sync_failure_restores_pending_snapshot(self):
@@ -208,18 +212,17 @@ class PendingRecoveryTests(unittest.TestCase):
                 raise OSError("post-unlink sync failed")
             return real_sync(directory)
 
-        with patch.object(self.extractor, "_fsync_directory", side_effect=fail_third_sync):
-            with patch.object(
-                module.LearningClient,
-                "record_artifact",
-                return_value={"ok": True, "memory": True},
-            ):
+        with patch.object(
+            module.LearningClient,
+            "record_artifact",
+            return_value={"ok": True, "memory": True},
+        ):
+            with patch.object(self.extractor, "_fsync_directory", side_effect=fail_third_sync):
                 with self.assertRaisesRegex(RuntimeError, "unresolved"):
                     self.extractor.recover_pending()
-
-        self.assertTrue(pending.exists(), "failed cleanup must leave a retryable snapshot")
-        self.assertTrue((self.results / ".ga-test-001.ingested").exists())
-        self.assertEqual(self.extractor.recover_pending(), 1)
+            self.assertTrue(pending.exists(), "failed cleanup must leave a retryable snapshot")
+            self.assertTrue((self.results / ".ga-test-001.ingested").exists())
+            self.assertEqual(self.extractor.recover_pending(), 1)
         self.assertFalse(pending.exists())
 
     def test_symlinked_pending_artifact_is_rejected_without_submission(self):
