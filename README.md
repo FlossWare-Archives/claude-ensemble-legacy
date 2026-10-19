@@ -27,7 +27,7 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 ### Workflow Skills (Learning-Integrated)
 - **Code PR Review** (`code-pr-review`) — Worker/arbiter code review through the single Claude Code runtime
 - **Documentation** (`code-doc`) — Auto-generate docs, learns which models write better
-- **Release Notes** (`code-release-notes`) — Generate from commits with multi-AI consensus
+- **Release Notes** (`code-release-notes`) — Generate release notes from commits using the configured Claude Code runtime
 - **Autonomous Variants** (`code-pr-review-auto`, `code-doc-auto`) — Run without user confirmation
 
 Workflow outcomes pass through the Learning service only when they have durable, evidence-backed evaluation artifacts. Learning owns persistence, deduplication, and Thompson updates; generic session completion is never treated as a quality rating.
@@ -108,13 +108,13 @@ ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profil
 
 Replace the example profile path with the profile Claude Code actually uses. Individual installers are available as `tools/install-ce-<name>-skill.sh`. The aggregate installer is idempotent, honors the selected profile, installs all eight skills, and preserves conflicting user-owned skill files with a warning.
 
-**See [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md)** for how to configure API tokens and credentials (auto-loaded in all sessions).
+**See [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md)** for credential handling. Claude Code owns model authentication; optional integrations may require their own credentials. CE loads its configured credentials file only when the supported session initialization is sourced.
 
 ### Session Initialization
 On startup, `scripts/ensemble-init.sh` automatically:
 1. Connects to memory service (systemd daemon)
 2. Initializes autonomous learning
-3. Discovers latest models (Claude 5, Gemini, Cursor)
+3. Refreshes the local supported-model inventory (haiku, sonnet, opus); this is not live third-party API discovery
 4. Prints toolkit status
 
 ```bash
@@ -338,9 +338,9 @@ Services may run independently, but service integration uses REST/HTTP contracts
 
 ### Model Discovery
 - **Path:** `tools/discover-models.py`
-- **Frequency:** Every 4 hours (synced with GA tuning)
-- **Providers:** Anthropic (free API call), Google (free API call), Cursor (defaults to latest)
-- **Updates:** Thompson router inline, settings.json with discovery timestamp
+- **Frequency:** The initialization script checks at most daily; it runs an inventory-only script
+- **Scope:** Lists supported Claude Code aliases (haiku, sonnet, opus); does not probe Anthropic, Google, or Cursor APIs
+- **Updates:** Model discovery does not obtain live provider metadata or update Thompson performance
 
 ---
 

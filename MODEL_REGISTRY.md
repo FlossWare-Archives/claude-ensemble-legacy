@@ -12,10 +12,10 @@ Use Claude Code model aliases in workflow configuration:
 - `sonnet`
 - `opus`
 
-Legacy labels such as `gemini`, `cursor`, `gpt-4`, and `ollama-local` are
-temporarily mapped to `sonnet` by the compatibility registry. They do not
-invoke those services and do not provide independent model diversity. Replace
-them with Claude model aliases as configuration is touched.
+Unsupported labels such as `gemini`, `cursor`, `gpt-4`, and
+`ollama-local` are rejected with an `Unsupported model label` error. CE does
+not silently map them to `sonnet` or invoke those providers. Replace legacy
+labels with `haiku`, `sonnet`, or `opus` in configuration.
 
 The REST model inventory exposes only the three supported aliases. Credential
 status is owned by Claude Code; CE no longer rotates API keys or stores a
