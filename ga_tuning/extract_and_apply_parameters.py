@@ -225,12 +225,28 @@ class ParameterExtractor:
                         )
                     # Re-establish receipt directory-entry durability before
                     # deleting the only recovery snapshot.
-                    self._fsync_directory(self.results_dir)
+                    try:
+                        self._fsync_directory(self.results_dir)
+                    except OSError as exc:
+                        raise RuntimeError(
+                            f"existing receipt durability verification failed for run {run_id}: {exc}"
+                        ) from exc
                     artifact_data = artifact.to_dict()
                     params = artifact_data["payload"].get("selected_parameters", {})
                     timestamp = artifact_data["payload"].get("run_timestamp", run_id)
                     self.log_parameter_evolution(params, timestamp, run_id=run_id)
-                    self._remove_pending_durably(pending_path, pending_bytes)
+                    try:
+                        self._remove_pending_durably(pending_path, pending_bytes)
+                    except OSError as exc:
+                        state = (
+                            "pending snapshot path is present after restoration; directory-entry durability may be uncertain"
+                            if pending_path.exists()
+                            else "pending snapshot path may be absent"
+                        )
+                        raise RuntimeError(
+                            f"post-ingestion cleanup durability failure for run {run_id}; "
+                            f"{state}; receipt remains recorded: {exc}"
+                        ) from exc
                     print(f"{run_id}: valid receipt already exists; removed stale pending file.")
                     recovered += 1
                     continue
@@ -255,17 +271,33 @@ class ParameterExtractor:
                 }
                 temp_path = receipt_path.with_suffix(".tmp")
                 try:
-                    with temp_path.open("w", encoding="utf-8") as handle:
-                        json.dump(receipt, handle, sort_keys=True)
-                        handle.write("\n")
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                    os.replace(temp_path, receipt_path)
-                    self._fsync_directory(self.results_dir)
+                    try:
+                        with temp_path.open("w", encoding="utf-8") as handle:
+                            json.dump(receipt, handle, sort_keys=True)
+                            handle.write("\n")
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                        os.replace(temp_path, receipt_path)
+                        self._fsync_directory(self.results_dir)
+                    except OSError as exc:
+                        raise RuntimeError(
+                            f"receipt persistence failed for run {run_id}: {exc}"
+                        ) from exc
                 finally:
                     temp_path.unlink(missing_ok=True)
 
-                self._remove_pending_durably(pending_path, pending_bytes)
+                try:
+                    self._remove_pending_durably(pending_path, pending_bytes)
+                except OSError as exc:
+                    state = (
+                        "pending snapshot path is present after restoration; directory-entry durability may be uncertain"
+                        if pending_path.exists()
+                        else "pending snapshot path may be absent"
+                    )
+                    raise RuntimeError(
+                        f"post-ingestion cleanup durability failure for run {run_id}; "
+                        f"{state}; receipt remains recorded: {exc}"
+                    ) from exc
                 print(f"{run_id}: Learning and Memory acknowledged; receipt written.")
                 recovered += 1
             except Exception as exc:
