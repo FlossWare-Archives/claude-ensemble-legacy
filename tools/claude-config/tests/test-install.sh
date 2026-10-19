@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+INIT_SCRIPT="$ROOT/../../scripts/ensemble-init.sh"
+if grep -Eq 'git pull|while true|load_credentials' "$INIT_SCRIPT" || grep -Fq 'disown $!' "$INIT_SCRIPT"; then
+  echo "unsafe automatic shell initialization behavior detected" >&2
+  exit 1
+fi
+if grep -Fq 'source "$ENSEMBLE_ROOT/scripts/ensemble-init.sh" 2>/dev/null' "$INIT_SCRIPT"; then
+  echo "recursive shell initialization detected" >&2
+  exit 1
+fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 export HOME="$TMP/home"
