@@ -350,8 +350,8 @@ echo ""
 echo "9. Setting up model configuration..."
 MODEL_CONFIG="$CLAUDE_HOME/toolkit-models.yaml"
 if [ ! -f "$MODEL_CONFIG" ]; then
-    if [ -f "$REPO_PATH/.toolkit-models.yaml.default" ]; then
-        cp "$REPO_PATH/.toolkit-models.yaml.default" "$MODEL_CONFIG"
+    if [ -f "$REPO_PATH/toolkit-models.yaml.default" ]; then
+        cp "$REPO_PATH/toolkit-models.yaml.default" "$MODEL_CONFIG"
         echo "   ✓ Created $MODEL_CONFIG from template"
     else
         echo "   ⚠ Model config template not found in repo"
