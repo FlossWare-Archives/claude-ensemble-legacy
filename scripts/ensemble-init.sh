@@ -2,41 +2,8 @@
 # Claude Ensemble Toolkit Initialization
 # Sourced at session start to activate all tools
 
-# Load credentials FIRST (always, even if re-sourcing)
-ENSEMBLE_CREDENTIALS_FILE="${ENSEMBLE_CREDENTIALS_FILE:-$HOME/.FlossWare/secrets.env}"
-
-# Load simple KEY=value credentials without executing the credentials file.
-# This deliberately accepts only exported assignments with literal values.
-load_credentials() {
-  local credentials_file="$1"
-  local line name value
-
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      ""|"#"*) continue ;;
-    esac
-
-    if [[ "$line" =~ ^[[:space:]]*export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)=(.*)[[:space:]]*$ ]]; then
-      name="${BASH_REMATCH[1]}"
-      value="${BASH_REMATCH[2]}"
-
-      if [[ "$value" =~ ^'(.*)'$ ]]; then
-        value="${BASH_REMATCH[1]}"
-      elif [[ "$value" =~ ^"(.*)"$ ]]; then
-        value="${BASH_REMATCH[1]}"
-      fi
-
-      printf -v "$name" "%s" "$value"
-      export "$name"
-    else
-      echo "Ignoring unsupported credentials entry" >&2
-    fi
-  done < "$credentials_file"
-}
-
-if [ -f "$ENSEMBLE_CREDENTIALS_FILE" ]; then
-  load_credentials "$ENSEMBLE_CREDENTIALS_FILE"
-fi
+# This script configures the shell environment only. Model authentication is owned by
+# Claude Code; do not load credentials from files or execute background reload loops.
 
 # Only run heavy initialization once per session
 if [ -n "$ENSEMBLE_INITIALIZED" ]; then
@@ -48,39 +15,8 @@ export ENSEMBLE_ROOT="${ENSEMBLE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 
 export ENSEMBLE_COST_LOG="${ENSEMBLE_COST_LOG:-$HOME/.claude/cost_tracking/cost.log}"
 export ENSEMBLE_MEMORY_DIR="${ENSEMBLE_MEMORY_DIR:-$HOME/.claude/projects/memory}"
 
-file_hash() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | cut -d' ' -f1
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | cut -d' ' -f1
-  else
-    python3 - "$1" <<'PY'
-import hashlib
-import sys
-with open(sys.argv[1], "rb") as handle:
-    print(hashlib.sha256(handle.read()).hexdigest())
-PY
-  fi
-}
-
-file_mtime() {
-  if stat -c %Y "$1" >/dev/null 2>&1; then
-    stat -c %Y "$1"
-  else
-    stat -f %m "$1"
-  fi
-}
-
 # Ensure memory dir exists
 mkdir -p "$ENSEMBLE_MEMORY_DIR"
-
-# AUTO-APPLY urgent session commands at startup (no user action needed)
-if [ -f "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" ]; then
-  if grep -q "URGENT" "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" 2>/dev/null; then
-    # Auto-reload toolkit for URGENT commands
-    source "$ENSEMBLE_ROOT/scripts/ensemble-init.sh" 2>/dev/null
-  fi
-fi
 
 # Function to reload toolkit (use when ensemble-init.sh is updated)
 source-session-command() {
@@ -93,7 +29,7 @@ source-session-command() {
 check-session-commands() {
   if [ -f "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" ]; then
     echo "📋 SESSION COMMANDS:"
-    head -5 $ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md
+    head -5 "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md"
     echo ""
     if grep -q "URGENT" "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" 2>/dev/null; then
       echo "⚠️  URGENT - Run: source-session-command"
@@ -126,24 +62,6 @@ messenger_subscribe() {
     PYTHONPATH="$ENSEMBLE_ROOT/session-messaging${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -c 'import sys; from messenger_client import MessengerClient; [print(message, flush=True) for message in MessengerClient().subscribe(sys.argv[1])]' "$topic"
 }
-
-# Background watcher: automatically apply urgent commands for running sessions
-# Check every 30s and auto-apply if URGENT appears (no user action needed)
-(
-  LAST_HASH=""
-  while true; do
-    sleep 30
-    if [ -f "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" ]; then
-      CURRENT_HASH=$(file_hash "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" 2>/dev/null)
-      if [ "$CURRENT_HASH" != "$LAST_HASH" ] && grep -q "URGENT" "$ENSEMBLE_MEMORY_DIR/SESSION_COMMANDS.md" 2>/dev/null; then
-        # Auto-apply: silently reload toolkit
-        source "$ENSEMBLE_ROOT/scripts/ensemble-init.sh" 2>/dev/null
-        LAST_HASH="$CURRENT_HASH"
-      fi
-    fi
-  done
-) &
-disown $! 2>/dev/null || true
 
 # Add toolkit to PATH
 export PATH="$ENSEMBLE_ROOT/tools:$PATH"
@@ -193,35 +111,32 @@ discover() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$category" "$content" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "category": "$category",
-        "discovery": "$content"
+        "category": sys.argv[1],
+        "discovery": sys.argv[2],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('session_discoveries', entry)
+        client.append("session_discoveries", entry)
         print("✓ Discovery saved (searchable via mem_search)")
-except:
+except Exception:
     pass
-EOF
+PY
 }
 
 # Save learning immediately (not just at session end)
@@ -234,37 +149,34 @@ save_learning() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$title" "$detail" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "title": "$title",
-        "detail": "$detail"
+        "title": sys.argv[1],
+        "detail": sys.argv[2],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('session_learnings', entry)
+        client.append("session_learnings", entry)
         print("✓ Learning saved to memory service")
     else:
         print("⚠ Memory service unavailable (will save at session end)")
-except:
+except Exception:
     print("⚠ Could not save learning")
-EOF
+PY
 }
 
 # Save architecture decision immediately
@@ -276,34 +188,31 @@ save_architecture() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$decision" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "decision": "$decision"
+        "decision": sys.argv[1],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('architecture_decisions', entry)
+        client.append("architecture_decisions", entry)
         print("✓ Architecture decision saved")
-except:
+except Exception:
     pass
-EOF
+PY
 }
 
 # Function: Log API usage to cost tracking
@@ -314,41 +223,47 @@ log_ensemble_cost() {
   local cost=$4
   local workflow=${5:-"ensemble-work"}
 
-  python3 << EOF
+  python3 - "$model" "$input_tokens" "$output_tokens" "$cost" "$workflow" <<'PY'
 import json
-from datetime import datetime
+import math
+import os
+import sys
+from datetime import datetime, timezone
+
+model, input_tokens, output_tokens, cost, workflow = sys.argv[1:]
+try:
+    input_tokens = int(input_tokens)
+    output_tokens = int(output_tokens)
+    cost = float(cost)
+except ValueError:
+    raise SystemExit("token counts and cost must be numeric")
+if input_tokens < 0 or output_tokens < 0 or not math.isfinite(cost) or cost < 0:
+    raise SystemExit("token counts and cost must be finite and non-negative")
 
 entry = {
-  "timestamp": datetime.utcnow().isoformat(),
-  "model": "$model",
-  "provider": "anthropic",
-  "input_tokens": $input_tokens,
-  "output_tokens": $output_tokens,
-  "total_cost_usd": $cost,
-  "workflow_id": "$workflow"
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "model": model,
+    "provider": "claude-code",
+    "input_tokens": input_tokens,
+    "output_tokens": output_tokens,
+    "total_cost_usd": cost,
+    "workflow_id": workflow,
 }
-
-with open("$ENSEMBLE_COST_LOG", "a") as f:
-  f.write(json.dumps(entry) + "\n")
-EOF
-}
-
-# Function: Get Thompson routing decision
-get_ensemble_model() {
-  local task_type=$1
-
-  python3 "$ENSEMBLE_ROOT/shared/thompson_router.py" << EOF 2>/dev/null | grep "Selected:" | head -1 | awk '{print $NF}'
-EOF
+with open(os.environ["ENSEMBLE_COST_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(entry, allow_nan=False) + "\n")
+PY
 }
 
 # Function: Compress prompt
 compress_ensemble_prompt() {
   local prompt=$1
-  python3 << EOF
+  python3 - "$prompt" <<'PY'
+import sys
 from compression.compression_api import compress_prompt
-result = compress_prompt("$prompt", target_reduction=0.35)
-print(f"{result.text}")
-EOF
+
+result = compress_prompt(sys.argv[1], target_reduction=0.35)
+print(result.text)
+PY
 }
 
 # Connect to Memory Service (central memory authority for all sessions)
@@ -357,20 +272,10 @@ python3 "$ENSEMBLE_ROOT/memory-service/memory_client.py" 2>&1 | grep -E "✓|✗
 # Initialize Autonomous Learning (Thompson self-improvement)
 python3 "$ENSEMBLE_ROOT/tools/autonomous-learner.py" 2>&1 | grep "✓\|✗" || true
 
-# Discover latest models only once per day (not on every session)
-mkdir -p "$ENSEMBLE_MEMORY_DIR"
-LAST_DISCOVERY="$ENSEMBLE_MEMORY_DIR/.last_model_discovery"
-if [ ! -f "$LAST_DISCOVERY" ] || [ $(( $(date +%s) - $(file_mtime "$LAST_DISCOVERY" 2>/dev/null || echo 0) )) -gt 86400 ]; then
-    python3 "$ENSEMBLE_ROOT/tools/discover-models.py" > /dev/null 2>&1 &
-    disown $! 2>/dev/null || true
-    touch "$LAST_DISCOVERY" 2>/dev/null || true
-fi
-
 echo "✓ Claude Ensemble Toolkit initialized"
 echo "  Tools: caching, compression, cost_tracking, ga_tuning, thompson_router, arbitration"
 echo "  Cost logging: $ENSEMBLE_COST_LOG"
 echo "  Memory: $ENSEMBLE_MEMORY_DIR"
-echo "  Model discovery: running in background"
 echo "  Arbitration: multi-phase orchestrator for critical decisions"
 echo "  Autonomous learning: Thompson continuously improving from real tasks"
 
