@@ -57,4 +57,4 @@ ACTIVE_VERSION="${BASH_REMATCH[1]}"
 }
 
 printf 'Upgrading Claude Ensemble from %s to %s.\n' "$ACTIVE_VERSION" "$VERSION"
-exec "$SCRIPT_DIR/install-ce-versioned.sh" "$VERSION" "$SOURCE_DIR"
+exec bash "$SCRIPT_DIR/install-ce-versioned.sh" "$VERSION" "$SOURCE_DIR"
