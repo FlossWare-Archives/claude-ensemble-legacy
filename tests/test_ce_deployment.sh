@@ -307,6 +307,29 @@ assert manifest["validation"] == "activated"
 VERIFY_MANIFEST
 echo "Versioned installer migration contract tests passed."
 
+# Exercise the supported upgrade wrapper and complete install -> upgrade ->
+# uninstall -> purge lifecycle entirely inside the disposable HOME.
+bash "$SCRIPT_DIR/../tools/upgrade-ce-versioned.sh" 0.2 "$SOURCE_FIXTURE"
+[[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.2 ]] || { echo "FAIL: upgrade did not activate 0.2" >&2; exit 1; }
+/usr/bin/python3 - "$INSTALL_ROOT/deployment.json" <<'VERIFY_UPGRADED_MANIFEST'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    manifest = json.load(source)
+assert manifest["release"] == "0.2"
+assert manifest["validation"] == "activated"
+VERIFY_UPGRADED_MANIFEST
+grep -q 'shared-wins' "$INSTALL_ROOT/shared/claude-code/settings.json" || { echo "FAIL: upgrade overwrote shared user settings" >&2; exit 1; }
+grep -q 'keep-me' "$INSTALL_ROOT/shared/claude-code/legacy-only.json" || { echo "FAIL: upgrade lost migrated user data" >&2; exit 1; }
+CE_RELEASE="$(readlink -f "$INSTALL_ROOT/current")"
+bash "$CE_RELEASE/tools/ce-deployment" uninstall
+[[ ! -e "$INSTALL_ROOT/current" && ! -L "$INSTALL_ROOT/current" ]] || { echo "FAIL: uninstall retained current pointer" >&2; exit 1; }
+[[ -d "$INSTALL_ROOT/releases/0.2" ]] || { echo "FAIL: uninstall deleted releases by default" >&2; exit 1; }
+[[ -f "$INSTALL_ROOT/shared/claude-code/settings.json" ]] || { echo "FAIL: uninstall deleted shared user settings" >&2; exit 1; }
+if compgen -G "$INSTALL_HOME/.config/systemd/user/claude-*.service" >/dev/null; then echo "FAIL: uninstall left managed service units" >&2; exit 1; fi
+bash "$CE_RELEASE/tools/ce-deployment" uninstall --purge
+[[ ! -e "$INSTALL_ROOT" && ! -L "$INSTALL_ROOT" ]] || { echo "FAIL: lifecycle purge retained deployment root" >&2; exit 1; }
+echo "Disposable install -> upgrade -> uninstall -> purge lifecycle passed."
+
 # Standalone activation must use deployment-owned credential configuration and
 # must never create the legacy global secrets.env file.
 grep -Fq 'ENSEMBLE_INSTALL_ROOT="$ROOT"' "$SCRIPT" || { echo "FAIL: activation does not pass its deployment root to install.sh" >&2; exit 1; }
