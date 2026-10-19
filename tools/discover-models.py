@@ -62,14 +62,13 @@ class ModelDiscovery:
 if __name__ == "__main__":
     import os
 
-    rh_tools_root = Path(
-        os.environ.get(
-            "RH_TOOLS_ROOT",
-            Path.home() / "Development/redhat/scm/gitlab/cee/sfloess/claude-global-skills",
-        )
-    )
+    # Prefer an explicitly configured CE root; otherwise use this checkout or
+    # immutable release tree. Never assume a developer-specific RH checkout.
+    ce_root = Path(
+        os.environ.get("ENSEMBLE_ROOT", Path(__file__).resolve().parents[1])
+    ).expanduser()
     discoverer = ModelDiscovery(
-        rh_tools_root / "settings.json",
-        rh_tools_root / "shared/thompson_router.py",
+        ce_root / "settings.json",
+        ce_root / "shared/thompson_router.py",
     )
     discoverer.run()
