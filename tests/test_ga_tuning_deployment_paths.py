@@ -19,6 +19,12 @@ class GATuningDeploymentPathTests(unittest.TestCase):
         source = (REPO / "ga_tuning" / "ga_tuner.py").read_text(encoding="utf-8")
         self.assertIn('config.output_dir = os.environ.get("CE_GA_RESULTS_DIR", config.output_dir)', source)
 
+    def test_legacy_scheduler_entry_point_delegates_to_deployment_owned_scheduler(self):
+        script = (REPO / "scripts" / "ga-tuning-schedule.sh").read_text(encoding="utf-8")
+        self.assertIn('exec "$SCRIPT_DIR/../tools/ga-tuning-schedule.sh" "$@"', script)
+        self.assertNotIn('$HOME/.claude', script)
+        self.assertNotIn('RH_TOOLS_ROOT', script)
+
 
 if __name__ == "__main__":
     unittest.main()
