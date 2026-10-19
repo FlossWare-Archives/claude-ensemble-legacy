@@ -182,6 +182,7 @@ for unit in claude-memory.service claude-thompson.service claude-learning.servic
   grep -Fq "ENSEMBLE_LOG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/logs" "$unit_file" || { echo "FAIL: $unit does not isolate logs under shared/" >&2; exit 1; }
   grep -Fq "ENSEMBLE_RUNTIME_DIR=$ENSEMBLE_INSTALL_ROOT/shared/runtime" "$unit_file" || { echo "FAIL: $unit does not isolate runtime state under shared/" >&2; exit 1; }
   grep -Fq "ENSEMBLE_CLAUDE_CODE_CONFIG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/claude-code" "$unit_file" || { echo "FAIL: $unit does not isolate Claude Code configuration" >&2; exit 1; }
+  grep -Fq "CLAUDE_CONFIG_DIR=$ENSEMBLE_INSTALL_ROOT/shared/claude-code" "$unit_file" || { echo "FAIL: $unit does not pass the native Claude Code profile override" >&2; exit 1; }
   if grep -Eq '/\.claude(/|$)|/\.local/share/claude-ensemble' "$unit_file"; then
     echo "FAIL: managed unit retains a legacy mutable-state path: $unit" >&2
     exit 1
