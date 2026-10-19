@@ -61,6 +61,28 @@ def test_health_reports_unknown_measurements_without_history() -> None:
     assert entry["avg_cost_usd"] is None
 
 
+def test_claude_code_runtime_does_not_require_api_key_pool(tmp_path) -> None:
+    class ClaudeCodeRegistry:
+        def resolve_model(self, model):
+            return "claude-code", model
+
+        def credential_status(self, provider):
+            return []
+
+    view = CapabilityHealthView(
+        ClaudeCodeRegistry(),
+        thompson_path=tmp_path / "no-history.json",
+        cost_path=tmp_path / "no-costs.jsonl",
+        models=("haiku", "sonnet", "opus"),
+    )
+    capabilities = view.capabilities()["models"]
+    health = view.health()["models"]
+    assert all(item["credential_available"] is True for item in capabilities)
+    assert all(item["credential_available"] is True for item in health)
+    # Readiness is not the same as observed operational health.
+    assert all(item["state"] == "unknown" for item in health)
+
+
 def test_health_reports_unknown_when_aggregate_metrics_are_missing(tmp_path) -> None:
     state = tmp_path / "thompson.json"
     state.write_text(json.dumps({"models": {"sonnet": {"calls": 2, "successes": 2, "failures": 0}}}))
