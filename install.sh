@@ -13,15 +13,11 @@
 set -Eeuo pipefail
 
 if [ "$#" -eq 0 ]; then
-    # Prefer the current FlossWare checkout layout, while retaining the
-    # historical path for existing installations that still use it.
-    if [ -d "${HOME}/Development/github/FlossWare/claude-ensemble" ]; then
-        REPO_PATH="${HOME}/Development/github/FlossWare/claude-ensemble"
-    elif [ -d "${HOME}/Development/FlossWare/claude-ensemble" ]; then
-        REPO_PATH="${HOME}/Development/FlossWare/claude-ensemble"
-    else
-        REPO_PATH="${HOME}/Development/github/FlossWare/claude-ensemble"
-    fi
+    # This installer operates on the source checkout containing the script.
+    # Use tools/install-ce-versioned.sh for an immutable standalone deployment.
+    REPO_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    echo "Using source checkout for development install: $REPO_PATH"
+    echo "For standalone deployment, use tools/install-ce-versioned.sh."
 else
     REPO_PATH="$1"
 fi
