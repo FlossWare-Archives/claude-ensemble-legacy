@@ -145,11 +145,13 @@ bash tools/ce diagnose --deep --json
 
 This probes the configured gateway, Memory, Graph, decision endpoint, Learning, Thompson, Messenger, and Alert service. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
 
-To exercise the installed `~/.claude/hooks/memory-search-on-prompt.js` against live Memory/Graph services without writing production data:
+To exercise the installed `UserPromptSubmit` hook against live Memory/Graph services without writing production data:
 
 ```bash
 bash tools/ce diagnose --hook-smoke --json
 ```
+
+Hook lookup follows `CLAUDE_HOOK_DIR`, then the explicitly selected `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR`. With none configured, it uses the standalone CE profile at `~/.FlossWare/claude-ensemble/shared/claude-code/hooks`. It does **not** silently inspect ordinary `~/.claude/hooks`; pass `--hook-dir` explicitly when intentionally testing another profile.
 
 To also exercise installed SessionEnd capture and Messenger delivery, explicitly authorize one uniquely identified metadata-only event in production Memory:
 
