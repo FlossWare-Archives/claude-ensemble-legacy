@@ -1,145 +1,91 @@
 # Credentials Setup Guide
 
-Credentials (API tokens, API keys) are auto-loaded in all Claude sessions—new, resumed, and tool execution.
+Claude Ensemble can load credentials from a local file during its supported session initialization. Credential loading is **not universal across every shell, resumed session, or tool subprocess**. It depends on how CE is installed and initialized, and on whether the caller passes the relevant environment variables to child processes.
 
-## Store Credentials
+## Store credentials locally
 
-**File:** `~/.FlossWare/secrets.env`
+The default file is `~/.FlossWare/secrets.env`. Keep it outside source repositories and use a secret manager or an organization-approved credential delivery mechanism where available.
+
+Example format:
 
 ```bash
-export GITLAB_TOKEN='your-gitlab-token'
-export GOOGLE_API_KEY='your-google-key'
-export JIRA_API_TOKEN='your-jira-token'
-export SONAR_TOKEN='your-sonarqube-token'
-export CURSOR_API_KEY='your-cursor-key'
+export GITLAB_TOKEN='replace-with-your-token'
+export GOOGLE_API_KEY='replace-with-your-key'
+export JIRA_API_TOKEN='replace-with-your-token'
+export SONAR_TOKEN='replace-with-your-token'
 ```
 
-**Permissions:** `chmod 600 ~/.FlossWare/secrets.env` (do not commit to git)
+Create the file with restrictive permissions:
 
-## How Auto-Loading Works
-
-### 1. Shell Startup (New Sessions)
-- `~/.bashrc` and `~/.zshrc` source `~/.FlossWare/secrets.env` with `set -a` (auto-export)
-- All variables become available immediately
-
-### 2. Non-Interactive Bash (Claude Tools)
-- `BASH_ENV` is set to `~/.bashenv`
-- Bash automatically sources `~/.bashenv` for non-interactive shells (like Claude's tool execution)
-- `~/.bashenv` sources `~/.FlossWare/secrets.env` with `set -a`
-
-### 3. Resumed Sessions
-- **Option A (Automatic):** Session hook (`~/.claude/hooks/user-prompt-submit.sh`) reloads credentials on every prompt
-- **Option B (Manual):** User can call `source ~/.FlossWare/secrets.env` anytime
-
-## Setup Steps
-
-### 1. Create credentials file
 ```bash
-mkdir -p ~/.FlossWare
-cat > ~/.FlossWare/secrets.env << 'EOF'
-export GITLAB_TOKEN='your-token'
-export GOOGLE_API_KEY='your-key'
-# ... add all your credentials
-EOF
-chmod 600 ~/.FlossWare/secrets.env
+install -d -m 700 "$HOME/.FlossWare"
+( umask 077; touch "$HOME/.FlossWare/secrets.env" )
+chmod 600 "$HOME/.FlossWare/secrets.env"
 ```
 
-### 2. Enable shell auto-loading (already done in .bashrc/.zshrc)
-```bash
-# These are already in ~/.bashrc and ~/.zshrc:
-export BASH_ENV="$HOME/.bashenv"
+Edit the file with your preferred editor. Do not paste real credentials into chat, issue comments, logs, terminal transcripts, or tool output.
 
-if [ -f ~/.FlossWare/secrets.env ]; then
-  set -a
-  . ~/.FlossWare/secrets.env
-  set +a
+**Important:** `chmod 600` limits ordinary filesystem access; it does not prevent a process that can read the file from exposing its contents. `.gitignore` prevents some accidental additions only. It does not remove a secret already committed, prevent forced adds, or stop credentials from leaking through command output, logs, shell tracing, or tool transcripts. Treat any exposed credential as compromised and rotate it.
+
+## Supported CE session initialization
+
+The current `scripts/ensemble-init.sh` reads `ENSEMBLE_CREDENTIALS_FILE` (default: `~/.FlossWare/secrets.env`) when that script is sourced. Its parser accepts exported assignments with literal values, optionally single- or double-quoted. It does not execute the file as shell code. Unsupported lines are ignored with a warning.
+
+For example, these are supported:
+
+```bash
+export SERVICE_TOKEN='literal-value'
+export OTHER_TOKEN=another-literal-value
+```
+
+Do not rely on shell expressions, command substitutions, variable references, or multi-line values in this file. Use a secret manager or another approved mechanism for credentials requiring more complex handling.
+
+This behavior applies only when CE's session initialization script is actually sourced. It does **not** establish that every Claude Code installation, resumed session, non-interactive shell, or arbitrary subprocess automatically receives the credentials. The repository does not universally install the `~/.bashrc`, `~/.zshrc`, `~/.bashenv`, `BASH_ENV`, or `~/.claude/hooks/user-prompt-submit.sh` configuration described in older versions of this guide. Configure shell startup or Claude Code hooks only when your specific installation documents and requires them, and review what data they can expose.
+
+## Verify availability without revealing values
+
+Check only whether a variable is set and non-empty. These examples intentionally print no credential value:
+
+```bash
+if [[ -n "${GITLAB_TOKEN:-}" ]]; then
+  printf '%s\n' 'GITLAB_TOKEN is set'
+else
+  printf '%s\n' 'GITLAB_TOKEN is not set'
 fi
 ```
 
-### 3. Create ~/.bashenv (already done)
+To test whether a child Bash process inherited the variable without printing it:
+
 ```bash
-cat > ~/.bashenv << 'EOF'
-#!/bin/bash
-if [ -f ~/.FlossWare/secrets.env ]; then
-  set -a
-  . ~/.FlossWare/secrets.env
-  set +a
+bash -c '[[ -n "${GITLAB_TOKEN:-}" ]]'
+status=$?
+if [[ "$status" -eq 0 ]]; then
+  printf '%s\n' 'GITLAB_TOKEN is available to child Bash'
+else
+  printf '%s\n' 'GITLAB_TOKEN is unavailable to child Bash'
 fi
-EOF
-chmod 600 ~/.bashenv
+unset status
 ```
 
-## Verification
+A successful check proves only that the variable is present in that process. It does not validate the token with its provider or prove every tool/session can access it.
 
-Test that credentials are available:
+## Troubleshooting safely
 
-```bash
-# In your shell
-echo $GITLAB_TOKEN
+- Check file existence and permissions without reading its contents:
+  ```bash
+  test -r "${ENSEMBLE_CREDENTIALS_FILE:-$HOME/.FlossWare/secrets.env}" && echo 'credentials file is readable'
+  stat -c '%a %n' "${ENSEMBLE_CREDENTIALS_FILE:-$HOME/.FlossWare/secrets.env}" 2>/dev/null || stat -f '%Lp %N' "${ENSEMBLE_CREDENTIALS_FILE:-$HOME/.FlossWare/secrets.env}"
+  ```
+- Check whether a variable is present using the presence-only snippet above. Do not use `echo $TOKEN`, `printenv TOKEN`, `env`, or other commands that display credential values.
+- If CE's initialization parser reports an unsupported entry, simplify that entry to a literal exported assignment or use an approved secret manager.
+- Never use `cat`, `head`, shell tracing (`set -x`), or debug logs to display the credentials file.
+- Restart or reinitialize only the session/profile whose documented setup loads the credentials. Do not assume a prompt hook or shell startup file exists merely because another installation uses one.
 
-# Via Claude tools
-# Claude will run: bash -c 'echo $GITLAB_TOKEN'
-# Should show actual token value, not ${GITLAB_TOKEN}
-```
+## Multiple machines
 
-## How It Works
+Create or provision credentials separately on each machine using an approved secret manager, enterprise credential store, or secure transfer process. Do **not** synchronize secrets through Git, even in a private repository and even when `.gitignore` excludes the file. If a credential has entered Git history, removing the current file is not sufficient: revoke/rotate the credential and follow the repository's secret-incident procedure.
 
-### `set -a` / `set +a`
-- `set -a`: Auto-export all variable assignments
-- Loads secrets.env so all `export VAR=value` become available in the environment
-- `set +a`: Turn off auto-export
+## See also
 
-### BASH_ENV
-- Environment variable that bash reads for non-interactive shells
-- Claude runs tools via `bash -c`, which is non-interactive
-- Without BASH_ENV, the non-interactive bash wouldn't read `.bashrc`
-- With BASH_ENV, bash sources `~/.bashenv` which has the credentials
-
-### Why This Design
-1. **Single source of truth:** `~/.FlossWare/secrets.env` contains all credentials
-2. **Automatic propagation:** Credentials load in all contexts (shell, tools, resumed sessions)
-3. **No duplication:** Shared `.bashenv` used by all shell types
-4. **Security:** Credentials file kept out of git, proper permissions (600)
-
-## Troubleshooting
-
-### Credentials not available in shell
-```bash
-# Check if file exists and is readable
-cat ~/.FlossWare/secrets.env | head -3
-
-# Check if BASH_ENV is set
-echo $BASH_ENV
-
-# Manually source to test
-source ~/.FlossWare/secrets.env && echo $GITLAB_TOKEN
-```
-
-### Credentials not available in Claude tools
-1. Restart Claude session (forces re-read of hooks)
-2. Verify `~/.bashenv` exists: `cat ~/.bashenv`
-3. Verify `BASH_ENV` in `.bashrc`: `grep BASH_ENV ~/.bashrc`
-4. Test directly: `bash -c 'echo $GITLAB_TOKEN'` should show token value
-
-### Token still shows as `${GITLAB_TOKEN}`
-- This means the variable wasn't exported
-- Check that `set -a` is in place before sourcing
-- Verify secrets.env has `export VARIABLE=value` (not just `VARIABLE=value`)
-
-## Multi-Machine Setup
-
-If running Claude sessions on **different machines**:
-1. Create `~/.FlossWare/secrets.env` on each machine
-2. Each machine reads from its local secrets file
-3. To sync tokens across machines, use git (ignored via `.gitignore`)
-
-## Performance Notes
-
-**Cache TTL Configuration:** For cost optimization, see **`caching/README.md`** for how to enable 6-hour cache TTL (~$500/month savings). Default is conservative 5 minutes for freshness.
-
-## See Also
-
-- `CLAUDE.ENSEMBLE.md` — Main guide
-- `scripts/ensemble-init.sh` — Initialization script (loads credentials)
-- `~/.claude/hooks/user-prompt-submit.sh` — Session hook (re-loads on resumed sessions)
-- `caching/README.md` — Cache TTL configuration and cost optimization
+- `scripts/ensemble-init.sh` — CE session initialization and literal-assignment credential parser.
+- `CLAUDE.ENSEMBLE.md` — Main project guidance.
