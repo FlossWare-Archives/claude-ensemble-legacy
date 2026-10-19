@@ -276,7 +276,6 @@ echo "✓ Claude Ensemble Toolkit initialized"
 echo "  Tools: caching, compression, cost_tracking, ga_tuning, thompson_router, arbitration"
 echo "  Cost logging: $ENSEMBLE_COST_LOG"
 echo "  Memory: $ENSEMBLE_MEMORY_DIR"
-echo "  Model discovery: running in background"
 echo "  Arbitration: multi-phase orchestrator for critical decisions"
 echo "  Autonomous learning: Thompson continuously improving from real tasks"
 
