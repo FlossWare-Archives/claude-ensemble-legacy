@@ -290,7 +290,7 @@ MOCK_PYTHON
 chmod +x "$TMP/bin/python3"
 export HOME="$INSTALL_HOME"
 export ENSEMBLE_INSTALL_ROOT="$INSTALL_ROOT"
-bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.1 "$SOURCE_FIXTURE"
+bash "$SCRIPT_DIR/../install-standalone.sh" 0.1 "$SOURCE_FIXTURE"
 [[ "$(readlink "$INSTALL_ROOT/current")" == releases/0.1 ]]
 [[ -d "$INSTALL_ROOT/releases/0.0" ]]
 [[ -L "$INSTALL_ROOT/releases/0.1/claude-code" ]]
