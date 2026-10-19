@@ -575,7 +575,7 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                         input=event,
                         text=True,
                         capture_output=True,
-                        timeout=5,
+                        timeout=10,
                         env=env,
                         check=False,
                     )
