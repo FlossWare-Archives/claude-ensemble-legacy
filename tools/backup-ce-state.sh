@@ -2,13 +2,14 @@
 # Create a durable, private snapshot before CE installation or upgrade.
 # Usage: tools/backup-ce-state.sh REASON [deployment-root]
 set -Eeuo pipefail
-if [[ "$#" -lt 1 || "$#" -gt 2 || ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-  printf 'Usage: %s REASON [deployment-root]\n' "$0" >&2
+if [[ "$#" -lt 1 || "$#" -gt 3 || ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  printf 'Usage: %s REASON [deployment-root] [profile-directory]\n' "$0" >&2
   exit 2
 fi
 REASON="$1"
 HOME_REAL="$(cd -- "$HOME" && pwd -P)"
 ROOT="${2:-${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}}"
+PROFILE_DIR="${3:-}"
 case "$ROOT" in "~") ROOT="$HOME";; "~/"*) ROOT="$HOME/${ROOT#\~/}";; esac
 ROOT="${ROOT%/}"
 command -v python3 >/dev/null 2>&1 || { printf 'ERROR: python3 is required for safe backup path validation.\n' >&2; exit 1; }
@@ -18,8 +19,8 @@ case "$ROOT" in "$HOME_REAL"/*) ;; *) printf 'ERROR: deployment root must be ben
 FLOSSWARE_HOME="$HOME/.FlossWare"
 [[ ! -L "$FLOSSWARE_HOME" ]] || { printf 'ERROR: refusing symlinked FlossWare home: %s\n' "$FLOSSWARE_HOME" >&2; exit 1; }
 BACKUP_BASE="$FLOSSWARE_HOME/claude-ensemble-backups"
-mkdir -p -- "$BACKUP_BASE"
 [[ ! -L "$BACKUP_BASE" ]] || { printf 'ERROR: backup directory must not be a symlink: %s\n' "$BACKUP_BASE" >&2; exit 1; }
+mkdir -p -- "$BACKUP_BASE"
 BACKUP_BASE="$(cd -- "$BACKUP_BASE" && pwd -P)"
 case "$BACKUP_BASE" in "$HOME_REAL"/*) ;; *) printf 'ERROR: backup directory resolves outside HOME.\n' >&2; exit 1;; esac
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -65,6 +66,17 @@ chmod 600 "$manifest"
 [[ -r "$manifest" && -d "$BACKUP/files" ]]
 if [[ -e "$BACKUP/files/deployment-root" ]]; then
   [[ -d "$BACKUP/files/deployment-root" ]] || exit 1
+fi
+if [[ -n "$PROFILE_DIR" ]]; then
+  [[ ! -L "$PROFILE_DIR" ]] || { printf 'ERROR: refusing to snapshot a symlinked profile directory: %s\\n' "$PROFILE_DIR" >&2; exit 1; }
+  PROFILE_DIR="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$PROFILE_DIR")"
+  case "$PROFILE_DIR" in "$HOME_REAL"/*) ;; *) printf 'ERROR: selected profile must resolve beneath HOME: %s\\n' "$PROFILE_DIR" >&2; exit 1;; esac
+  if [[ -d "$PROFILE_DIR" ]]; then
+    cp -a -- "$PROFILE_DIR" "$BACKUP/files/selected-profile"
+    printf 'selected_profile_path=%s\\nselected_profile_snapshot=files/selected-profile\\n' "$PROFILE_DIR" >> "$manifest"
+  else
+    printf 'selected_profile_path=%s\\nselected_profile_snapshot=absent-before-operation\\n' "$PROFILE_DIR" >> "$manifest"
+  fi
 fi
 trap - ERR
 printf 'Pre-operation backup created: %s\n' "$BACKUP"
