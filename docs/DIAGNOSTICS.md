@@ -99,7 +99,9 @@ The diagnose JSON report has this shape:
       "status": "pass",
       "endpoint": "GET http://127.0.0.1:8080/api/v1/health",
       "duration_ms": 12,
+      "correlation_id": "generated-uuid",
       "detail": "HTTP 200; ok=true",
+      "evidence": "HTTP 200; ok=true",
       "remediation": ""
     }
   ]
