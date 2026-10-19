@@ -49,6 +49,17 @@ class ProbeHandler(BaseHTTPRequestHandler):
 
 
 class DiagnoseTests(unittest.TestCase):
+    def test_default_hook_dir_respects_ce_profile_isolation(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(
+                str(Path.home() / ".FlossWare" / "claude-ensemble" / "shared" / "claude-code" / "hooks"),
+                diagnose.default_hook_dir(),
+            )
+        with patch.dict("os.environ", {"ENSEMBLE_CLAUDE_CODE_CONFIG_DIR": "~/ce-profile"}, clear=True):
+            self.assertEqual(str(Path.home() / "ce-profile" / "hooks"), diagnose.default_hook_dir())
+        with patch.dict("os.environ", {"CLAUDE_HOOK_DIR": "~/explicit-hooks"}, clear=True):
+            self.assertEqual(str(Path.home() / "explicit-hooks"), diagnose.default_hook_dir())
+
     def setUp(self):
         ProbeHandler.payload = {"ok": True}
         self.httpd = HTTPServer(("127.0.0.1", 0), ProbeHandler)
