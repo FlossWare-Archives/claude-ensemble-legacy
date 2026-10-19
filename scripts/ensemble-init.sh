@@ -111,35 +111,32 @@ discover() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$category" "$content" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "category": "$category",
-        "discovery": "$content"
+        "category": sys.argv[1],
+        "discovery": sys.argv[2],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('session_discoveries', entry)
+        client.append("session_discoveries", entry)
         print("✓ Discovery saved (searchable via mem_search)")
-except:
+except Exception:
     pass
-EOF
+PY
 }
 
 # Save learning immediately (not just at session end)
@@ -152,37 +149,34 @@ save_learning() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$title" "$detail" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "title": "$title",
-        "detail": "$detail"
+        "title": sys.argv[1],
+        "detail": sys.argv[2],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('session_learnings', entry)
+        client.append("session_learnings", entry)
         print("✓ Learning saved to memory service")
     else:
         print("⚠ Memory service unavailable (will save at session end)")
-except:
+except Exception:
     print("⚠ Could not save learning")
-EOF
+PY
 }
 
 # Save architecture decision immediately
@@ -194,34 +188,31 @@ save_architecture() {
     return 1
   fi
 
-  python3 << EOF
-import json
+  python3 - "$decision" <<'PY'
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
+ensemble_root = os.getenv("ENSEMBLE_ROOT", "")
 if not ensemble_root:
     sys.exit(1)
-
-sys.path.insert(0, str(Path(ensemble_root) / 'memory-service'))
+sys.path.insert(0, str(Path(ensemble_root) / "memory-service"))
 
 try:
     from memory_client import MemoryClient
 
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
-        "decision": "$decision"
+        "decision": sys.argv[1],
     }
-
     client = MemoryClient()
     if client.connect():
-        client.append('architecture_decisions', entry)
+        client.append("architecture_decisions", entry)
         print("✓ Architecture decision saved")
-except:
+except Exception:
     pass
-EOF
+PY
 }
 
 # Function: Log API usage to cost tracking
@@ -232,23 +223,35 @@ log_ensemble_cost() {
   local cost=$4
   local workflow=${5:-"ensemble-work"}
 
-  python3 << EOF
+  python3 - "$model" "$input_tokens" "$output_tokens" "$cost" "$workflow" <<'PY'
 import json
-from datetime import datetime
+import math
+import os
+import sys
+from datetime import datetime, timezone
+
+model, input_tokens, output_tokens, cost, workflow = sys.argv[1:]
+try:
+    input_tokens = int(input_tokens)
+    output_tokens = int(output_tokens)
+    cost = float(cost)
+except ValueError:
+    raise SystemExit("token counts and cost must be numeric")
+if input_tokens < 0 or output_tokens < 0 or not math.isfinite(cost) or cost < 0:
+    raise SystemExit("token counts and cost must be finite and non-negative")
 
 entry = {
-  "timestamp": datetime.utcnow().isoformat(),
-  "model": "$model",
-  "provider": "anthropic",
-  "input_tokens": $input_tokens,
-  "output_tokens": $output_tokens,
-  "total_cost_usd": $cost,
-  "workflow_id": "$workflow"
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "model": model,
+    "provider": "claude-code",
+    "input_tokens": input_tokens,
+    "output_tokens": output_tokens,
+    "total_cost_usd": cost,
+    "workflow_id": workflow,
 }
-
-with open("$ENSEMBLE_COST_LOG", "a") as f:
-  f.write(json.dumps(entry) + "\n")
-EOF
+with open(os.environ["ENSEMBLE_COST_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(entry, allow_nan=False) + "\\n")
+PY
 }
 
 # Function: Get Thompson routing decision
@@ -262,11 +265,13 @@ EOF
 # Function: Compress prompt
 compress_ensemble_prompt() {
   local prompt=$1
-  python3 << EOF
+  python3 - "$prompt" <<'PY'
+import sys
 from compression.compression_api import compress_prompt
-result = compress_prompt("$prompt", target_reduction=0.35)
-print(f"{result.text}")
-EOF
+
+result = compress_prompt(sys.argv[1], target_reduction=0.35)
+print(result.text)
+PY
 }
 
 # Connect to Memory Service (central memory authority for all sessions)
