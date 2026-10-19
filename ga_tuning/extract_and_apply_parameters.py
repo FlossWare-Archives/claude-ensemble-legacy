@@ -6,6 +6,7 @@ Tracks parameter evolution over time for analysis.
 """
 
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -174,7 +175,7 @@ class ParameterExtractor:
         finally:
             os.close(directory_fd)
 
-    def recover_pending(self) -> int:
+    def _recover_pending_locked(self) -> int:
         """Retry immutable pending artifacts without running the optimizer."""
         pending_files = sorted(self.results_dir.glob(".*.learning-artifact.json"))
         if not pending_files:
@@ -214,9 +215,16 @@ class ParameterExtractor:
                         or not receipt["acknowledged_at"].strip()
                     ):
                         raise RuntimeError(f"Existing receipt does not verify run {run_id}")
+                    # The local receipt can be forged. Verify durable service-side
+                    # persistence again using the same idempotent run identity before
+                    # deleting the only recovery snapshot.
+                    response = LearningClient().record_artifact(artifact.to_dict())
+                    if response.get("ok") is not True or response.get("memory") is not True:
+                        raise RuntimeError(
+                            f"Learning/Memory could not verify receipt for run {run_id}: {response}"
+                        )
                     # Re-establish receipt directory-entry durability before
-                    # deleting the only recovery snapshot. This also repairs the
-                    # retry case where a previous directory fsync failed post-rename.
+                    # deleting the only recovery snapshot.
                     self._fsync_directory(self.results_dir)
                     artifact_data = artifact.to_dict()
                     params = artifact_data["payload"].get("selected_parameters", {})
@@ -272,7 +280,26 @@ class ParameterExtractor:
             )
         return recovered
 
+    def _with_ingestion_lock(self, operation):
+        """Serialize every artifact-ingestion path across scheduler processes."""
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.results_dir / ".ga-ingestion.lock"
+        with lock_path.open("a+") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                return operation()
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def recover_pending(self) -> int:
+        """Recover pending artifacts under the same inter-process lock as run()."""
+        return self._with_ingestion_lock(self._recover_pending_locked)
+
     def run(self) -> None:
+        """Run GA ingestion under the results-directory inter-process lock."""
+        self._with_ingestion_lock(self._run_locked)
+
+    def _run_locked(self) -> None:
         """Extract, acknowledge, and log one immutable GA candidate snapshot."""
         try:
             best_params_file, _ = self.get_latest_results()
@@ -360,6 +387,15 @@ class ParameterExtractor:
                 ):
                     raise RuntimeError(
                         f"GA ingestion receipt does not verify run {run_id}; refusing to skip ingestion"
+                    )
+                # A local receipt is not authoritative evidence: anyone who can
+                # write the results directory can create one. Re-submit the exact
+                # immutable artifact and require a fresh Learning + Memory ack;
+                # the service deduplicates by the stable artifact run identity.
+                response = LearningClient().record_artifact(artifact.to_dict())
+                if response.get("ok") is not True or response.get("memory") is not True:
+                    raise RuntimeError(
+                        f"Learning/Memory could not verify receipt for run {run_id}: {response}"
                     )
                 self.log_parameter_evolution(params, timestamp, run_id=run_id)
                 pending_artifact.unlink(missing_ok=True)
