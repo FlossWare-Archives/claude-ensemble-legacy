@@ -116,6 +116,30 @@ class InstalledHookSmokeTests(unittest.TestCase):
 
 
 
+    def test_each_json_step_contains_correlation_and_bounded_evidence(self):
+        output = io.StringIO()
+        with (
+            patch("sys.argv", ["ce-diagnose.py", "--service", "gateway", "--json"]),
+            patch.object(
+                ce_diagnose,
+                "http_request",
+                return_value=("pass", "HTTP 200; ok=true", {"ok": True}, 3),
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = ce_diagnose.main()
+
+        report = json.loads(output.getvalue())
+        self.assertEqual(0, exit_code)
+        self.assertEqual(2, len(report["results"]))
+        for item in report["results"]:
+            self.assertEqual(report["correlation_id"], item["correlation_id"])
+            self.assertEqual(item["detail"], item["evidence"])
+            self.assertEqual("pass", item["status"])
+            self.assertGreaterEqual(item["duration_ms"], 0)
+            self.assertTrue(item["endpoint"])
+            self.assertIn("remediation", item)
+
     def test_json_summary_counts_skipped_checks(self):
         output = io.StringIO()
         with (
