@@ -46,7 +46,7 @@ Workflow outcomes pass through the Learning service only when they have durable,
 
 The top-level `install.sh` is a source-checkout/development install: with no path argument it uses the checkout containing the script and does not clone into a developer-specific directory. It binds the optional services to that checkout, so do not move or delete the checkout while those services are installed. For a standalone CE runtime, use the versioned installer described below; it stages immutable releases and keeps service paths independent of the source checkout.
 
-The versioned installer is the deployment path for a standalone CE runtime. It stores immutable releases under `~/.FlossWare/claude-ensemble/releases/`, selects the active release through the atomic `current` symlink, and keeps mutable state under `shared/`. The runtime release tree contains no Git metadata and must not point into a development checkout.
+The versioned installer is the deployment path for a standalone CE runtime. Do not activate a release on a real host until the staging-only checks and acceptance procedure in [issue #505](https://github.com/FlossWare/claude-ensemble/issues/505) have passed. It stores immutable releases under `~/.FlossWare/claude-ensemble/releases/`, selects the active release through the atomic `current` symlink, and keeps mutable state under `shared/`. The runtime release tree contains no Git metadata and must not point into a development checkout.
 
 **First, perform a structural-only staging run.** Use a clean source checkout outside a development checkout's symlinked paths and choose a new, disposable staging root:
 
