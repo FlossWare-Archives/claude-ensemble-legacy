@@ -156,8 +156,8 @@ def test_read_page_handles_empty_ledger_malformed_rows_and_offsets(tmp_path):
     assert store.read_page(10, 0) == []
     store.record(MetricsRecord(execution_id="first", timestamp="now", service="metrics"))
     with store.path.open("a", encoding="utf-8") as stream:
-        stream.write("{malformed\\n")
-        stream.write("[]\\n")
+        stream.write("{malformed\n")
+        stream.write("[]\n")
     store.record(MetricsRecord(execution_id="second", timestamp="now", service="metrics"))
     store.record(MetricsRecord(execution_id="third", timestamp="now", service="metrics"))
 
