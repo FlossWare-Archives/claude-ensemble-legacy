@@ -127,6 +127,20 @@ if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/../escape-parent/root" b
   exit 1
 fi
 [[ ! -e "$ESCAPE_PARENT" ]] || { echo 'FAIL: rejected installer traversal created a directory outside HOME' >&2; exit 1; }
+OUTSIDE_PARENT="$TMP/outside-parent"
+mkdir -p "$OUTSIDE_PARENT"
+ln -s "$OUTSIDE_PARENT" "$HOME/external-link"
+if ENSEMBLE_INSTALL_ROOT="$HOME/external-link/new/root" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment path through an external parent symlink was accepted' >&2
+  exit 1
+fi
+[[ ! -e "$OUTSIDE_PARENT/new" ]] || { echo 'FAIL: deployment helper created directories through an external parent symlink' >&2; exit 1; }
+if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/external-link/new/root" bash "$SCRIPT_DIR/../tools/install-ce-versioned.sh" 0.3 /nonexistent >/dev/null 2>&1; then
+  echo 'FAIL: versioned installer accepted a path through an external parent symlink' >&2
+  exit 1
+fi
+[[ ! -e "$OUTSIDE_PARENT/new" ]] || { echo 'FAIL: versioned installer created directories through an external parent symlink' >&2; exit 1; }
+rm "$HOME/external-link"
 ln -s "$ENSEMBLE_INSTALL_ROOT" "$HOME/ce-root-link"
 if ENSEMBLE_INSTALL_ROOT="$HOME/ce-root-link" bash "$SCRIPT" status >/dev/null 2>&1; then
   echo 'FAIL: symlinked deployment root was accepted' >&2
