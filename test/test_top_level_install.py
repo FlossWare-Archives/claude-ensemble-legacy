@@ -13,6 +13,13 @@ import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+INSTALLER_TEXT = (ROOT / "install.sh").read_text(encoding="utf-8")
+if "sys.version_info >= (3, 11)" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer does not enforce Python 3.11 minimum")
+if "major >= 22" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer does not enforce Node.js 22 minimum")
+if "for required in git python3 node systemctl" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer prerequisite list omits Node.js")
 EXPECTED = (
     "claude-memory.service",
     "claude-thompson.service",
@@ -61,6 +68,11 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
         encoding="utf-8",
     )
     systemctl.chmod(0o755)
+    # The CI Node.js binary may live outside /usr/bin and /bin. Make it
+    # visible through the isolated PATH without replacing its real runtime.
+    node_binary = shutil.which("node")
+    if node_binary:
+        (bin_dir / "node").symlink_to(node_binary)
     if claude:
         cli = bin_dir / "claude"
         cli.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
