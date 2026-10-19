@@ -35,6 +35,36 @@ The Memory REST service is a loopback-only service. The hook sends the extracted
 
 The `/memory/search` contract returns JSON with `ok: true` and a `results` array. Each result used by the hook provides a `content` string; the hook ignores other result shapes instead of guessing at service internals.
 
+### Configuring prompt-time RAG
+
+The canonical UserPromptSubmit hook reads profile-scoped settings from `<selected-profile>/.flossware-claude-config/rag.json`. Use the CLI instead of editing managed hook scripts:
+
+```bash
+tools/claude-config/bin/claude-config rag-config show
+tools/claude-config/bin/claude-config rag-config set memory.enabled=false graph.enabled=false
+tools/claude-config/bin/claude-config rag-config set knowledge.max_queries=2 memory.timeout_ms=900
+tools/claude-config/bin/claude-config rag-config reset
+```
+
+Set `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` to the dedicated CE profile (or `CLAUDE_CONFIG_DIR`) before running these commands. The command refuses to fall back to `~/.claude`, rejects symlinked profile/state directories, validates every value, writes atomically, and keeps the config private. If a manually edited file is malformed or contains unsupported values, the hook reports a configuration error and skips retrieval rather than silently applying defaults. Missing configuration preserves existing behavior. Environment timeout overrides remain available for isolated test/deployment tuning.
+
+Supported settings:
+
+| Setting | Default | Valid range |
+|---|---:|---:|
+| `memory.enabled` | `true` | `true` / `false` |
+| `memory.timeout_ms` | `1500` | 50–10000 |
+| `memory.max_results` | `10` | 1–10 |
+| `knowledge.enabled` | `true` | `true` / `false` |
+| `knowledge.timeout_ms` | `1500` | 50–10000 |
+| `knowledge.max_results` | `10` | 1–10 |
+| `knowledge.max_queries` | `3` | 1–3 |
+| `graph.enabled` | `true` | `true` / `false` |
+| `graph.timeout_ms` | `400` | 50–5000 |
+| `graph.max_roots` | `3` | 1–3 |
+| `graph.max_nodes` | `8` | 1–8 |
+| `graph.max_context_chars` | `3000` | 100–3000 |
+
 ### Indexing project documentation as Knowledge
 
 The normal `sync`/`watch` commands ingest Claude Code's own `~/.claude/projects/*/memory` notes and `MEMORY.md` files. They do not automatically ingest arbitrary repository documentation. To make a project's durable Markdown documentation available to prompt-time Knowledge retrieval, explicitly run:
