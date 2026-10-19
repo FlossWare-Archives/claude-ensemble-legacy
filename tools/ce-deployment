@@ -176,6 +176,21 @@ validate_release() {
 JOURNAL="$ROOT/activation.json"
 BACKUPS="$ROOT/shared/activation-backups"
 
+assert_managed_layout() {
+  local path
+  for path in \
+    "$RELEASES" "$ROOT/shared" "$ROOT/shared/claude-code" "$ROOT/shared/config" \
+    "$ROOT/shared/data" "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
+    "$ROOT/shared/data/alerts" "$ROOT/shared/runtime" "$ROOT/shared/logs" "$BACKUPS"; do
+    [[ ! -L "$path" ]] || die "managed deployment path must not be a symlink: $path"
+    [[ ! -e "$path" || -d "$path" ]] || die "managed deployment path is not a directory: $path"
+  done
+  path="$ROOT/shared/config/environment"
+  [[ ! -L "$path" ]] || die "managed service environment must not be a symlink: $path"
+  [[ ! -e "$path" || -f "$path" ]] || die "managed service environment is not a regular file: $path"
+}
+assert_managed_layout
+
 write_known_good() {
   local previous="$1" target="$2" tmp="$ROOT/.known-good.json.$BASHPID"
   python3 - "$tmp" "$previous" "$target" <<'PY'
@@ -298,6 +313,7 @@ case "$cmd" in
     validate_release "$version"
     preflight_units "$version"
     mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
+    assert_managed_layout
     if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
       previous="$(active_version)" || die "current symlink is invalid; refusing activation"
     else
