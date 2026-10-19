@@ -137,6 +137,8 @@ On startup, `scripts/ensemble-init.sh` automatically:
 
 ### Diagnose the running CE services
 
+See [the diagnostics contract](docs/DIAGNOSTICS.md) for the command reference, JSON schemas, status/exit semantics, profile selection, and side-effect boundaries.
+
 Run a correlated health and integration check before testing a live Claude Code session:
 
 ```bash
