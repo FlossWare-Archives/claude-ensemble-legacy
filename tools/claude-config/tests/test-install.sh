@@ -12,6 +12,14 @@ if grep -Eq 'git pull|while true|load_credentials' "$INIT_SCRIPT" || grep -Fq 'd
   echo "unsafe automatic shell initialization behavior detected" >&2
   exit 1
 fi
+if grep -Fq "'git', 'pull', 'origin', 'main'" "$INIT_SCRIPT"; then
+  echo "automatic Git memory synchronization detected" >&2
+  exit 1
+fi
+if grep -Fq '$HOME/.claude' "$INIT_SCRIPT" || grep -Fq "Path.home() / '.claude'" "$INIT_SCRIPT"; then
+  echo "shell initialization must not default state into normal ~/.claude" >&2
+  exit 1
+fi
 if grep -Fq 'source "$ENSEMBLE_ROOT/scripts/ensemble-init.sh" 2>/dev/null' "$INIT_SCRIPT"; then
   echo "recursive shell initialization detected" >&2
   exit 1
