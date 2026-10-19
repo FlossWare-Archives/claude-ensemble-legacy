@@ -95,11 +95,30 @@ class PendingRecoveryTests(unittest.TestCase):
     def test_valid_receipt_cleans_pending_without_resubmitting_and_repairs_audit_log(self):
         artifact, pending = self.make_pending()
         self.write_receipt(artifact)
-        with patch.object(module.LearningClient, "record_artifact") as send:
+        with patch.object(module.LearningClient, "record_artifact", return_value={"ok": True, "memory": True}) as send:
             self.assertEqual(self.extractor.recover_pending(), 1)
-        send.assert_not_called()
+        send.assert_called_once_with(artifact.to_dict())
         self.assertFalse(pending.exists())
         self.assertIn('"run_id": "ga-test-001"', self.audit.read_text(encoding="utf-8"))
+
+    def test_forged_receipt_cannot_skip_service_persistence(self):
+        artifact, pending = self.make_pending()
+        self.write_receipt(artifact)
+        with patch.object(
+            module.LearningClient,
+            "record_artifact",
+            return_value={"ok": False, "memory": False},
+        ) as send:
+            with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                self.extractor.recover_pending()
+        send.assert_called_once_with(artifact.to_dict())
+        self.assertTrue(pending.exists())
+
+    def test_recovery_acquires_results_directory_lock(self):
+        with patch.object(self.extractor, "_recover_pending_locked", return_value=0) as recover:
+            self.assertEqual(self.extractor.recover_pending(), 0)
+        recover.assert_called_once_with()
+        self.assertTrue((self.results / ".ga-ingestion.lock").is_file())
 
     def test_malformed_receipt_retains_pending(self):
         _, pending = self.make_pending()
