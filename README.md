@@ -72,7 +72,7 @@ The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claud
 **Upgrade an existing deployment** by selecting a new MAJOR.MINOR release. Never overwrite an existing release directory; it is immutable. The upgrade command requires a valid active release, stages and validates the new release, then activates it with health checks and automatic rollback on failure:
 
 ```bash
-bash "$SOURCE/tools/upgrade-ce-versioned.sh" 0.2 "$SOURCE"
+bash "$SOURCE/upgrade.sh" 0.2 "$SOURCE"
 ```
 
 Choose the next unused release label rather than copying the example blindly. To inspect state or explicitly roll back, use the active release's deployment manager as described below.
