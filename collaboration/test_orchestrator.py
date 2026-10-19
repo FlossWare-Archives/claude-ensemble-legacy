@@ -422,6 +422,45 @@ def test_collaboration_uses_canonical_model_ids_for_solver_and_arbiter():
 
 
 
+def test_configured_model_ids_are_preserved_across_follow_up_adjudications():
+    solver = FakeProvider({
+        "claude-sonnet-5": ["solution round one", "solution round two"],
+    })
+    arbiter = FakeProvider({
+        "claude-opus-5": [
+            adjudication(
+                complete=False,
+                blocking_concerns=["security assumption"],
+                follow_ups=[{
+                    "reviewer": "grok",
+                    "candidate_id": "r1-sonnet",
+                    "question": "challenge the security assumption",
+                }],
+            ),
+            adjudication(complete=True, rationale="follow-up evidence resolved the concern"),
+        ],
+    })
+    loop = CollaborationOrchestrator(
+        "Design the feature.",
+        solvers={"sonnet": solver},
+        arbiter=arbiter,
+        reviewers={"grok": FakeReviewer("grok")},
+        solver_model_ids={"sonnet": "claude-sonnet-5"},
+        arbiter_model_id="claude-opus-5",
+        max_rounds=2,
+    )
+
+    result = loop.run()
+
+    assert result.status == "accepted"
+    # The follow-up re-adjudicates the existing candidate; it does not rerun solvers.
+    assert [request.model for request in solver.requests] == ["claude-sonnet-5"]
+    assert [request.model for request in arbiter.requests] == [
+        "claude-opus-5", "claude-opus-5",
+    ]
+
+
+
 def test_follow_up_without_configured_reviewer_escalates_without_second_arbiter_call():
     arbiter = FakeProvider({"arbiter": adjudication(
         complete=False,
