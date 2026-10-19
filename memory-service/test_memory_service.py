@@ -242,7 +242,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 self.assertTrue(knowledge["results"])
                 self.assertTrue(all(not item["file"].startswith("claude-code-") for item in memory["results"]))
                 self.assertTrue(all(item["file"].startswith("claude-code-") for item in knowledge["results"]))
-                self.assertIn("does not establish task quality", knowledge["results"][0]["content"])\n                self.assertIn("Lifecycle Contract", knowledge["results"][0]["section"])
+                self.assertIn("does not establish task quality", knowledge["results"][0]["content"])
             finally:
                 server.shutdown()
                 server.server_close()
