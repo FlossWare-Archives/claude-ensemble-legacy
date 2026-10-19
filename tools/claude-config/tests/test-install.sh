@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INIT_SCRIPT="$ROOT/../../scripts/ensemble-init.sh"
-if grep -Eq 'git pull|while true|disown \\$!|load_credentials' "$INIT_SCRIPT"; then
+if grep -Eq 'git pull|while true|load_credentials' "$INIT_SCRIPT" || grep -Fq 'disown $!' "$INIT_SCRIPT"; then
   echo "unsafe automatic shell initialization behavior detected" >&2
   exit 1
 fi
