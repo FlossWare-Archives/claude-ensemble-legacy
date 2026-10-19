@@ -9,6 +9,16 @@ const { test } = require('node:test');
 test('compound prompt retrieves Knowledge through a decomposed clause', async () => {
   const queries = [];
   const server = http.createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/memory/knowledge/status') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        ok: true,
+        source: 'claude-code',
+        status: 'available',
+        indexed_document_count: 1,
+      }));
+      return;
+    }
     if (request.method !== 'POST' || request.url !== '/memory/search') {
       response.writeHead(404).end();
       return;
@@ -69,6 +79,8 @@ test('compound prompt retrieves Knowledge through a decomposed clause', async ()
     const output = JSON.parse(stdout);
     assert.match(output.hookSpecificOutput.additionalContext, /SessionEnd captures metadata only/);
     assert.equal(output.hookSpecificOutput.contextRetrieval.knowledgeCount, 1);
+    assert.doesNotMatch(stderr, /Knowledge index status unavailable:/);
+    assert.match(stderr, /CE_HOOK_DIAGNOSTICS/, 'diagnostics are emitted only when explicitly enabled');
   } finally {
     server.close();
   }
