@@ -442,3 +442,15 @@ BACKUP_PATH="$(sed -n 's/^Pre-operation backup created: //p' <<< "$BACKUP_OUTPUT
 [[ "$(stat -c '%a' "$BACKUP_PATH")" == "700" && "$(stat -c '%a' "$BACKUP_PATH/manifest.txt")" == "600" ]] || { echo "FAIL: backup permissions are not private" >&2; exit 1; }
 grep -q '^reason=test-backup$' "$BACKUP_PATH/manifest.txt" || { echo "FAIL: backup manifest missing reason" >&2; exit 1; }
 echo "Pre-operation backup contract passed."
+
+# A failed backup must prevent a first install from creating the deployment root.
+BACKUP_FAIL_HOME="$TMP/backup-fail-home"
+BACKUP_FAIL_ROOT="$BACKUP_FAIL_HOME/.FlossWare/claude-ensemble"
+mkdir -p "$BACKUP_FAIL_HOME/.FlossWare" "$TMP/backup-fail-target"
+ln -s "$TMP/backup-fail-target" "$BACKUP_FAIL_HOME/.FlossWare/claude-ensemble-backups"
+if HOME="$BACKUP_FAIL_HOME" ENSEMBLE_INSTALL_ROOT="$BACKUP_FAIL_ROOT" ENSEMBLE_USER_UNIT_DIR="$TMP/backup-fail-units" bash "$SCRIPT_DIR/../install-standalone.sh" 0.3 "$SOURCE_FIXTURE" >/dev/null 2>&1; then
+  echo "FAIL: installer proceeded when pre-operation backup could not be created" >&2
+  exit 1
+fi
+[[ ! -e "$BACKUP_FAIL_ROOT" ]] || { echo "FAIL: installer created deployment state despite backup failure" >&2; exit 1; }
+echo "Backup failure abort contract passed."
