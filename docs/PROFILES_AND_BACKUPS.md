@@ -38,7 +38,7 @@ ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profil
   bash tools/install-ce-skills.sh
 ```
 
-The aggregate installer is idempotent and preserves conflicting user-owned skill files. This variable selects the target for that invocation only. It does not automatically configure systemd services, a scheduled job, or an interactive Claude Code process unless those callers explicitly pass the same setting.
+The aggregate installer is idempotent and preserves conflicting user-owned skill files. This variable selects the target for that invocation only. The versioned deployment manager separately configures both `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` (the CE contract) and `CLAUDE_CONFIG_DIR` (the native Claude Code profile override) on each managed service. Arbitrary direct commands, unrelated scheduled jobs, and interactive shells do not inherit the service environment automatically.
 
 ### Direct development/runtime installer
 
@@ -53,9 +53,10 @@ Before debugging authentication or provider selection, establish these facts for
 1. Which `claude` executable is found on that process's `PATH`.
 2. Which configuration/profile directory the process uses.
 3. Which user owns the process and which environment variables systemd passes to it.
-4. Whether authentication exists in that profile and is valid for the configured provider.
-5. Whether the service or scheduled job uses the same profile path as the interactive command.
-6. Whether `settings.json` contains only the expected CE-managed hooks/settings and preserves unrelated user settings.
+4. Whether the native `CLAUDE_CONFIG_DIR` and CE `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` both point to the intended directory for that process.
+5. Whether authentication exists in that profile and is valid for the configured provider.
+6. Whether the service or scheduled job uses the same profile path as the interactive command.
+7. Whether `settings.json` contains only the expected CE-managed hooks/settings and preserves unrelated user settings.
 
 Do not infer profile selection from the shell's current environment when checking a systemd unit or cron job. Inspect the generated unit and the scheduled command. Use CE's doctor/diagnose tooling for supported read-only checks; do not paste credentials or full authentication files into logs, issues, or review comments.
 
