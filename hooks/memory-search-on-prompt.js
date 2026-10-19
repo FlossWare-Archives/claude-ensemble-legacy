@@ -33,7 +33,7 @@ const DEFAULT_RAG_CONFIG = {
 };
 
 function ragConfigPath() {
-  return process.env.FLOSSWARE_CE_RAG_CONFIG || path.resolve(__dirname, '..', '.flossware-claude-config', 'rag.json');
+  return process.env.FLOSSWARE_CE_RAG_CONFIG || path.resolve(path.dirname(process.argv[1]), '..', '.flossware-claude-config', 'rag.json');
 }
 
 function loadRagConfig() {
