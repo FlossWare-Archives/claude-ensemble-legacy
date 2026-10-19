@@ -253,6 +253,7 @@ for service_dir in memory-service thompson-service learning-service alert_servic
   cp -a "$SCRIPT_DIR/../$service_dir" "$SOURCE_FIXTURE/"
 done
 cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$SOURCE_FIXTURE/tools/managed_unit_config.py"
+cp "$SCRIPT_DIR/../tools/backup-ce-state.sh" "$SOURCE_FIXTURE/tools/backup-ce-state.sh"
 printf '{"custom":"legacy-settings"}\n' > "$INSTALL_ROOT/claude-code/settings.json"
 printf '{"custom":"keep-me"}\n' > "$INSTALL_ROOT/claude-code/legacy-only.json"
 printf '{"custom":"top-level-legacy"}\n' > "$INSTALL_HOME/.FlossWare/claude-ensemble-profile/legacy-only.json"
@@ -422,3 +423,20 @@ grep -q 'user shell config' "$UNINSTALL_HOME/.bashrc" || { echo "FAIL: uninstall
 HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNIT_DIR="$UNINSTALL_UNITS" ENSEMBLE_SYSTEMCTL_BIN="$TMP/uninstall-bin/systemctl-mock" bash "$SCRIPT_DIR/../tools/ce-deployment" uninstall --purge
 [[ ! -e "$UNINSTALL_ROOT" && ! -L "$UNINSTALL_ROOT" ]] || { echo "FAIL: --purge retained deployment root" >&2; exit 1; }
 echo "Versioned uninstall preservation/purge contract passed."
+
+# Durable pre-operation backup contract: snapshot deployment, selected profile,
+# and the seven managed user units before any install/upgrade mutation.
+BACKUP_PROFILE="$HOME/.config/claude-ensemble/backup-test-profile"
+mkdir -p "$BACKUP_PROFILE" "$HOME/.FlossWare/claude-ensemble-profile"
+printf '{"profile":"before"}\\n' > "$BACKUP_PROFILE/settings.json"
+printf '{"legacy":"before"}\\n' > "$HOME/.FlossWare/claude-ensemble-profile/settings.json"
+printf '[Service]\\nExecStart=/before\\n' > "$ENSEMBLE_USER_UNIT_DIR/claude-ensemble.service"
+BACKUP_OUTPUT="$(bash "$SCRIPT_DIR/../tools/backup-ce-state.sh" test-backup "$ENSEMBLE_INSTALL_ROOT" "$BACKUP_PROFILE")"
+BACKUP_PATH="$(sed -n 's/^Pre-operation backup created: //p' <<< "$BACKUP_OUTPUT")"
+[[ -n "$BACKUP_PATH" && -d "$BACKUP_PATH/files/deployment-root" ]] || { echo "FAIL: backup omitted existing deployment tree" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/selected-profile/settings.json" ]] || { echo "FAIL: backup omitted selected profile" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/legacy-claude-ensemble-profile/settings.json" ]] || { echo "FAIL: backup omitted legacy CE profile" >&2; exit 1; }
+[[ -f "$BACKUP_PATH/files/systemd-user-units/claude-ensemble.service" ]] || { echo "FAIL: backup omitted managed service unit" >&2; exit 1; }
+[[ "$(stat -c '%a' "$BACKUP_PATH")" == "700" && "$(stat -c '%a' "$BACKUP_PATH/manifest.txt")" == "600" ]] || { echo "FAIL: backup permissions are not private" >&2; exit 1; }
+grep -q '^reason=test-backup$' "$BACKUP_PATH/manifest.txt" || { echo "FAIL: backup manifest missing reason" >&2; exit 1; }
+echo "Pre-operation backup contract passed."
