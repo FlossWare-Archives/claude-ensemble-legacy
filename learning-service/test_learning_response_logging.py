@@ -41,7 +41,7 @@ class LearningResponseLoggingTests(unittest.TestCase):
                 socket_path=Path(temp) / "learning.sock",
                 learning_dir=Path(temp) / "learning",
             )
-            conn = FakeConnection(json.dumps({"op": "unsupported-test-op"}) + "\\n")
+            conn = FakeConnection(json.dumps({"op": "unsupported-test-op"}) + "\n")
             with patch.object(service, "_process_request", return_value=json.dumps({
                 "ok": False, "error": "operation_failed"
             })), patch.object(SERVICE.RequestContext, "log_exit") as log_exit:
