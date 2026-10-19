@@ -84,6 +84,57 @@ def _run_provider(
     return response, process, popen
 
 
+def test_first_party_auth_status_is_accepted_for_anthropic() -> None:
+    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    result = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "firstParty"}),
+        stderr="",
+    )
+    with patch("providers.claude_code.subprocess.run", return_value=result):
+        provider._verify_upstream_provider_before_invocation("/usr/bin/claude")
+
+
+def test_first_party_response_metadata_is_accepted_for_anthropic() -> None:
+    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    payload = {
+        "result": "hello",
+        "modelUsage": {
+            "claude-sonnet-test": {
+                "provider": "firstParty",
+                "inputTokens": 1,
+                "outputTokens": 1,
+            }
+        },
+    }
+    process = _process(json.dumps(payload))
+    auth = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "firstParty"}),
+        stderr="",
+    )
+    with patch("providers.claude_code.shutil.which", return_value="/usr/bin/claude"), patch(
+        "providers.claude_code.subprocess.run", return_value=auth
+    ), patch("providers.claude_code.subprocess.Popen", return_value=process):
+        response = provider.generate(ModelRequest("hello"))
+    assert response.text == "hello"
+
+
+def test_vertex_auth_status_is_rejected_for_anthropic() -> None:
+    provider = ClaudeCodeProvider(expected_provider="anthropic")
+    result = subprocess.CompletedProcess(
+        args=["claude", "auth", "status"],
+        returncode=0,
+        stdout=json.dumps({"loggedIn": True, "apiProvider": "vertex"}),
+        stderr="",
+    )
+    with patch("providers.claude_code.subprocess.run", return_value=result):
+        with pytest.raises(RuntimeError, match="expected 'anthropic'"):
+            provider._verify_upstream_provider_before_invocation("/usr/bin/claude")
+
+
 def test_parses_success_and_usage_metadata() -> None:
     payload = {
         "type": "result",

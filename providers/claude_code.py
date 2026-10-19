@@ -110,12 +110,18 @@ class ClaudeCodeProvider(ModelProvider):
                     "Claude Code did not consistently report its upstream provider; "
                     f"expected {self.expected_provider!r}"
                 )
-            if actual_provider.lower() != self.expected_provider:
+            if self._normalize_provider_label(actual_provider) != self.expected_provider:
                 raise RuntimeError(
                     f"Claude Code reported upstream provider {actual_provider!r}, "
                     f"expected {self.expected_provider!r}; response rejected"
                 )
         return response
+
+    @staticmethod
+    def _normalize_provider_label(value: str) -> str:
+        """Normalize Claude Code auth aliases to CE's canonical provider names."""
+        normalized = value.strip().lower()
+        return "anthropic" if normalized == "firstparty" else normalized
 
     def _verify_upstream_provider_before_invocation(self, executable: str) -> None:
         """Check CLI auth routing before sending the prompt to the CLI."""
@@ -158,7 +164,7 @@ class ClaudeCodeProvider(ModelProvider):
                 "Claude Code auth status did not identify apiProvider; "
                 "refusing to send the prompt"
             )
-        if actual.strip().lower() != self.expected_provider:
+        if self._normalize_provider_label(actual) != self.expected_provider:
             raise RuntimeError(
                 f"Claude Code is configured for upstream provider {actual.strip()!r}, "
                 f"expected {self.expected_provider!r}; refusing to send the prompt"
