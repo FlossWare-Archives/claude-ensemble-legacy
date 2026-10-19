@@ -33,7 +33,7 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 Workflow outcomes pass through the Learning service only when they have durable, evidence-backed evaluation artifacts. Learning owns persistence, deduplication, and Thompson updates; generic session completion is never treated as a quality rating.
 
 ### Capabilities  
-- **Compression** — 64.6% token reduction via recursive text compression
+- **Compression** — Text compression support; reduction depends on input and must be measured per workload
 - **Caching** — Prompt caching framework with hit/miss tracking (Phase 1 ready)
 - **Hooks** — Memory search on prompt submit, learning extraction
 - **Memory** — Project memory files (feedback, projects, references)
@@ -468,11 +468,9 @@ than installing the optional user services.
 
 **Settings:** `settings.json.default` (copy to `~/.claude/settings.json` to customize)
 
-**Credentials:** `~/.FlossWare/secrets.env` or environment variables
-- ANTHROPIC_API_KEY
-- GOOGLE_API_KEY
-- CURSOR_API_KEY
-- Custom keys for any MCP servers you configure
+**Model authentication:** The active CE runtime invokes the installed Claude Code runtime, which owns model authentication. CE does not use `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `CURSOR_API_KEY` to route model requests in the supported single-runtime path.
+
+**MCP credentials:** Configure credentials for each MCP server using its documented secure mechanism. Do not commit credentials or synchronize them through Git.
 
 **MCP Servers:** `~/.mcp.json` (configure as needed)
 
@@ -482,11 +480,11 @@ than installing the optional user services.
 
 Three complementary techniques:
 
-1. **Thompson Router** (67% savings) — Route to cheapest capable model
-2. **Compression** (64.6% reduction) — Token reduction via text compression
-3. **Caching** (69.8% savings) — Reuse frequent prompts
+1. **Thompson observations** — Record outcomes and estimated costs; they do not by themselves prove savings.
+2. **Compression** — Measure input/output size for the workload being evaluated.
+3. **Caching** — Report actual hits separately from misses and repeated inputs.
 
-**Combined:** Can exceed 90% savings on token-heavy workflows.
+No fixed or combined savings percentage is claimed. Savings require workload-specific measurements, a defined baseline, and reproducible evidence.
 
 ---
 
@@ -538,7 +536,7 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 ---
 
 **Last updated:** 2026-10-04  
-**Status:** Production-ready, all tools active  
+**Status:** Development and release acceptance in progress. Host deployment acceptance remains pending; see [issue #505](https://github.com/FlossWare/claude-ensemble/issues/505).  
 **License:** See `LICENSE`  
 **Contributors:** Generated with Claude Ensemble
 
