@@ -49,6 +49,7 @@ test('disabled RAG sources are not called and report disabled status', async () 
   assert.equal(result.stdout, '');
   assert.doesNotMatch(result.stderr, /search unavailable|status unavailable|Graph service returned/);
   const line = result.stderr.split('\n').find(value => value.startsWith('CE_HOOK_DIAGNOSTICS '));
+  assert.ok(line, result.stderr);
   const diagnostics = JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length));
   assert.equal(diagnostics.memoryStatus, 'disabled');
   assert.equal(diagnostics.knowledgeStatus, 'disabled');
