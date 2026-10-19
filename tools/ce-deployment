@@ -315,6 +315,8 @@ case "$cmd" in
     if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
       active="$(active_version)" || die "current symlink is invalid; refusing uninstall"
     fi
+    # Fail before changing services or unit files if the user manager is unavailable.
+    "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
     # Stop only CE's seven named services and remove only their managed unit files.
     # Default uninstall preserves immutable releases and all shared user data.
     stop_services || die "CE services could not be stopped; deployment retained"
