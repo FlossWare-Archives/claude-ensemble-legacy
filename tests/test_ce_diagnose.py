@@ -113,5 +113,22 @@ class InstalledHookSmokeTests(unittest.TestCase):
         self.assertIn("Knowledge=1", result["detail"])
 
 
+
+    def test_json_summary_counts_skipped_checks(self):
+        output = io.StringIO()
+        with (
+            patch("sys.argv", ["ce-diagnose.py", "--service", "alert", "--json"]),
+            patch.object(ce_diagnose.shutil, "which", return_value=None),
+            patch.object(ce_diagnose, "socket_ping", return_value=("pass", "acknowledged", 1)),
+            redirect_stdout(output),
+        ):
+            exit_code = ce_diagnose.main()
+
+        report = json.loads(output.getvalue())
+        self.assertEqual(0, exit_code)
+        self.assertEqual(1, report["summary"]["skipped"])
+        self.assertEqual(1, report["checks"][-1]["status"] == "skip" and report["summary"]["skipped"])
+
+
 if __name__ == "__main__":
     unittest.main()
