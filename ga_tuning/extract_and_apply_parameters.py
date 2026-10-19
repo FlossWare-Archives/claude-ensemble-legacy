@@ -251,7 +251,7 @@ class ParameterExtractor:
                     "run_id": run_id,
                     "candidate_digest": digest,
                     "learning_ack": {"ok": True, "memory": True},
-                    "acknowledged_at": datetime.utcnow().isoformat() + "Z",
+                    "acknowledged_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")",
                 }
                 temp_path = receipt_path.with_suffix(".tmp")
                 try:
