@@ -201,8 +201,9 @@ class PendingRecoveryTests(unittest.TestCase):
                 "record_artifact",
                 return_value={"ok": True, "memory": True},
             ):
-                with self.assertRaisesRegex(RuntimeError, "unresolved"):
+                with self.assertRaisesRegex(RuntimeError, "receipt persistence failed") as raised:
                     self.extractor.recover_pending()
+            self.assertIn("unresolved", str(raised.exception))
         self.assertTrue(pending.exists())
         self.assertFalse((self.results / ".ga-test-001.ingested").exists())
 
