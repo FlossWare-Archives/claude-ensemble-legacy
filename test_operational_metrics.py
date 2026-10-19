@@ -151,6 +151,41 @@ def test_read_page_is_bounded_and_chronological(tmp_path):
         store.read_page(5, -1)
 
 
+def test_read_page_handles_empty_ledger_malformed_rows_and_offsets(tmp_path):
+    store = MetricsStore(tmp_path / "paged.jsonl")
+    assert store.read_page(10, 0) == []
+    store.record(MetricsRecord(execution_id="first", timestamp="now", service="metrics"))
+    with store.path.open("a", encoding="utf-8") as stream:
+        stream.write("{malformed\\n")
+        stream.write("[]\\n")
+    store.record(MetricsRecord(execution_id="second", timestamp="now", service="metrics"))
+    store.record(MetricsRecord(execution_id="third", timestamp="now", service="metrics"))
+
+    assert [record.execution_id for record in store.read_page(2, 1)] == ["second", "third"]
+    assert store.read_page(2, 3) == []
+    assert store.read_page(2, 1000) == []
+
+
+def test_csv_export_streams_without_calling_unbounded_read(tmp_path, monkeypatch):
+    import csv
+
+    store = MetricsStore(tmp_path / "streamed.jsonl")
+    for index in range(3):
+        store.record(MetricsRecord(
+            execution_id=f"stream-{index}", timestamp="now", service="metrics"
+        ))
+
+    def fail_read(*args, **kwargs):
+        raise AssertionError("CSV export must stream records rather than call read()")
+
+    monkeypatch.setattr(store, "read", fail_read)
+    path = store.export_csv(tmp_path / "streamed.csv")
+    with path.open(encoding="utf-8", newline="") as stream:
+        assert [row["execution_id"] for row in csv.DictReader(stream)] == [
+            "stream-0", "stream-1", "stream-2"
+        ]
+
+
 def test_spreadsheet_safe_csv_neutralizes_formula_like_text_only_at_export(tmp_path):
     import csv
 
