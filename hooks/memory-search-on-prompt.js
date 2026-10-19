@@ -16,8 +16,10 @@
  * magic prompt keywords such as "remember" or "recall".
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+// process.getBuiltinModule works both inside this repository's ESM package scope
+// and when Claude Code executes the installed hook as a standalone .js file.
+const fs = process.getBuiltinModule('node:fs');
+const path = process.getBuiltinModule('node:path');
 
 const MEMORY_URL = process.env.FLOSSWARE_MEMORY_URL || 'http://127.0.0.1:8767';
 const MEMORY_SEARCH_PATH = '/memory/search';
