@@ -274,5 +274,46 @@ class DoctorHealthTests(unittest.TestCase):
         self.assertEqual("warn", doctor.http_health(self.url, timeout=0.1)[0])
 
 
+class DoctorRedactionAndTimeoutTests(unittest.TestCase):
+    def test_provider_check_never_echoes_auth_payload_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = root / "ce-profile"
+            profile.mkdir()
+            executable = root / "fake-claude"
+            executable.write_text(
+                "#!/usr/bin/env python3\\n"
+                "import json\\n"
+                "print(json.dumps({'loggedIn': True, 'apiProvider': 'vertex', "
+                "'accessToken': 'do-not-print-this-token'}))\\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+
+            status, detail = doctor.provider_health(
+                str(executable), str(profile), "vertex"
+            )
+
+            self.assertEqual("pass", status)
+            self.assertIn("expected provider 'vertex'", detail)
+            self.assertNotIn("do-not-print-this-token", detail)
+
+    def test_bounded_subprocess_reports_timeout_without_echoing_output(self):
+        timeout = subprocess.TimeoutExpired(
+            cmd=["claude", "auth", "status"],
+            timeout=0.25,
+            output="secret-output-must-not-appear",
+        )
+        with patch.object(doctor.subprocess, "run", side_effect=timeout) as run:
+            result, error = doctor.run_bounded(
+                ["claude", "auth", "status"], timeout=0.25
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual("TimeoutExpired", error)
+        self.assertEqual(0.25, run.call_args.kwargs["timeout"])
+        self.assertNotIn("secret-output-must-not-appear", error)
+
+
 if __name__ == "__main__":
     unittest.main()
