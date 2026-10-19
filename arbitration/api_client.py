@@ -132,20 +132,26 @@ class MultiModelClient:
             provider_name = response.provider
 
             if self.cost_logger is not None:
-                self.cost_logger.log_call(
-                    model=response.model,
-                    input_tokens=response.input_tokens,
-                    output_tokens=response.output_tokens,
-                    task_name=self.task_name,
-                    source="provider",
-                    provider=response.provider,
-                    metadata={
-                        "request_id": response.request_id,
-                        "latency_ms": (time.monotonic() - started) * 1000,
-                        "provider_metadata": response.raw_metadata,
-                    },
-                    cost_usd=response.cost_usd,
-                )
+                try:
+                    self.cost_logger.log_call(
+                        model=response.model,
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        task_name=self.task_name,
+                        source="provider",
+                        provider=response.provider,
+                        metadata={
+                            "request_id": response.request_id,
+                            "latency_ms": (time.monotonic() - started) * 1000,
+                            "provider_metadata": response.raw_metadata,
+                        },
+                        cost_usd=response.cost_usd,
+                    )
+                except Exception:
+                    # Cost telemetry is best-effort. A successful model response
+                    # must not be discarded or recorded as a failed invocation
+                    # because the separate cost sink is unavailable.
+                    logger.exception("Unable to record model cost; preserving successful response")
             self._record_metric(
                 execution_id=execution_id,
                 started=started,
