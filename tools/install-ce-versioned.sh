@@ -25,18 +25,22 @@ command -v python3 >/dev/null 2>&1 || {
   printf 'ERROR: python3 is required to validate the deployment path.\n' >&2
   exit 1
 }
-ROOT="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$ROOT")"
+[[ ! -L "$ROOT" ]] || {
+  printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2
+  exit 1
+}
 HOME_REAL="$(cd -- "$HOME" && pwd -P)"
+ROOT="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$ROOT")"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
   *)
-    printf 'ERROR: Deployment path must be a child of HOME: %s\n' "$ROOT" >&2
+    printf 'ERROR: Deployment path must resolve to a child of HOME: %s\n' "$ROOT" >&2
     exit 1
     ;;
 esac
 ROOT_BASE="$(basename -- "$ROOT")"
 [[ -n "$ROOT_BASE" && "$ROOT_BASE" != "." && "$ROOT_BASE" != ".." ]] || {
-  printf 'ERROR: Deployment root must name a child directory, not a dot segment: %s\n' "$ROOT" >&2
+  printf 'ERROR: Deployment root must name a child directory: %s\n' "$ROOT" >&2
   exit 1
 }
 ROOT_PARENT="$(dirname -- "$ROOT")"
@@ -50,59 +54,6 @@ case "$ROOT" in
     exit 1
     ;;
 esac
-if [[ "$#" -lt 1 || "$#" -gt 2 || ! "$1" =~ ^[0-9]+\.[0-9]+$ ]]; then
-  printf 'Usage: %s MAJOR.MINOR [source-checkout]\n' "$0" >&2
-  exit 2
-fi
-VERSION="$1"
-SOURCE_DIR="${2:-}"
-STAGING_ONLY="${ENSEMBLE_STAGING_ONLY:-0}"
-if [[ "$STAGING_ONLY" != "0" && "$STAGING_ONLY" != "1" ]]; then
-  printf 'ERROR: ENSEMBLE_STAGING_ONLY must be 0 or 1.\n' >&2
-  exit 2
-fi
-if [[ "$STAGING_ONLY" == "1" ]]; then
-  [[ -n "${ENSEMBLE_INSTALL_ROOT:-}" ]] || {
-    printf 'ERROR: Staging-only mode requires an explicit ENSEMBLE_INSTALL_ROOT beneath HOME.\n' >&2
-    exit 2
-  }
-  if [[ -e "$ROOT" && -n "$(find "$ROOT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
-    printf 'ERROR: Staging-only mode requires a new or empty install root: %s\n' "$ROOT" >&2
-    exit 1
-  fi
-fi
-RELEASES="$ROOT/releases"
-RELEASE="$RELEASES/$VERSION"
-SHARED="$ROOT/shared"
-assert_managed_layout() {
-  local path
-  for path in \
-    "$RELEASES" "$SHARED" "$SHARED/claude-code" "$SHARED/config" "$SHARED/data" \
-    "$SHARED/data/memory" "$SHARED/data/learning" "$SHARED/data/alerts" \
-    "$SHARED/runtime" "$SHARED/logs" "$SHARED/activation-backups"; do
-    [[ ! -L "$path" ]] || { printf 'ERROR: managed deployment path must not be a symlink: %s\\n' "$path" >&2; exit 1; }
-    [[ ! -e "$path" || -d "$path" ]] || { printf 'ERROR: managed deployment path is not a directory: %s\\n' "$path" >&2; exit 1; }
-  done
-  path="$SHARED/config/environment"
-  [[ ! -L "$path" ]] || { printf 'ERROR: managed service environment must not be a symlink: %s\\n' "$path" >&2; exit 1; }
-  [[ ! -e "$path" || -f "$path" ]] || { printf 'ERROR: managed service environment is not a regular file: %s\\n' "$path" >&2; exit 1; }
-}
-assert_managed_layout
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/ce-versioned.XXXXXX")"
-STAGED="$WORK/release"
-cleanup() { rm -rf -- "$WORK"; }
-trap cleanup EXIT
-
-for command in tar curl python3 git; do
-  command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$command" >&2; exit 1; }
-done
-if [[ "$STAGING_ONLY" != "1" ]]; then
-  command -v systemctl >/dev/null 2>&1 || { printf 'ERROR: Required command not found: systemctl\n' >&2; exit 1; }
-  systemctl --user show-environment >/dev/null 2>&1 || {
-    printf 'ERROR: systemd user manager is unavailable. Run from your logged-in user session.\n' >&2
-    exit 1
-  }
-fi
 [[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
 LEGACY_MIGRATION=0
 LEGACY_SNAPSHOT="$WORK/legacy"
