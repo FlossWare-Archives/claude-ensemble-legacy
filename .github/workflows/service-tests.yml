@@ -186,6 +186,30 @@ jobs:
             echo "Executable $script"
           done
 
+      - name: Verify meta-review entrypoints are portable symlinks
+        shell: bash
+        run: |
+          set -euo pipefail
+          entries=(
+            "tools/meta-review"
+            "tools/meta-meta-review"
+            "tools/meta-meta-meta-review"
+            "tools/meta-meta-meta-meta-review"
+          )
+          for entry in "${entries[@]}"; do
+            test -L "$entry" || { echo "FAIL: expected symlink: $entry" >&2; exit 1; }
+            target="$(readlink "$entry")"
+            [[ -n "$target" && "$target" != /* ]] || {
+              echo "FAIL: symlink target must be repository-relative: $entry -> $target" >&2
+              exit 1
+            }
+            test -e "$(dirname "$entry")/$target" || {
+              echo "FAIL: symlink target does not exist: $entry -> $target" >&2
+              exit 1
+            }
+          done
+          echo "PASS: meta-review entrypoints are relative symlinks with existing targets"
+
       - name: Verify root installer does not install Claude
         shell: bash
         run: |
