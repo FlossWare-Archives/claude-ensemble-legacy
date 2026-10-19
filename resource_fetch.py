@@ -180,14 +180,9 @@ class ResourceFetcher:
                 raise ResourceFetchError(
                     "network host resolved to an invalid address"
                 ) from exc
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_reserved
-                or ip.is_multicast
-                or ip.is_unspecified
-            ):
+            # is_global also rejects shared address space (100.64.0.0/10)
+            # and other non-global ranges not covered by individual flags.
+            if not ip.is_global:
                 raise ResourceFetchError(
                     "network URI resolves to a non-public address"
                 )
