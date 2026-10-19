@@ -191,7 +191,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             for index in range(12):
                 service.store.write_file(
                     f"operational-learning-artifact-{index}",
-                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result.",
+                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
                 )
             knowledge_path = root / "project" / "CLAUDE.md"
             knowledge_path.parent.mkdir()
