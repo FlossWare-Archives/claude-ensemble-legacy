@@ -38,7 +38,7 @@ ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$HOME/.config/claude-ensemble/acceptance-profil
   bash tools/install-ce-skills.sh
 ```
 
-Use the actual supported aggregate installer filename from the checkout's README if it differs; do not guess a script path. This variable selects the target for that invocation only. It does not automatically configure systemd services, a scheduled job, or an interactive Claude Code process unless those callers explicitly pass the same setting.
+The aggregate installer is idempotent and preserves conflicting user-owned skill files. This variable selects the target for that invocation only. It does not automatically configure systemd services, a scheduled job, or an interactive Claude Code process unless those callers explicitly pass the same setting.
 
 ### Direct development/runtime installer
 
