@@ -140,6 +140,45 @@ class InstalledHookSmokeTests(unittest.TestCase):
             self.assertTrue(item["endpoint"])
             self.assertIn("remediation", item)
 
+    def test_deep_memory_operation_failure_is_reported_at_exact_step(self):
+        output = io.StringIO()
+        responses = iter([
+            ("pass", "HTTP 200; ok=true", {"ok": True}, 2),
+            ("fail", "HTTP 503; dependency_unavailable", {"ok": False}, 4),
+        ])
+        with (
+            patch("sys.argv", ["ce-diagnose.py", "--service", "memory", "--deep", "--json"]),
+            patch.object(ce_diagnose, "http_request", side_effect=lambda *args, **kwargs: next(responses)),
+            redirect_stdout(output),
+        ):
+            exit_code = ce_diagnose.main()
+
+        report = json.loads(output.getvalue())
+        self.assertEqual(1, exit_code)
+        self.assertFalse(report["ok"])
+        self.assertEqual(["memory.health.via_gateway", "memory.read.via_gateway"], [item["step"] for item in report["results"]])
+        self.assertEqual(["pass", "fail"], [item["status"] for item in report["results"]])
+        self.assertTrue(all(item["correlation_id"] == report["correlation_id"] for item in report["results"]))
+        self.assertEqual(1, report["failed"])
+
+    def test_pipeline_failure_is_reported_and_fails_process(self):
+        output = io.StringIO()
+        failed = type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "injected failure"})()
+        with (
+            patch("sys.argv", ["ce-diagnose.py", "--service", "gateway", "--pipeline-test", "--json"]),
+            patch.object(ce_diagnose, "http_request", return_value=("pass", "HTTP 200; ok=true", {"ok": True}, 1)),
+            patch.object(ce_diagnose.subprocess, "run", return_value=failed),
+            redirect_stdout(output),
+        ):
+            exit_code = ce_diagnose.main()
+
+        report = json.loads(output.getvalue())
+        pipeline = next(item for item in report["results"] if item["step"] == "pipeline.learning_to_thompson")
+        self.assertEqual(1, exit_code)
+        self.assertEqual("fail", pipeline["status"])
+        self.assertIn("exit 1", pipeline["detail"])
+        self.assertEqual(report["correlation_id"], pipeline["correlation_id"])
+
     def test_json_summary_counts_skipped_checks(self):
         output = io.StringIO()
         with (
