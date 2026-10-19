@@ -183,7 +183,10 @@ class GATuningLearningArtifactTests(unittest.TestCase):
                 second_settings = json.loads(settings.read_text(encoding="utf-8"))
 
             self.assertEqual(first_settings, second_settings)
-            client_class.return_value.record_artifact.assert_has_calls([\n                call(client_class.return_value.record_artifact.call_args_list[0].args[0]),\n                call(client_class.return_value.record_artifact.call_args_list[0].args[0]),\n            ])
+            self.assertEqual(client_class.return_value.record_artifact.call_count, 2)
+            first_artifact = client_class.return_value.record_artifact.call_args_list[0].args[0]
+            second_artifact = client_class.return_value.record_artifact.call_args_list[1].args[0]
+            self.assertEqual(first_artifact, second_artifact)
             log = tracking.read_text(encoding="utf-8")
             self.assertNotIn("GA_TUNING_RUN_ID", first_settings["env"])
             run_id = client_class.return_value.record_artifact.call_args.args[0]["payload"]["run_id"]
