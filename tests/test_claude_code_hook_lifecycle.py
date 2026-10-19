@@ -343,6 +343,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertEqual(self.messenger.requests[0]["data"]["session_id"], "session-down")
 
     def test_default_settings_register_only_the_canonical_safe_lifecycle_hooks(self) -> None:
+        self.assertFalse((HOOKS / "workflow-completion-hook.js").exists())
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
         hooks = settings["hooks"]
         prompt_commands = [
