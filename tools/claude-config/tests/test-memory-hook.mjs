@@ -250,7 +250,7 @@ try {
   assert.equal(emptyKnowledgeCoverage.code, 0);
   assert.equal(emptyKnowledgeCoverage.stdout, '');
   const emptyKnowledgeDiagnostic = emptyKnowledgeCoverage.stderr
-    .split('\\n')
+    .split('\n')
     .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
     .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
     .find(item => item.event === 'completed');
