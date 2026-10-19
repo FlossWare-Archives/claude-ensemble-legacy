@@ -156,3 +156,11 @@ def test_network_error_does_not_echo_uri() -> None:
 def test_empty_uri_is_rejected() -> None:
     with pytest.raises(ResourceFetchError, match="must not be empty"):
         ResourceFetcher().fetch("   ")
+
+
+
+def test_network_uri_rejects_shared_address_space() -> None:
+    shared_address = [(None, None, None, None, ("100.64.0.1", 443))]
+    with patch("resource_fetch.socket.getaddrinfo", return_value=shared_address):
+        with pytest.raises(ResourceFetchError, match="non-public"):
+            ResourceFetcher()._validate_network_target("https://example.test/resource")
