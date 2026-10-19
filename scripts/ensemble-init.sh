@@ -12,8 +12,8 @@ fi
 export ENSEMBLE_INITIALIZED=1
 
 export ENSEMBLE_ROOT="${ENSEMBLE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-export ENSEMBLE_COST_LOG="${ENSEMBLE_COST_LOG:-$HOME/.claude/cost_tracking/cost.log}"
-export ENSEMBLE_MEMORY_DIR="${ENSEMBLE_MEMORY_DIR:-$HOME/.claude/projects/memory}"
+export ENSEMBLE_COST_LOG="${ENSEMBLE_COST_LOG:-$HOME/.FlossWare/claude-ensemble/shared/logs/cost.log}"
+export ENSEMBLE_MEMORY_DIR="${ENSEMBLE_MEMORY_DIR:-$HOME/.FlossWare/claude-ensemble/shared/data/memory}"
 
 # Ensure memory dir exists
 mkdir -p "$ENSEMBLE_MEMORY_DIR"
@@ -217,6 +217,7 @@ PY
 
 # Function: Log API usage to cost tracking
 log_ensemble_cost() {
+  mkdir -p "$(dirname "$ENSEMBLE_COST_LOG")"
   local model=$1
   local input_tokens=$2
   local output_tokens=$3
@@ -447,40 +448,7 @@ except:
     pass
 TOOLKIT_STATE
 
-# Auto-sync memory from git (pull latest from other machines)
-if [ -f "$ENSEMBLE_ROOT/scripts/memory-sync-git.sh" ]; then
-    python3 << 'GIT_PULL_MEMORY'
-import subprocess
-import os
-from pathlib import Path
-
-ensemble_root = os.getenv('ENSEMBLE_ROOT', '')
-if not ensemble_root:
-    pass
-else:
-    try:
-        # Pull latest memory from git (fast, only if network available)
-        result = subprocess.run(
-            ['git', 'pull', 'origin', 'main'],
-            cwd=ensemble_root,
-            capture_output=True,
-            timeout=3
-        )
-
-        # Copy memory files from repo to local cache
-        memory_repo = Path(ensemble_root) / 'memory'
-        memory_local = Path(os.environ.get('ENSEMBLE_MEMORY_DIR', str(Path.home() / '.claude' / 'projects' / 'memory'))).expanduser()
-
-        if memory_repo.exists():
-            for md_file in memory_repo.glob('*.md'):
-                dest = memory_local / md_file.name
-                dest.write_text(md_file.read_text(), encoding='utf-8')
-    except:
-        # Offline is OK - sessions continue with local memory
-        pass
-GIT_PULL_MEMORY
-fi
-
+# Memory synchronization is handled by the Memory service and explicit ingest/reconcile operations.
 # Display available memories at session start
 python3 << 'MEMORY_STATUS'
 import sys
