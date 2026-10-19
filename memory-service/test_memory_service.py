@@ -184,14 +184,14 @@ class MemorySearchRegressionTest(unittest.TestCase):
     def test_rest_search_can_filter_memory_and_durable_knowledge(self):
         from memory_service import MemoryService, create_http_server
 
-        query = "Memory Knowledge SessionEnd task quality"
+        query = "What is the distinction between Memory and Knowledge, and does SessionEnd establish task quality?"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
             for index in range(12):
                 service.store.write_file(
                     f"operational-learning-artifact-{index}",
-                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result.",
+                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
                 )
             knowledge_path = root / "project" / "CLAUDE.md"
             knowledge_path.parent.mkdir()
@@ -206,6 +206,19 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 knowledge_content,
                 hashlib.sha256(knowledge_content.encode("utf-8")).hexdigest(),
                 {"scope": str(knowledge_path.parent)},
+            )
+            distractor_path = root / "other-project" / "CLAUDE.md"
+            distractor_path.parent.mkdir()
+            distractor_content = (
+                "# Collaboration Event Contract\\n\\n"
+                "Collaboration events record operational task metadata and memory state. "
+                "Knowledge is maintained separately from transient collaboration results."
+            )
+            service.store.ingest_claude_markdown(
+                str(distractor_path),
+                distractor_content,
+                hashlib.sha256(distractor_content.encode("utf-8")).hexdigest(),
+                {"scope": str(distractor_path.parent)},
             )
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
