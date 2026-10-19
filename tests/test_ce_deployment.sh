@@ -430,8 +430,10 @@ BACKUP_PROFILE="$HOME/.config/claude-ensemble/backup-test-profile"
 mkdir -p "$BACKUP_PROFILE" "$HOME/.FlossWare/claude-ensemble-profile"
 printf '{"profile":"before"}\\n' > "$BACKUP_PROFILE/settings.json"
 printf '{"legacy":"before"}\\n' > "$HOME/.FlossWare/claude-ensemble-profile/settings.json"
-printf '[Service]\\nExecStart=/before\\n' > "$ENSEMBLE_USER_UNIT_DIR/claude-ensemble.service"
-BACKUP_OUTPUT="$(bash "$SCRIPT_DIR/../tools/backup-ce-state.sh" test-backup "$ENSEMBLE_INSTALL_ROOT" "$BACKUP_PROFILE")"
+BACKUP_UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$BACKUP_UNIT_DIR"
+printf '[Service]\\nExecStart=/before\\n' > "$BACKUP_UNIT_DIR/claude-ensemble.service"
+BACKUP_OUTPUT="$(ENSEMBLE_USER_UNIT_DIR="$BACKUP_UNIT_DIR" bash "$SCRIPT_DIR/../tools/backup-ce-state.sh" test-backup "$ENSEMBLE_INSTALL_ROOT" "$BACKUP_PROFILE")"
 BACKUP_PATH="$(sed -n 's/^Pre-operation backup created: //p' <<< "$BACKUP_OUTPUT")"
 [[ -n "$BACKUP_PATH" && -d "$BACKUP_PATH/files/deployment-root" ]] || { echo "FAIL: backup omitted existing deployment tree" >&2; exit 1; }
 [[ -f "$BACKUP_PATH/files/selected-profile/settings.json" ]] || { echo "FAIL: backup omitted selected profile" >&2; exit 1; }
