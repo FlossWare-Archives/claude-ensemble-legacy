@@ -59,6 +59,43 @@ def test_metrics_endpoint_and_aggregate(tmp_path, monkeypatch):
         server.server_close()
         thread.join(2)
 
+def test_metrics_listing_empty_ledger_and_offset_beyond_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "empty.jsonl"))
+    server = create_server("127.0.0.1", 0, graph_url="", memory_url="")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, empty = request(server, "GET", "/api/v1/metrics")
+        assert status == 200
+        assert empty["metrics"] == []
+        assert empty["next_offset"] is None
+
+        status, beyond = request(server, "GET", "/api/v1/metrics?limit=10&offset=500")
+        assert status == 200
+        assert beyond["metrics"] == []
+        assert beyond["next_offset"] is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+def test_metrics_listing_rejects_unknown_and_blank_query_parameters(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    server = create_server("127.0.0.1", 0, graph_url="", memory_url="")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        for query in ("?page=1", "?limit=", "?offset=", "?limit=2&offset="):
+            status, body = request(server, "GET", f"/api/v1/metrics{query}")
+            assert status == 400, query
+            assert body["error_code"] == "invalid_request"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
 def test_metrics_listing_is_bounded_and_paginated(tmp_path, monkeypatch):
     from operational_metrics import MetricsRecord
 
