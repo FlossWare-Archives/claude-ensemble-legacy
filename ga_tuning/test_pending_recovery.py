@@ -104,6 +104,7 @@ class PendingRecoveryTests(unittest.TestCase):
                 send.assert_called_once()
                 self.assertTrue(pending.exists())
                 self.assertFalse((self.results / f".{run_id}.ingested").exists())
+                pending.unlink()  # Isolate the next subtest while preserving the assertion above.
 
 
     def test_filename_run_id_mismatch_fails_closed(self):
