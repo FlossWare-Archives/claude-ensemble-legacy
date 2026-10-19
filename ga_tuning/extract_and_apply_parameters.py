@@ -6,6 +6,7 @@ Tracks parameter evolution over time for analysis.
 """
 
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -273,6 +274,17 @@ class ParameterExtractor:
         return recovered
 
     def run(self) -> None:
+        """Serialize GA ingestion across processes before touching run artifacts."""
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.results_dir / ".ga-ingestion.lock"
+        with lock_path.open("a+") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                self._run_locked()
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def _run_locked(self) -> None:
         """Extract, acknowledge, and log one immutable GA candidate snapshot."""
         try:
             best_params_file, _ = self.get_latest_results()
