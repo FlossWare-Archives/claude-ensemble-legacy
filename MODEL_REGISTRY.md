@@ -14,11 +14,11 @@ Use Claude Code model aliases in workflow configuration:
 
 Unsupported labels such as `gemini`, `cursor`, `gpt-4`, and
 `ollama-local` are rejected with an `Unsupported model label` error. CE does
-not silently map them to `sonnet` or invoke those providers. Replace legacy
+not silently map them to `sonnet` or invoke those providers. Replace retired
 labels with `haiku`, `sonnet`, or `opus` in configuration.
 
 The REST model inventory exposes only the three supported aliases. Credential
-status is owned by Claude Code; CE no longer rotates API keys or stores a
+status is owned by Claude Code; CE does not rotate API keys or maintain a
 multi-provider credential pool in its active runtime.
 
 ## Authentication and policy
@@ -43,6 +43,7 @@ This simplification changes model invocation only. It does not remove:
 - Worker/arbiter orchestration, collaboration, and reviewer MCP
 - Metrics, cost logging, feedback capture, and operational diagnostics
 
-The stable `MultiModelClient` and `ModelRequest` / `ModelResponse` interfaces
-remain as compatibility contracts so the rest of CE can be simplified
-incrementally without rewriting the systems around them.
+There is no active multi-provider compatibility layer. Callers must use the
+current Claude Code runtime contract; retired `MultiModelClient`,
+`ModelRequest`, and `ModelResponse` compatibility surfaces must not be
+reintroduced merely to preserve old callers.
