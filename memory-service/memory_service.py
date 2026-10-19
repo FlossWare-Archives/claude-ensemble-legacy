@@ -455,6 +455,29 @@ class MemoryStore:
                 return entry if not entry.get("stale", False) else None
         return None
 
+    def knowledge_status(self) -> Dict[str, Any]:
+        """Report indexed Knowledge availability without exposing source paths or content."""
+        index = self._load_ingest_index()
+        active_documents = set()
+        for entry in index.values():
+            if not isinstance(entry, dict) or entry.get("stale", False):
+                continue
+            document = entry.get("document")
+            if not isinstance(document, str) or not document.startswith("claude-code-"):
+                continue
+            try:
+                path = self._memory_path(document, ".md")
+            except ValueError:
+                continue
+            if path.is_file():
+                active_documents.add(document)
+        count = len(active_documents)
+        return {
+            "source": "claude-code",
+            "status": "available" if count else "empty",
+            "indexed_document_count": count,
+        }
+
     def list_files(self) -> List[str]:
         """List all memory files."""
         return [f.stem for f in self.memory_dir.glob("*.md")]
@@ -752,7 +775,8 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                         "/memory/entries":"entries","/memory/retrieve":"retrieve","/memory/list":"list",
                         "/memory/search":"search_semantic","/memory/search-semantic":"search_semantic",
                         "/memory/search-hybrid":"search_hybrid","/memory/chunk":"chunk",
-                        "/memory/ingest":"ingest_claude_markdown","/memory/reconcile":"reconcile_claude_markdown"}
+                        "/memory/ingest":"ingest_claude_markdown","/memory/reconcile":"reconcile_claude_markdown",
+                        "/memory/knowledge/status":"knowledge_status"}
             operation=operations.get(self.path)
             if operation is None: self._send(404,{"ok":False,"error":"not found"}); return
             body["op"]=operation
@@ -789,6 +813,10 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 result = self.server.memory_service.store.reconcile_claude_markdown(
                     body.get("source", ""), body.get("scope", ""), body.get("paths", [])
                 )
+                self._send(200, {"ok": True, **result})
+                return
+            if operation=="knowledge_status":
+                result = self.server.memory_service.store.knowledge_status()
                 self._send(200, {"ok": True, **result})
                 return
             result=json.loads(self.server.memory_service._process_request(json.dumps(body)))
