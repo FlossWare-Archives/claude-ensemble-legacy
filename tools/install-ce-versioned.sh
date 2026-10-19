@@ -8,6 +8,7 @@
 # deployment. Migration must be explicit because silently moving a live service
 # tree is how rollback plans become folklore.
 set -Eeuo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # ~/.FlossWare is the canonical home for CE deployment state. Do not silently
 # follow a symlink here: that can relocate staging/releases into a development
@@ -108,6 +109,11 @@ if [[ "$STAGING_ONLY" != "1" ]]; then
   }
 fi
 [[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
+if [[ "$STAGING_ONLY" != "1" ]]; then
+  # Persist a complete snapshot before migration, profile import, release creation,
+  # or service activation. A failed backup aborts the install/upgrade.
+  bash "$SCRIPT_DIR/backup-ce-state.sh" "pre-install-$VERSION" "$ROOT"
+fi
 LEGACY_MIGRATION=0
 LEGACY_SNAPSHOT="$WORK/legacy"
 if [[ -e "$ROOT" && ! -d "$RELEASES" ]]; then
