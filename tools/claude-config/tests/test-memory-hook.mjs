@@ -78,6 +78,8 @@ const server = http.createServer((req, res) => {
     try {
       const query = JSON.parse(body).query;
       if (query === 'empty results') payload.results = [];
+      if (query === 'knowledge coverage empty' && JSON.parse(body).source === 'claude-code') payload.results = [];
+      if (query === 'knowledge coverage empty' && JSON.parse(body).source === 'memory') payload.results = [];
       if (query === 'bare string result') payload.results = ['Not canonical content'];
       if (query === 'summary only result') payload.results = [{ summary: 'Not canonical Memory content' }];
       if (query === 'invalid content result') payload.results = [{ content: 123 }];
@@ -239,6 +241,23 @@ try {
   assert.equal(emptyDiagnostics[1].memoryResultCount, 0);
   assert.equal(emptyDiagnostics[1].contextEmitted, false);
   assert.equal(JSON.stringify(emptyDiagnostics).includes('empty results'), false);
+
+  const emptyKnowledgeCoverage = await runHook({
+    url: `http://127.0.0.1:${port}/`,
+    input: { hook_event_name: 'UserPromptSubmit', prompt: 'knowledge coverage empty' },
+    env: { FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1' },
+  });
+  assert.equal(emptyKnowledgeCoverage.code, 0);
+  assert.equal(emptyKnowledgeCoverage.stdout, '');
+  const emptyKnowledgeDiagnostic = emptyKnowledgeCoverage.stderr
+    .split('\n')
+    .filter(line => line.startsWith('CE_HOOK_DIAGNOSTICS '))
+    .map(line => JSON.parse(line.slice('CE_HOOK_DIAGNOSTICS '.length)))
+    .find(item => item.event === 'completed');
+  assert.equal(emptyKnowledgeDiagnostic.knowledgeStatus, 'empty');
+  assert.equal(emptyKnowledgeDiagnostic.knowledgeResultCount, 0);
+  assert.equal(emptyKnowledgeDiagnostic.knowledgeCount, 0);
+  assert.equal(JSON.stringify(emptyKnowledgeDiagnostic).includes('knowledge coverage empty'), false);
 
   const populatedWithDiagnostics = await runHook({
     url: `http://127.0.0.1:${port}/`,

@@ -321,7 +321,7 @@ async function main() {
     memoryStatus: memoryError ? 'error' : memoryPayload?.ok === true ? 'ok' : 'empty_or_invalid',
     memoryResultCount: memoryResults.length,
     memoryCount: memory.length,
-    knowledgeStatus: knowledgePayload?.ok === true ? 'ok' : 'error_or_empty',
+    knowledgeStatus: knowledgePayload?.ok !== true ? 'error' : knowledgeResults.length ? 'ok' : 'empty',
     knowledgeResultCount: knowledgeResults.length,
     knowledgeCount: knowledge.length,
     graphStatus: graphError ? 'error' : graphResult.status,
