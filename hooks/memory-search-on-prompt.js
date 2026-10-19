@@ -264,6 +264,46 @@ async function searchContext(query, source) {
   }
 }
 
+function buildKnowledgeQueries(query) {
+  const normalized = query.replace(/\\s+/g, ' ').trim();
+  if (!normalized) return [];
+
+  // The Memory service currently uses lexical similarity rather than embeddings.
+  // Keep the complete prompt first, then add a small number of meaningful clauses
+  // so compound questions can retrieve documents about each requested concept.
+  const clauses = normalized
+    .split(/(?:[.!?;\\n]+|,\\s+(?=(?:and|but|while|whereas|versus|vs\\.? )\\b))/i)
+    .map(part => part.trim())
+    .filter(part => part.split(/\\s+/).length >= 4 && part.length >= 20);
+  const queries = [];
+  for (const candidate of [normalized, ...clauses]) {
+    const key = candidate.toLocaleLowerCase();
+    if (queries.some(item => item.toLocaleLowerCase() === key)) continue;
+    queries.push(candidate);
+    if (queries.length >= 3) break;
+  }
+  return queries;
+}
+
+async function searchKnowledgeContext(query) {
+  const queries = buildKnowledgeQueries(query);
+  if (!queries.length) return { ok: true, results: [] };
+
+  const responses = await Promise.all(queries.map(candidate =>
+    searchContext(candidate, 'claude-code').catch(error => ({ error }))
+  ));
+  const successful = responses.filter(response => !response.error && response?.ok === true);
+  if (!successful.length && responses.some(response => response.error)) {
+    throw responses.find(response => response.error).error;
+  }
+
+  const merged = [];
+  for (const response of successful) {
+    merged.push(...(Array.isArray(response.results) ? response.results : []));
+  }
+  return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, MAX_RESULTS) };
+}
+
 function emitDiagnostics(eventName, details) {
   if (process.env.FLOSSWARE_CE_HOOK_DIAGNOSTICS !== '1') return;
   // Never log prompt text or retrieved content. The hash correlates one prompt
@@ -290,7 +330,7 @@ async function main() {
       process.stderr.write(`Memory search unavailable: ${message}\n`);
       return null;
     }),
-    searchContext(query, 'claude-code').catch(error => {
+    searchKnowledgeContext(query).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`Knowledge search unavailable: ${message}\n`);
       return null;
