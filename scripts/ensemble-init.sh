@@ -250,16 +250,8 @@ entry = {
     "workflow_id": workflow,
 }
 with open(os.environ["ENSEMBLE_COST_LOG"], "a", encoding="utf-8") as handle:
-    handle.write(json.dumps(entry, allow_nan=False) + "\\n")
+    handle.write(json.dumps(entry, allow_nan=False) + "\n")
 PY
-}
-
-# Function: Get Thompson routing decision
-get_ensemble_model() {
-  local task_type=$1
-
-  python3 "$ENSEMBLE_ROOT/shared/thompson_router.py" << EOF 2>/dev/null | grep "Selected:" | head -1 | awk '{print $NF}'
-EOF
 }
 
 # Function: Compress prompt
