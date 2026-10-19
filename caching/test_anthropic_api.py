@@ -41,25 +41,22 @@ class AnthropicCacheValidator:
             model: Model to test with (defaults to Haiku for cost)
         """
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable required. "
-                "Set it before running: export ANTHROPIC_API_KEY='sk-ant-...'"
-            )
-
         self.model = model
         self.base_url = "https://api.anthropic.com/v1"
+        self.client = None
+        self.has_sdk = False
 
-        # Try to import anthropic SDK
-        try:
-            import anthropic
-            self.client = anthropic.Anthropic(api_key=self.api_key)
-            self.has_sdk = True
-        except ImportError:
-            logger.warning(
-                "anthropic SDK not installed. Install with: pip install anthropic"
-            )
-            self.has_sdk = False
+        # Local cache tests must work without credentials or the optional SDK.
+        # Initialize the live API client only when a key was explicitly supplied.
+        if self.api_key:
+            try:
+                import anthropic
+                self.client = anthropic.Anthropic(api_key=self.api_key)
+                self.has_sdk = True
+            except ImportError:
+                logger.warning(
+                    "anthropic SDK not installed. Install with: pip install anthropic"
+                )
 
     def validate_cache_control_format(self) -> Dict[str, Any]:
         """Test that cache_control format works with actual API.
@@ -76,6 +73,12 @@ class AnthropicCacheValidator:
                 "message": str
             }
         """
+        if not self.api_key:
+            return {
+                "success": False,
+                "error": "ANTHROPIC_API_KEY not set",
+                "message": "Set a key only when explicitly running the opt-in live API validation."
+            }
         if not self.has_sdk:
             return {
                 "success": False,
