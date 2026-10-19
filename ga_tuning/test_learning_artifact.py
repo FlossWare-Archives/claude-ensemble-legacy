@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 from ga_tuning.extract_and_apply_parameters import ParameterExtractor
 from ga_tuning.learning_artifact import build_ga_learning_artifact
