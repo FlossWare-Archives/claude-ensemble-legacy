@@ -159,6 +159,19 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 f'{{"artifact_type":"integration.test.learning-memory","run_id":"{run_id}"}}\n'
             )
             service.store.write_file(document_name, content)
+            distractor_path = root / "other-project" / "CLAUDE.md"
+            distractor_path.parent.mkdir()
+            distractor_content = (
+                "# Collaboration Event Contract\\n\\n"
+                "Collaboration events record operational task metadata and memory state. "
+                "Knowledge is maintained separately from transient collaboration results."
+            )
+            service.store.ingest_claude_markdown(
+                str(distractor_path),
+                distractor_content,
+                hashlib.sha256(distractor_content.encode("utf-8")).hexdigest(),
+                {"scope": str(distractor_path.parent)},
+            )
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -184,7 +197,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
     def test_rest_search_can_filter_memory_and_durable_knowledge(self):
         from memory_service import MemoryService, create_http_server
 
-        query = "Memory Knowledge SessionEnd task quality"
+        query = "What is the distinction between Memory and Knowledge, and does SessionEnd establish task quality?"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
@@ -229,7 +242,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 self.assertTrue(knowledge["results"])
                 self.assertTrue(all(not item["file"].startswith("claude-code-") for item in memory["results"]))
                 self.assertTrue(all(item["file"].startswith("claude-code-") for item in knowledge["results"]))
-                self.assertIn("does not establish task quality", knowledge["results"][0]["content"])
+                self.assertIn("does not establish task quality", knowledge["results"][0]["content"])\n                self.assertIn("Lifecycle Contract", knowledge["results"][0]["section"])
             finally:
                 server.shutdown()
                 server.server_close()
