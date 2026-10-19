@@ -477,7 +477,7 @@ def main() -> int:
         "passed": sum(item["status"] == "pass" for item in results),
         "failed": len(failures),
         "warnings": len(warnings),
-        "skipped": 0,
+        "skipped": sum(item["status"] == "skip" for item in results),
         "mode": "prompt-context-smoke" if args.prompt_context_smoke else ("hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"))),
         "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
         "results": results,

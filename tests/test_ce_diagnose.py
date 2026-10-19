@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
@@ -111,6 +113,23 @@ class InstalledHookSmokeTests(unittest.TestCase):
         result = self.run_smoke(json.dumps(payload), require_context=True, require_knowledge=True)
         self.assertEqual(result["status"], "pass")
         self.assertIn("Knowledge=1", result["detail"])
+
+
+
+    def test_json_summary_counts_skipped_checks(self):
+        output = io.StringIO()
+        with (
+            patch("sys.argv", ["ce-diagnose.py", "--service", "alert", "--json"]),
+            patch.object(ce_diagnose.shutil, "which", return_value=None),
+            patch.object(ce_diagnose, "socket_ping", return_value=("pass", "acknowledged", 1)),
+            redirect_stdout(output),
+        ):
+            exit_code = ce_diagnose.main()
+
+        report = json.loads(output.getvalue())
+        self.assertEqual(0, exit_code)
+        self.assertEqual(1, report["skipped"])
+        self.assertEqual("skip", report["results"][-1]["status"])
 
 
 if __name__ == "__main__":
