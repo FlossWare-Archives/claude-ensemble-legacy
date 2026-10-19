@@ -561,3 +561,22 @@ tools/ce diagnose --json
 ```
 
 `doctor` checks the local Claude Code integration and reports actionable configuration, hook-registration, systemd, and REST health findings. `diagnose` uses a shared correlation ID across bounded service probes and checks gateway readiness, including Graph and Memory. Deep mode adds read-only Memory/Graph/Decision checks and an isolated Learning-to-Thompson integration proof using temporary state and sockets. The diagnostic path does not write persistent Memory/Graph data, send alerts, or invoke a model. The pipeline test intentionally exercises isolated temporary state; it is not part of ordinary read-only diagnosis.
+
+
+## Uninstalling a standalone deployment
+
+Use the active deployment's helper to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer:
+
+```bash
+"$HOME/.FlossWare/claude-ensemble/current/tools/ce-deployment" uninstall
+```
+
+The default uninstall **preserves** immutable releases and all data under `shared/`, including Memory, Learning, logs, and the managed Claude Code profile. This permits later inspection or reactivation without destroying user state.
+
+Permanent removal of the entire deployment root and its shared data requires the separate, explicit destructive option:
+
+```bash
+"$HOME/.FlossWare/claude-ensemble/current/tools/ce-deployment" uninstall --purge
+```
+
+Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
