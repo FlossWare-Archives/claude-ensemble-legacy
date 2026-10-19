@@ -53,6 +53,7 @@ test('compound prompt retrieves Knowledge through a decomposed clause', async ()
       ...process.env,
       FLOSSWARE_MEMORY_URL: `http://127.0.0.1:${address.port}`,
       FLOSSWARE_GRAPH_URL: 'http://127.0.0.1:1',
+      FLOSSWARE_CE_HOOK_DIAGNOSTICS: '1',
       FLOSSWARE_MEMORY_TIMEOUT_MS: '1000',
       FLOSSWARE_GRAPH_TIMEOUT_MS: '50',
     },
@@ -80,7 +81,11 @@ test('compound prompt retrieves Knowledge through a decomposed clause', async ()
     assert.match(output.hookSpecificOutput.additionalContext, /SessionEnd captures metadata only/);
     assert.equal(output.hookSpecificOutput.contextRetrieval.knowledgeCount, 1);
     assert.doesNotMatch(stderr, /Knowledge index status unavailable:/);
-    assert.match(stderr, /CE_HOOK_DIAGNOSTICS/, 'diagnostics are emitted only when explicitly enabled');
+    const diagnosticLine = stderr.split('\\n').find(line => line.startsWith('CE_HOOK_DIAGNOSTICS '));
+    assert.ok(diagnosticLine, 'opt-in diagnostics should be emitted');
+    const diagnostics = JSON.parse(diagnosticLine.slice('CE_HOOK_DIAGNOSTICS '.length));
+    assert.equal(diagnostics.knowledgeIndexStatus, 'available');
+    assert.equal(diagnostics.knowledgeIndexedDocumentCount, 1);
   } finally {
     server.close();
   }
