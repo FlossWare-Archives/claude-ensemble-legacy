@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { spawn } = require('node:child_process');
-const { test } = require('node:test');
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { test } from 'node:test';
 
 async function runHook(config) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-rag-config-'));
