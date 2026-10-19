@@ -46,6 +46,18 @@ The counts above are illustrative, not an expected result. Each check has a stab
 
 Doctor checks the Claude Code executable, explicitly selected profile and managed hook configuration, provider identity for that profile, the CE gateway unit where systemd is available, and configured Memory/gateway/capability health endpoints. It does not print credentials. It never implicitly inspects the ordinary `~/.claude` profile: set `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR` to select a profile explicitly. `ENSEMBLE_CLAUDE_CODE_EXPECTED_PROVIDER` controls the expected provider; the default is `vertex`.
 
+## Service dependency graph
+
+The supported runtime path uses existing interfaces rather than introducing a broker:
+
+- **Prompt retrieval:** Claude Code UserPromptSubmit hook calls Memory REST /memory/search; when cwd is present, it also queries Graph REST for the project node and bounded one-hop relationships.
+- **Gateway-backed checks:** gateway REST reaches configured Memory and Graph health/operation endpoints. Gateway readiness reports its configured core dependencies.
+- **Learning outcome path:** Learning Unix socket uses Memory capture/acknowledgement and a Thompson Unix-socket client. --deep or --pipeline-test verifies this path with isolated temporary state rather than changing production learner state.
+- **Transient messaging:** Messenger Unix socket uses a unique diagnostic topic and event type for a local subscribe/publish round trip; it does not send external notifications or persist a message.
+- **Alert service:** diagnostics only ping the Alert Unix socket. They do not trigger alert delivery.
+
+A diagnostic only proves the operations it actually exercised. Standard mode primarily checks health/ping contracts; --deep adds read operations and the isolated Learning-to-Thompson integration. Neither mode proves an unexercised capability such as real provider invocation or external reviewer delivery.
+
 ## Diagnose: service and integration checks
 
 Read-only service checks:
@@ -87,7 +99,9 @@ The diagnose JSON report has this shape:
       "status": "pass",
       "endpoint": "GET http://127.0.0.1:8080/api/v1/health",
       "duration_ms": 12,
+      "correlation_id": "generated-uuid",
       "detail": "HTTP 200; ok=true",
+      "evidence": "HTTP 200; ok=true",
       "remediation": ""
     }
   ]

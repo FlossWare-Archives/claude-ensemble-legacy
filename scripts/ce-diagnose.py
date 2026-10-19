@@ -356,7 +356,7 @@ def main() -> int:
     parser.add_argument("--allow-memory-write", action="store_true",
                         help="explicitly authorize the metadata-only SessionEnd smoke event")
     parser.add_argument("--hook-dir", default=default_hook_dir(),
-                        help="installed Claude hook directory (default: ~/.claude/hooks)")
+                        help="installed Claude hook directory (default: dedicated CE profile, never implicitly ~/.claude/hooks)")
     parser.add_argument("--pipeline-test", action="store_true",
                         help="run the isolated Learning-to-Thompson integration test using temporary state")
     parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson", "messenger", "alert"),
@@ -478,6 +478,12 @@ def main() -> int:
             require_context=args.prompt_context_smoke,
             require_knowledge=args.prompt_context_smoke,
         ))
+
+    # Carry correlation metadata on every step, not only the report envelope.
+    # `detail` is the bounded evidence summary; do not include raw response bodies.
+    for item in results:
+        item["correlation_id"] = correlation_id
+        item["evidence"] = item["detail"]
 
     failures = [item for item in results if item["status"] == "fail"]
     warnings = [item for item in results if item["status"] == "warn"]
