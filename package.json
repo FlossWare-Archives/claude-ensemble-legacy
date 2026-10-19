@@ -1,7 +1,7 @@
 {
-  "name": "claude-global-skills",
+  "name": "claude-ensemble",
   "version": "1.0.0",
-  "description": "Production-ready Claude Code workflows with RAG, MCP, and multi-AI consensus",
+  "description": "Claude Code integration with local Memory and Knowledge retrieval, REST services, and review workflows",
   "type": "module",
   "scripts": {
     "install-deps": "npm install",
@@ -23,7 +23,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/claude-code"
+    "url": "https://github.com/FlossWare/claude-ensemble.git"
   },
   "keywords": [
     "rag",
