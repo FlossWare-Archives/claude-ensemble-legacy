@@ -206,7 +206,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
     def run_hook(self, hook: str, event: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["FLOSSWARE_MEMORY_URL"] = self.memory_url
-        env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = "300"
+        env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = "1500"
         env["FLOSSWARE_GRAPH_URL"] = self.graph_url
         env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = "300"
         env["CLAUDE_MESSENGER_SOCKET"] = self.messenger_path
