@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create a durable, private snapshot before CE installation or upgrade.
-# Usage: tools/backup-ce-state.sh REASON [deployment-root]
+# Usage: tools/backup-ce-state.sh REASON [deployment-root] [profile-directory]
 set -Eeuo pipefail
 if [[ "$#" -lt 1 || "$#" -gt 3 || ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
   printf 'Usage: %s REASON [deployment-root] [profile-directory]\n' "$0" >&2
@@ -80,4 +80,4 @@ if [[ -n "$PROFILE_DIR" ]]; then
 fi
 trap - ERR
 printf 'Pre-operation backup created: %s\n' "$BACKUP"
-printf 'Backup contains the existing deployment tree (if any), legacy CE profile (if any), and existing CE-managed user service units.\n'
+printf 'Backup contains the existing deployment tree (if any), legacy CE profile (if any), the selected profile (when supplied), and existing CE-managed user service units.\n'
