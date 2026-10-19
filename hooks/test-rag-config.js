@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function runHook(config) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-rag-config-'));
