@@ -28,6 +28,17 @@ DEFAULT_ALERT_SOCKET = "/tmp/claude-alert.sock"
 DEFAULT_MESSENGER_SOCKET = f"/run/user/{os.getuid()}/claude-messenger/claude-messenger.sock"
 
 
+def default_hook_dir() -> str:
+    """Select CE's explicit profile; never silently probe the ordinary ~/.claude profile."""
+    configured = os.environ.get("CLAUDE_HOOK_DIR")
+    if configured:
+        return str(Path(configured).expanduser())
+    profile = os.environ.get("ENSEMBLE_CLAUDE_CODE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+    if profile:
+        return str(Path(profile).expanduser() / "hooks")
+    return str(Path.home() / ".FlossWare" / "claude-ensemble" / "shared" / "claude-code" / "hooks")
+
+
 def record(results: list[dict[str, Any]], name: str, status: str, detail: str,
            duration_ms: int, endpoint: str = "", remediation: str = "") -> None:
     results.append({
@@ -344,7 +355,7 @@ def main() -> int:
                         help="also run SessionEnd; writes one metadata-only event to production Memory and publishes a transient Messenger event")
     parser.add_argument("--allow-memory-write", action="store_true",
                         help="explicitly authorize the metadata-only SessionEnd smoke event")
-    parser.add_argument("--hook-dir", default=os.environ.get("CLAUDE_HOOK_DIR", str(Path.home() / ".claude" / "hooks")),
+    parser.add_argument("--hook-dir", default=default_hook_dir(),
                         help="installed Claude hook directory (default: ~/.claude/hooks)")
     parser.add_argument("--pipeline-test", action="store_true",
                         help="run the isolated Learning-to-Thompson integration test using temporary state")
