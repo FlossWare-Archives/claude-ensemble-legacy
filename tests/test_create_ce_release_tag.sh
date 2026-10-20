@@ -15,6 +15,10 @@ git -C "$SOURCE" config user.name "Release Test"
 git -C "$SOURCE" config user.email "release-test@example.invalid"
 git -C "$SOURCE" add tools
 git -C "$SOURCE" commit -qm "fixture"
+git init -q --bare "$HOME/origin.git"
+git -C "$SOURCE" remote add origin "$HOME/origin.git"
+git -C "$SOURCE" push -qu origin main
+git -C "$SOURCE" branch --set-upstream-to=origin/main main >/dev/null
 COMMIT="$(git -C "$SOURCE" rev-parse HEAD)"
 
 output="$(bash "$SOURCE/tools/create-ce-release-tag.sh" --repo "$SOURCE")"
