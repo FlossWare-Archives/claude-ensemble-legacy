@@ -182,6 +182,21 @@ if ENSEMBLE_INSTALL_ROOT="$LINKED_ROOT" bash "$SCRIPT" status >/dev/null 2>&1; t
   exit 1
 fi
 
+# Direct activation must fail before creating a journal/backup or switching current
+# when the systemd user manager is unavailable.
+cat > "$TMP/bin/systemctl-unavailable" <<NO_SYSTEMD
+#!/usr/bin/env bash
+exit 1
+NO_SYSTEMD
+chmod +x "$TMP/bin/systemctl-unavailable"
+if ENSEMBLE_SYSTEMCTL_BIN="$TMP/bin/systemctl-unavailable" bash "$SCRIPT" activate 0.1 >/dev/null 2>&1; then
+  echo "FAIL: activation proceeded without a systemd user manager" >&2
+  exit 1
+fi
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/activation.json" ]] || { echo "FAIL: unavailable manager left an activation journal" >&2; exit 1; }
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo "FAIL: unavailable manager switched current" >&2; exit 1; }
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups" ]] || { echo "FAIL: unavailable manager created activation backups" >&2; exit 1; }
+
 # First activation should start all seven mocked services.
 bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
