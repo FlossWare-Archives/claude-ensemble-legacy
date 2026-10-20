@@ -50,6 +50,17 @@ if [[ -e "$LEGACY_PROFILE" || -L "$LEGACY_PROFILE" ]]; then
 else
   printf 'legacy_profile_snapshot=absent-before-operation\n' >> "$manifest"
 fi
+STATE_ROOT="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
+[[ ! -L "$STATE_ROOT" ]] || { printf 'ERROR: refusing to snapshot a symlinked CE state root: %s\n' "$STATE_ROOT" >&2; exit 1; }
+STATE_ROOT="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$STATE_ROOT")"
+case "$STATE_ROOT" in "$HOME_REAL"/*) ;; *) printf 'ERROR: CE state root must resolve beneath HOME: %s\n' "$STATE_ROOT" >&2; exit 1;; esac
+if [[ -e "$STATE_ROOT" ]]; then
+  [[ -d "$STATE_ROOT" ]] || { printf 'ERROR: CE state root is not a directory: %s\n' "$STATE_ROOT" >&2; exit 1; }
+  cp -a -- "$STATE_ROOT" "$BACKUP/files/ce-state-root"
+  printf 'ce_state_root_snapshot=files/ce-state-root\nce_state_root_path=%s\n' "$STATE_ROOT" >> "$manifest"
+else
+  printf 'ce_state_root_snapshot=absent-before-operation\nce_state_root_path=%s\n' "$STATE_ROOT" >> "$manifest"
+fi
 UNIT_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$BACKUP/files/systemd-user-units"
 unit_count=0
@@ -80,4 +91,4 @@ if [[ -n "$PROFILE_DIR" ]]; then
 fi
 trap - ERR
 printf 'Pre-operation backup created: %s\n' "$BACKUP"
-printf 'Backup contains the existing deployment tree (if any), legacy CE profile (if any), the selected profile (when supplied), and existing CE-managed user service units.\n'
+printf 'Backup contains the existing deployment tree (if any), legacy CE profile and development state (if present), the selected profile (when supplied), and existing CE-managed user service units.\n'
