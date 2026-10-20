@@ -4,13 +4,24 @@ import json
 
 import pytest
 
-from providers import ModelProvider, ModelRequest, ModelResponse
+from providers import ModelCapabilities, ModelProvider, ModelRequest, ModelResponse
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
 
 
 class FailedWorkers(ModelProvider):
     def __init__(self):
         self.models = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.models.append(request.model)
