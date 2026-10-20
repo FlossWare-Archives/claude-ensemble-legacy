@@ -24,13 +24,30 @@ mkdir -p -- "$BACKUP_BASE"
 BACKUP_BASE="$(cd -- "$BACKUP_BASE" && pwd -P)"
 case "$BACKUP_BASE" in "$HOME_REAL"/*) ;; *) printf 'ERROR: backup directory resolves outside HOME.\n' >&2; exit 1;; esac
 STAMP="$(date -u +%Y-%m-%d_%H-%M-%S-%3N)"
-if [[ "$REASON" =~ ^[0-9]+\.[0-9]+$ ]]; then
-  # Release backups are version-first and timestamped, allowing repeat installs.
-  BACKUP_STEM="$BACKUP_BASE/${REASON}_${STAMP}"
+# Every recovery snapshot is version-first. Explicit MAJOR.MINOR reasons remain
+# supported for the versioned installer; other callers resolve the next release
+# from the source checkout and current deployment state.
+BACKUP_VERSION=""
+if [[ "$REASON" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  BACKUP_VERSION="$REASON"
+elif [[ -n "${ENSEMBLE_BACKUP_VERSION:-}" ]]; then
+  BACKUP_VERSION="$ENSEMBLE_BACKUP_VERSION"
 else
-  # Keep reason-oriented names for other backup callers.
-  BACKUP_STEM="$BACKUP_BASE/${STAMP}-${REASON}-$$"
+  SOURCE_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+  if git -C "$SOURCE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    BACKUP_VERSION="$(bash "$SOURCE_ROOT/tools/resolve-ce-version.sh" --repo "$SOURCE_ROOT" --deployment-root "$ROOT")"
+  elif [[ -L "$ROOT/current" ]]; then
+    current_target="$(readlink -- "$ROOT/current")"
+    if [[ "$current_target" =~ ^releases/((0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ && -d "$ROOT/$current_target" && ! -L "$ROOT/$current_target" ]]; then
+      BACKUP_VERSION="${BASH_REMATCH[1]}"
+    fi
+  fi
 fi
+[[ "$BACKUP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+  printf 'ERROR: could not resolve a safe backup version; pass a MAJOR.MINOR reason or set ENSEMBLE_BACKUP_VERSION.\n' >&2
+  exit 1
+}
+BACKUP_STEM="$BACKUP_BASE/${BACKUP_VERSION}_${STAMP}"
 BACKUP="$BACKUP_STEM"
 suffix=0
 while ! mkdir -m 700 -- "$BACKUP" 2>/dev/null; do
@@ -44,6 +61,7 @@ mkdir -m 700 "$BACKUP/files"
 manifest="$BACKUP/manifest.txt"
 {
   printf 'reason=%s\n' "$REASON"
+  printf 'version=%s\n' "$BACKUP_VERSION"
   printf 'created_at_utc=%s\n' "$STAMP"
   printf 'deployment_root=%s\n' "$ROOT"
   printf 'backup_path=%s\n' "$BACKUP"
