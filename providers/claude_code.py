@@ -15,6 +15,7 @@ import subprocess
 from typing import Any, Mapping, Sequence
 
 from .model_provider import ModelProvider, ModelRequest, ModelResponse
+from .model_capabilities import ModelCapabilities
 
 
 class ClaudeCodeProvider(ModelProvider):
@@ -44,25 +45,19 @@ class ClaudeCodeProvider(ModelProvider):
             raise ValueError("Expected upstream provider must be a non-empty value")
         self.expected_provider = configured_provider.strip().lower()
 
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        """Expose the exact controls supported by the Claude Code CLI adapter."""
+        return ModelCapabilities(
+            provider=self.name,
+            supports_system_prompt=True,
+            supports_timeout_override=True,
+        )
+
     def generate(self, request: ModelRequest) -> ModelResponse:
-        # The CLI adapter currently accepts a single self-contained prompt. Do
-        # not silently discard prior turns or pretend unsupported generation
-        # controls were honored. These are the ModelRequest compatibility
-        # defaults; non-default values must fail closed until the CLI contract
-        # can represent them.
-        if request.messages:
-            raise ValueError(
-                "Claude Code adapter does not support prior conversation messages; "
-                "send a self-contained prompt"
-            )
-        if request.temperature != 0.7:
-            raise ValueError(
-                "Claude Code adapter does not support temperature overrides"
-            )
-        if request.max_tokens != 2000:
-            raise ValueError(
-                "Claude Code adapter does not support max_tokens overrides"
-            )
+        # Defense in depth: callers should use build_model_request(), but direct
+        # provider invocations must enforce the same declared capability contract.
+        self.capabilities.validate(request)
 
         executable = shutil.which(self.executable)
         if executable is None:

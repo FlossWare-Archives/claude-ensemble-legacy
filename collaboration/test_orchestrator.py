@@ -6,13 +6,26 @@ import pytest
 
 from collaboration.orchestrator import CollaborationOrchestrator
 from collaboration.reviewer import ReviewerResult
-from providers import ClaudeCodeProvider, ModelProvider, ModelRequest, ModelResponse
+from providers import ClaudeCodeProvider, ModelCapabilities, ModelProvider, ModelRequest, ModelResponse
 
 
 class FakeProvider(ModelProvider):
     def __init__(self, responses: dict[str, list[str] | str]):
         self.responses = responses
         self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        # Test doubles declare permissive behavior intentionally; strict
+        # composition is separately tested against ClaudeCodeProvider.
+        return ModelCapabilities(
+            provider="fake",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)

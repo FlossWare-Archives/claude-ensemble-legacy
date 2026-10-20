@@ -20,7 +20,8 @@ import pytest
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
 from execution import ExecutionContext, ExecutionEngine, ExecutionStatus
 from execution.nodes import ModelExecution
-from providers.model_provider import ModelProvider, ModelRequest, ModelResponse
+from providers import ModelCapabilities, ModelRequest, ModelResponse
+from providers.model_provider import ModelProvider
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,17 @@ class DeterministicWorkflowProvider(ModelProvider):
 
     def __init__(self) -> None:
         self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider=self.name,
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)

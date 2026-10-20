@@ -16,7 +16,8 @@ from execution import (
     ExecutionStatus,
 )
 from execution.nodes import CompositeExecution, ModelExecution, PipelineExecution
-from providers.model_provider import ModelProvider, ModelRequest, ModelResponse
+from providers import ModelCapabilities, ModelRequest, ModelResponse
+from providers.model_provider import ModelProvider
 from workflows.review import ReviewRequest, build_review
 
 
@@ -27,6 +28,19 @@ class FakeProvider(ModelProvider):
         self.responses = responses
         self.failures = failures or set()
         self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        # Test doubles declare permissive behavior intentionally; strict
+        # composition is separately tested against ClaudeCodeProvider.
+        return ModelCapabilities(
+            provider="fake",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)

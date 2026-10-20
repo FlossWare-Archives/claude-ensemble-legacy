@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from arbitration.orchestrator import ArbitrationOrchestrator, TaskType
+from providers import ModelCapabilities
 from providers.model_provider import ModelRequest, ModelResponse
 import tools.arbitrate as arbitrate
 
@@ -22,6 +23,17 @@ class MockReviewProvider:
 
     def __init__(self) -> None:
         self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)

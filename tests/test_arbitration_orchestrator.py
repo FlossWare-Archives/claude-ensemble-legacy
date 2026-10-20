@@ -1,11 +1,23 @@
 import json
 from arbitration.orchestrator import ArbiterResult, ArbitrationOrchestrator, ContextManager, TaskType
+from providers import ModelCapabilities
 from providers.model_provider import ModelResponse
 
 
 class FakeProvider:
     def __init__(self):
         self.requests = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request):
         self.requests.append(request)

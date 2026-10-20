@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from providers import ClaudeCodeProvider, ModelProvider, ModelRequest
+from providers import ClaudeCodeProvider, ModelProvider, ModelRequest, build_model_request
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -528,7 +528,7 @@ class ArbitrationOrchestrator:
             "that is not present in the supplied context."
         )
         # Increase timeout to 300s to account for API latency and large prompts
-        return ModelRequest(prompt=prompt, model=model, timeout=300.0)
+        return build_model_request(self._provider_for(model), prompt=prompt, model=model, timeout=300.0)
 
     def _run_one_worker(
         self, phase_config: PhaseConfig, model: str, context: str
@@ -597,7 +597,7 @@ class ArbitrationOrchestrator:
         try:
             # Increase timeout to 600s for arbiter (handles larger prompts with worker results)
             response = self._provider_for(phase_config.arbiter).generate(
-                ModelRequest(prompt=prompt, model=phase_config.arbiter, timeout=600.0)
+                build_model_request(self._provider_for(phase_config.arbiter), prompt=prompt, model=phase_config.arbiter, timeout=600.0)
             )
             logger.info(
                 "Arbiter %s completed phase %s",
