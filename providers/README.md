@@ -46,3 +46,15 @@ python -c 'from arbitration.api_client import MultiModelClient; print(MultiModel
 ```
 
 The automated tests mock Claude Code and do not require live credentials.
+
+
+## Claude Code adapter request limitations
+
+The active CLI adapter accepts a self-contained prompt and optional system_prompt.
+It does not currently implement multi-turn messages, temperature overrides, or
+output-token limits. To avoid silently changing the meaning of a request, it
+rejects non-empty messages, non-default temperature, and non-default max_tokens
+before starting the CLI process. The ModelRequest default values for temperature
+and token count are compatibility defaults, not a claim that the CLI enforces
+those settings. Callers needing these controls must not assume they are applied
+by this adapter.

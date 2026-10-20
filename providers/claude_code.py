@@ -45,6 +45,25 @@ class ClaudeCodeProvider(ModelProvider):
         self.expected_provider = configured_provider.strip().lower()
 
     def generate(self, request: ModelRequest) -> ModelResponse:
+        # The CLI adapter currently accepts a single self-contained prompt. Do
+        # not silently discard prior turns or pretend unsupported generation
+        # controls were honored. These are the ModelRequest compatibility
+        # defaults; non-default values must fail closed until the CLI contract
+        # can represent them.
+        if request.messages:
+            raise ValueError(
+                "Claude Code adapter does not support prior conversation messages; "
+                "send a self-contained prompt"
+            )
+        if request.temperature != 0.7:
+            raise ValueError(
+                "Claude Code adapter does not support temperature overrides"
+            )
+        if request.max_tokens != 2000:
+            raise ValueError(
+                "Claude Code adapter does not support max_tokens overrides"
+            )
+
         executable = shutil.which(self.executable)
         if executable is None:
             raise RuntimeError(
