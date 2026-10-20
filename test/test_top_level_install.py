@@ -119,6 +119,10 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     success_base = base / "success"
     success_base.mkdir()
     home, env = make_harness(success_base)
+    legacy_unit_dir = home / ".config" / "systemd" / "user"
+    legacy_unit_dir.mkdir(parents=True)
+    for legacy_unit in ("claude-alert.service", "claude-messenger.service"):
+        (legacy_unit_dir / legacy_unit).write_text("[Unit]\\nDescription=legacy CE unit\\n", encoding="utf-8")
     claude_home = home / ".FlossWare" / "claude-ensemble-profile"
     hooks = claude_home / "hooks"
     hooks.mkdir(parents=True)
@@ -215,6 +219,9 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
         fail("installer did not add its PATH entry to existing shell config")
 
     service_dir = home / ".config/systemd/user"
+    for legacy_unit in ("claude-alert.service", "claude-messenger.service"):
+        if (service_dir / legacy_unit).exists():
+            fail(f"legacy service unit was not retired: {legacy_unit}")
     for unit in EXPECTED:
         if not (service_dir / unit).is_file():
             fail(f"top-level installer did not create {unit}")
