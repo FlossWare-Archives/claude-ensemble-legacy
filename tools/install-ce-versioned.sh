@@ -112,7 +112,7 @@ fi
 if [[ "$STAGING_ONLY" != "1" ]]; then
   # Persist a complete snapshot before migration, profile import, release creation,
   # or service activation. A failed backup aborts the install/upgrade.
-  bash "$SCRIPT_DIR/backup-ce-state.sh" "pre-install-$VERSION" "$ROOT"
+  bash "$SCRIPT_DIR/backup-ce-state.sh" "$VERSION" "$ROOT"
 fi
 LEGACY_MIGRATION=0
 LEGACY_SNAPSHOT="$WORK/legacy"
