@@ -14,8 +14,10 @@ EOF
 }
 
 dev_paths() {
-  CE_STATE="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-profile}"
+  CE_PROFILE="${ENSEMBLE_CE_DEV_PROFILE:-$HOME/.FlossWare/claude-ensemble-profile}"
+  CE_STATE="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
   CE_VENV="${ENSEMBLE_CE_DEV_VENV:-$HOME/.FlossWare/venvs/claude-ensemble}"
+  [[ ! -L "$CE_PROFILE" ]] || { echo "ERROR: CE profile path must not be a symlink: $CE_PROFILE" >&2; return 2; }
   [[ ! -L "$CE_STATE" ]] || { echo "ERROR: CE state root must not be a symlink: $CE_STATE" >&2; return 2; }
   [[ ! -L "$CE_VENV" ]] || { echo "ERROR: CE virtualenv path must not be a symlink: $CE_VENV" >&2; return 2; }
 }
@@ -29,9 +31,9 @@ dev_exports() {
   printf 'export ENSEMBLE_REPO_ROOT=%q\n' "$ROOT"
   printf 'export ENSEMBLE_RUNTIME_DIR=%q\n' "$CE_STATE/runtime"
   printf 'export ENSEMBLE_LOG_DIR=%q\n' "$CE_STATE/logs"
-  printf 'export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR=%q\n' "$CE_STATE"
-  printf 'export CLAUDE_CONFIG_DIR=%q\n' "$CE_STATE"
-  printf 'export CLAUDE_HOOK_DIR=%q\n' "$CE_STATE/hooks"
+  printf 'export ENSEMBLE_CLAUDE_CODE_CONFIG_DIR=%q\n' "$CE_PROFILE"
+  printf 'export CLAUDE_CONFIG_DIR=%q\n' "$CE_PROFILE"
+  printf 'export CLAUDE_HOOK_DIR=%q\n' "$CE_PROFILE/hooks"
   printf 'export ENSEMBLE_MEMORY_DIR=%q\n' "$CE_STATE/data/memory"
   printf 'export ENSEMBLE_MEMORY_SOCKET=%q\n' "$CE_STATE/runtime/memory.sock"
   printf 'export ENSEMBLE_MEMORY_HTTP_HOST=127.0.0.1\n'
@@ -64,19 +66,20 @@ dev_setup() {
   }
   command -v claude >/dev/null || { echo "ERROR: Install Claude Code before setting up CE hooks" >&2; return 1; }
   [[ -f "$ROOT/requirements.txt" ]] || { echo "ERROR: requirements.txt is missing from $ROOT" >&2; return 1; }
-  mkdir -p "$(dirname "$CE_STATE")" "$(dirname "$CE_VENV")"
-  mkdir -p "$CE_STATE"/{runtime,logs,hooks,data/memory,data/learning}
-  chmod 700 "$CE_STATE" "$CE_STATE/runtime" "$CE_STATE/data" "$CE_STATE/data/memory" "$CE_STATE/data/learning"
+  mkdir -p "$(dirname "$CE_PROFILE")" "$(dirname "$CE_STATE")" "$(dirname "$CE_VENV")"
+  mkdir -p "$CE_PROFILE/hooks" "$CE_STATE"/{runtime,logs,data/memory,data/learning}
+  chmod 700 "$CE_PROFILE" "$CE_PROFILE/hooks" "$CE_STATE" "$CE_STATE/runtime" "$CE_STATE/data" "$CE_STATE/data/memory" "$CE_STATE/data/learning"
   if [[ ! -x "$CE_VENV/bin/python" ]]; then
     python3 -m venv "$CE_VENV"
   fi
   "$CE_VENV/bin/python" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
-  ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CE_STATE" CLAUDE_CONFIG_DIR="$CE_STATE" \
+  ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CE_PROFILE" CLAUDE_CONFIG_DIR="$CE_PROFILE" \
     bash "$ROOT/tools/claude-config/bin/claude-config" install --non-interactive
   echo "CE development environment ready."
   echo "  Source: $ROOT"
   echo "  Virtualenv: $CE_VENV"
-  echo "  Isolated state/profile: $CE_STATE"
+  echo "  Isolated profile: $CE_PROFILE"
+  echo "  Isolated service state: $CE_STATE"
   echo '  Start each service in a separate terminal after running: eval "$(tools/ce dev env)"'
 }
 
@@ -86,8 +89,8 @@ dev_run() {
   [[ -n "$service" ]] || { echo "Usage: tools/ce dev run memory|thompson|learning|graph|gateway" >&2; return 2; }
   dev_paths
   [[ -x "$CE_VENV/bin/python" ]] || { echo "ERROR: run 'tools/ce dev setup' first" >&2; return 1; }
-  mkdir -p "$CE_STATE"/{runtime,logs,hooks,data/memory,data/learning}
-  chmod 700 "$CE_STATE" "$CE_STATE/runtime"
+  mkdir -p "$CE_PROFILE/hooks" "$CE_STATE"/{runtime,logs,data/memory,data/learning}
+  chmod 700 "$CE_PROFILE" "$CE_PROFILE/hooks" "$CE_STATE" "$CE_STATE/runtime"
   eval "$(dev_exports)"
   case "$service" in
     memory) target="memory-service/memory_service.py" ;;
