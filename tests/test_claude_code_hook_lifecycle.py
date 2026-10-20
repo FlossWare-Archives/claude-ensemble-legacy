@@ -190,7 +190,104 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertEqual(hook_output["contextRetrieval"]["knowledgeCount"], 1)
         self.assertEqual(FakeMemoryHandler.requests[0][0], "/memory/search")
         self.assertEqual(FakeMemoryHandler.requests[0][1]["query"], "How did we decide the service boundary?")
+        self.assertEqual(FakeMemoryHandler.requests[0][1]["limit"], 10)
+        self.assertEqual(FakeMemoryHandler.requests[0][1]["source"], "memory")
         self.assertEqual(FakeGraphHandler.requests, [])
+
+    def test_real_memory_service_rest_write_search_and_hook_context_injection(self) -> None:
+        """Phase 4 End-to-End Context Test with real MemoryService daemon."""
+        with tempfile.TemporaryDirectory(prefix="ce-memory-rest-test-") as temp_dir:
+            temp_path = Path(temp_dir)
+            memory_dir = temp_path / "memory"
+            socket_path = temp_path / "memory.sock"
+
+            sys.path.insert(0, str(ROOT / "memory-service"))
+            from memory_service import MemoryService, create_http_server
+
+            service = MemoryService(socket_path, memory_dir)
+            http_server = create_http_server(service, "127.0.0.1", 0)
+            service.http_server = http_server
+            service.http_port = http_server.server_port
+            http_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+            http_thread.start()
+
+            try:
+                base_url = f"http://127.0.0.1:{service.http_port}"
+
+                # Step A: Seed memory via REST write interface
+                import urllib.request
+                write_req = urllib.request.Request(
+                    f"{base_url}/memory/write",
+                    data=json.dumps({"name": "decision_001", "content": "# Decision 001\nWe use REST contracts for Memory retrieval."}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(write_req) as resp:
+                    write_resp = json.loads(resp.read().decode())
+                self.assertTrue(write_resp.get("ok"))
+
+                # Seed Knowledge document via REST ingest interface
+                knowledge_content = "Claude Ensemble memory hook communicates over HTTP REST."
+                knowledge_sha = hashlib.sha256(knowledge_content.encode()).hexdigest()
+                ingest_req = urllib.request.Request(
+                    f"{base_url}/memory/ingest",
+                    data=json.dumps({
+                        "path": "/tmp/project/ARCH.md",
+                        "content": knowledge_content,
+                        "sha256": knowledge_sha,
+                        "metadata": {"scope": "/tmp/project"},
+                    }).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(ingest_req) as resp:
+                    ingest_resp = json.loads(resp.read().decode())
+                self.assertTrue(ingest_resp.get("ok"))
+
+                # Step B: Retrieve via REST search interface directly
+                search_req = urllib.request.Request(
+                    f"{base_url}/memory/search",
+                    data=json.dumps({"query": "REST contracts", "limit": 10, "source": "memory"}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(search_req) as resp:
+                    search_resp = json.loads(resp.read().decode())
+                self.assertTrue(search_resp.get("ok"))
+                self.assertGreater(len(search_resp.get("results", [])), 0)
+
+                # Step C & D: Invoke UserPromptSubmit hook with prompt that retrieves seeded records
+                env = os.environ.copy()
+                env["FLOSSWARE_MEMORY_URL"] = base_url
+                env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = "2000"
+                env["FLOSSWARE_GRAPH_URL"] = self.graph_url
+
+                hook_proc = subprocess.run(
+                    [NODE, str(HOOKS / "memory-search-on-prompt.js")],
+                    input=json.dumps({
+                        "hook_event_name": "UserPromptSubmit",
+                        "session_id": "real-memory-test-session",
+                        "prompt": "What do we use for Memory retrieval in REST contracts?",
+                    }),
+                    text=True,
+                    capture_output=True,
+                    timeout=5,
+                    env=env,
+                    check=False,
+                )
+                self.assertEqual(hook_proc.returncode, 0, hook_proc.stderr)
+                hook_json = json.loads(hook_proc.stdout)
+                additional_context = hook_json["hookSpecificOutput"]["additionalContext"]
+
+                # Step E & F: Verify emitted context includes seeded memory & knowledge
+                self.assertIn("We use REST contracts for Memory retrieval.", additional_context)
+                self.assertIn("Claude Ensemble memory hook communicates over HTTP REST", additional_context)
+                self.assertIn("### Relevant Memory (what happened)", additional_context)
+                self.assertIn("### Relevant Knowledge (what is currently known)", additional_context)
+
+            finally:
+                http_server.shutdown()
+                http_server.server_close()
 
     def test_prompt_hook_adds_current_project_graph_context(self) -> None:
         result = self.run_hook(
