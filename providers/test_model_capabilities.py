@@ -60,9 +60,11 @@ def test_builder_preserves_controls_supported_by_selected_provider():
         name = "configurable"
         capabilities = ModelCapabilities(
             provider=name,
+            supports_system_prompt=True,
             supports_messages=True,
             supports_temperature_override=True,
             supports_max_tokens_override=True,
+            supports_timeout_override=True,
         )
 
     request = build_model_request(
