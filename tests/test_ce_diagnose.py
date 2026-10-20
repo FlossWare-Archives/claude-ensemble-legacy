@@ -196,5 +196,36 @@ class InstalledHookSmokeTests(unittest.TestCase):
         self.assertEqual("pass", report["results"][0]["status"])
 
 
+    def test_non_json_http_response_reports_headers_without_leaking_body(self):
+        class FakeHeaders(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        class FakeResponse:
+            status = 200
+            headers = FakeHeaders({
+                "Content-Type": "text/html; charset=utf-8",
+                "Server": "example-proxy",
+            })
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self, _limit):
+                return b"<html>secret-token=do-not-print</html>"
+
+        with patch.object(ce_diagnose.urllib.request, "urlopen", return_value=FakeResponse()):
+            status, detail, payload, _elapsed = ce_diagnose.http_request(
+                "http://127.0.0.1:8080", "/api/v1/decision/query/problems",
+                "test-correlation",
+            )
+
+        self.assertEqual("fail", status)
+        self.assertIsNone(payload)
+        self.assertIn("HTTP 200; response was not JSON", detail)
+        self.assertIn("Content-Type=text/html; charset=utf-8", detail)
+        self.assertIn("Server=example-proxy", detail)
+        self.assertNotIn("secret-token", detail)
+
 if __name__ == "__main__":
     unittest.main()

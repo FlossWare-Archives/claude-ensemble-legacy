@@ -63,12 +63,15 @@ def http_request(base: str, path: str, correlation_id: str, method: str = "GET",
     request = urllib.request.Request(base.rstrip("/") + path, data=data,
                                      headers=headers, method=method)
     start = time.monotonic()
+    headers = {}
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             status_code = response.status
+            headers = response.headers
             raw = response.read(128 * 1024)
     except urllib.error.HTTPError as exc:
         status_code = exc.code
+        headers = exc.headers
         try:
             raw = exc.read(128 * 1024)
         except OSError:
@@ -82,7 +85,16 @@ def http_request(base: str, path: str, correlation_id: str, method: str = "GET",
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return "fail", f"HTTP {status_code}; response was not JSON", None, elapsed
+        # Report response metadata, not the body: HTML/proxy pages can contain
+        # credentials or other host-specific information. Headers help identify
+        # a wrong listener or intermediary without leaking response contents.
+        content_type = headers.get("Content-Type", "unknown") if headers else "unknown"
+        server = headers.get("Server", "") if headers else ""
+        hint = f" (Content-Type={content_type}"
+        if server:
+            hint += f"; Server={server}"
+        hint += ")"
+        return "fail", f"HTTP {status_code}; response was not JSON{hint}", None, elapsed
     if not isinstance(payload, dict):
         return "fail", f"HTTP {status_code}; response was not a JSON object", None, elapsed
     if accept_no_data and status_code == 422 and payload.get("error_code") == "no_data":
