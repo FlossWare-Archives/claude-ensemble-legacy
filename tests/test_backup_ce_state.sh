@@ -15,7 +15,7 @@ git -C "$HOME/source" tag 0.1
 
 ROOT="$HOME/.FlossWare/claude-ensemble"
 output="$(bash "$HOME/source/tools/backup-ce-state.sh" pre-install "$ROOT")"
-backup_path="$(printf '%s\\n' "$output" | sed -n '1s/^Pre-operation backup created: //p')"
+backup_path="$(printf '%s\n' "$output" | sed -n '1s/^Pre-operation backup created: //p')"
 [[ -d "$backup_path" ]]
 backup_name="$(basename -- "$backup_path")"
 [[ "$backup_name" =~ ^0\.2_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}(_[0-9]{2})?$ ]] || {
@@ -27,7 +27,7 @@ grep -Fxq 'reason=pre-install' "$backup_path/manifest.txt"
 
 # Repeated snapshots preserve the same version while obtaining distinct names.
 output2="$(bash "$HOME/source/tools/backup-ce-state.sh" pre-install "$ROOT")"
-backup_path2="$(printf '%s\\n' "$output2" | sed -n '1s/^Pre-operation backup created: //p')"
+backup_path2="$(printf '%s\n' "$output2" | sed -n '1s/^Pre-operation backup created: //p')"
 [[ -d "$backup_path2" && "$backup_path2" != "$backup_path" ]]
 [[ "$(basename -- "$backup_path2")" =~ ^0\.2_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}(_[0-9]{2})?$ ]]
 
