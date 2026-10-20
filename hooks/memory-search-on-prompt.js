@@ -149,6 +149,13 @@ function formatGraphNode(node, relationship = '') {
   return `- ${type}${relation}: ${properties}`;
 }
 
+function formatRetrievedResult(index, result) {
+  const source = [result.file, result.section]
+    .filter(value => typeof value === 'string' && value.trim())
+    .join(' · ');
+  return `[${index + 1}]${source ? ` (${source})` : ''} ${result.content}`;
+}
+
 function formatContext(query, payload, graphContext = []) {
   const results = extractResults(payload);
   const { memory, knowledge } = partitionResults(results);
@@ -162,8 +169,7 @@ function formatContext(query, payload, graphContext = []) {
   if (memory.length) {
     lines.push('### Relevant Memory (what happened)');
     for (const [index, result] of memory.entries()) {
-      const source = [result.file, result.section].filter(value => typeof value === 'string' && value.trim()).join(' · ');
-      lines.push(`[${index + 1}]${source ? ` (${source})` : ''} ${result.content}`);
+      lines.push(formatRetrievedResult(index, result));
     }
     lines.push('');
   }
@@ -171,8 +177,7 @@ function formatContext(query, payload, graphContext = []) {
   if (knowledge.length) {
     lines.push('### Relevant Knowledge (what is currently known)');
     for (const [index, result] of knowledge.entries()) {
-      const source = [result.file, result.section].filter(value => typeof value === 'string' && value.trim()).join(' · ');
-      lines.push(`[${index + 1}]${source ? ` (${source})` : ''} ${result.content}`);
+      lines.push(formatRetrievedResult(index, result));
     }
     lines.push('');
   }
