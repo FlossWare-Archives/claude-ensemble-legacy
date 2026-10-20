@@ -8,6 +8,12 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 
 ---
 
+## CE Service Boundary
+
+The managed runtime consists of the gateway plus four application services: **Memory, Thompson, Graph, and Learning**. Alert and Messenger are legacy components; new installs do not activate them, and upgrades retire their old systemd units. SessionEnd capture writes metadata to Memory directly and does not depend on a message bus.
+
+For a source-checkout install, `install.sh` defaults to the isolated profile at `~/.FlossWare/claude-ensemble-profile`. The versioned deployment uses `~/.FlossWare/claude-ensemble/shared/claude-code`. Neither mode should modify the ordinary `~/.claude` profile unless the user explicitly overrides the profile path.
+
 ## What's Inside
 
 ### Core Infrastructure
