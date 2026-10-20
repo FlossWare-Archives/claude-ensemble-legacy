@@ -43,6 +43,7 @@ export CLAUDE_MESSENGER_SOCKET="$CE_STATE_ROOT/runtime/messenger.sock"
 
 export ENSEMBLE_HTTP_HOST=127.0.0.1
 export ENSEMBLE_HTTP_PORT=18080
+export ENSEMBLE_GATEWAY_URL=http://127.0.0.1:18080
 ~~~
 
 These non-default loopback ports reduce the chance of colliding with a separately managed CE instance. The gateway is configured to use the Memory and Graph URLs above. Do not expose these development services on a non-loopback interface.
