@@ -2,8 +2,11 @@
 """Verify the baseline systemd service ownership contract."""
 
 from pathlib import Path
+import os
 import re
+import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,6 +72,30 @@ for relative_path in EXPECTED_SERVICES:
     text = (ROOT / relative_path).read_text(encoding="utf-8")
     if text.count("[Service]") != 1:
         fail(f"{relative_path}: expected exactly one [Service] section")
+
+# The venv runner must be syntactically valid and export isolated defaults.
+syntax = subprocess.run(["bash", "-n", str(ROOT / "tools/ce")], capture_output=True, text=True)
+if syntax.returncode:
+    fail(f"tools/ce has invalid shell syntax: {syntax.stderr}")
+with tempfile.TemporaryDirectory(prefix="ce-dev-env-test-") as home:
+    env = os.environ.copy()
+    env["HOME"] = home
+    env.pop("ENSEMBLE_CE_DEV_STATE", None)
+    env.pop("ENSEMBLE_CE_DEV_VENV", None)
+    result = subprocess.run(
+        ["bash", str(ROOT / "tools/ce"), "dev", "env"],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    if result.returncode:
+        fail(f"tools/ce dev env failed: {result.stderr}")
+    expected_profile = Path(home) / ".FlossWare" / "claude-ensemble-profile"
+    for expected in (
+        f"export CLAUDE_CONFIG_DIR={expected_profile}",
+        f"export ENSEMBLE_MEMORY_DIR={expected_profile / 'data/memory'}",
+        "export ENSEMBLE_GATEWAY_URL=http://127.0.0.1:18080",
+    ):
+        if expected not in result.stdout:
+            fail(f"development environment omitted expected setting: {expected}")
 
 print("PASS: service lifecycle ownership contract")
 
