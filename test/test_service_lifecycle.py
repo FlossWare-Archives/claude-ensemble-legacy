@@ -11,8 +11,6 @@ EXPECTED_SERVICES = {
     "memory-service/claude-memory.service.template",
     "thompson-service/claude-thompson.service.template",
     "learning-service/claude-learning.service.template",
-    "alert_service/claude-alert.service.template",
-    "session-messaging/claude-messenger.service.template",
     "graph-service/claude-graph.service.template",
 }
 
@@ -82,8 +80,6 @@ manual_commands = {
     "thompson-service/thompson_service.py",
     "memory-service/memory_service.py",
     "learning-service/learning_service.py",
-    "alert_service/alert_service.py",
-    "session-messaging/messenger_service.py",
     "graph-service/graph_service.py",
 }
 for command in manual_commands:
