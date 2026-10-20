@@ -4,7 +4,7 @@ import http.server, json, os, shutil, socketserver, subprocess, tempfile, thread
 from pathlib import Path
 REPO=Path(__file__).resolve().parents[1]
 DEPLOYMENT_SOURCE=REPO/"tools"/"ce-deployment"
-UNITS=("claude-memory.service","claude-thompson.service","claude-learning.service","claude-alert.service","claude-messenger.service","claude-graph.service","claude-ensemble.service")
+UNITS=("claude-memory.service","claude-thompson.service","claude-learning.service","claude-graph.service","claude-ensemble.service")
 class ReadyHandler(http.server.BaseHTTPRequestHandler):
  def do_GET(self):
   self.send_response(200); self.end_headers(); self.wfile.write(b'{"ready":true}')
@@ -44,7 +44,7 @@ esac
    release=self.root/"releases"/version; (release/"tools").mkdir(parents=True)
    shutil.copy2(DEPLOYMENT_SOURCE,release/"tools"/"ce-deployment")
    shutil.copy2(REPO/"tools"/"managed_unit_config.py",release/"tools"/"managed_unit_config.py")
-   for service_dir in ("memory-service","thompson-service","learning-service","alert_service","session-messaging","graph-service","server"):
+   for service_dir in ("memory-service","thompson-service","learning-service","graph-service","server"):
     shutil.copytree(REPO/service_dir,release/service_dir)
    (release/"claude-code").symlink_to("../../shared/claude-code")
    installer=release/"install.sh"
