@@ -299,8 +299,6 @@ SERVICE_INSTALLERS=(
     "memory-service/install.sh"
     "thompson-service/install.sh"
     "learning-service/install.sh"
-    "alert_service/install.sh"
-    "session-messaging/install.sh"
     "graph-service/install.sh"
     "server/install.sh"
 )
@@ -321,8 +319,6 @@ if [[ "${ENSEMBLE_DEFER_SERVICE_START:-0}" != "1" ]]; then
         claude-memory.service \
         claude-thompson.service \
         claude-learning.service \
-        claude-alert.service \
-        claude-messenger.service \
         claude-graph.service \
         claude-ensemble.service; do
         if ! systemctl --user is-active --quiet "$unit"; then
