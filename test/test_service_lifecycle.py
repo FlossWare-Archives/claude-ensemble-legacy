@@ -89,9 +89,10 @@ with tempfile.TemporaryDirectory(prefix="ce-dev-env-test-") as home:
     if result.returncode:
         fail(f"tools/ce dev env failed: {result.stderr}")
     expected_profile = Path(home) / ".FlossWare" / "claude-ensemble-profile"
+    expected_state = Path(home) / ".FlossWare" / "claude-ensemble-state"
     for expected in (
         f"export CLAUDE_CONFIG_DIR={expected_profile}",
-        f"export ENSEMBLE_MEMORY_DIR={expected_profile / 'data/memory'}",
+        f"export ENSEMBLE_MEMORY_DIR={expected_state / 'data/memory'}",
         "export ENSEMBLE_GATEWAY_URL=http://127.0.0.1:18080",
     ):
         if expected not in result.stdout:
