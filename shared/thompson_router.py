@@ -543,17 +543,17 @@ class RHDisseminatorRouter:
     # RH task categories and recommended models
     TASK_ROUTING = {
         'code_review': {
-            'models': ['claude-opus-5-5', 'claude-sonnet-5', 'cursor'],
+            'models': ['claude-opus-5-5', 'claude-sonnet-5'],
             'complexity': 'high',
             'description': 'Code review and analysis'
         },
         'documentation': {
-            'models': ['claude-haiku-4-5-20251001', 'claude-sonnet-5', 'cursor'],
+            'models': ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
             'complexity': 'low',
             'description': 'Documentation generation'
         },
         'testing': {
-            'models': ['claude-haiku-4-5-20251001', 'claude-sonnet-5', 'cursor'],
+            'models': ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
             'complexity': 'low',
             'description': 'Test writing'
         },
@@ -563,12 +563,12 @@ class RHDisseminatorRouter:
             'description': 'Architecture design'
         },
         'bug_analysis': {
-            'models': ['claude-opus-5-5', 'claude-sonnet-5', 'cursor'],
+            'models': ['claude-opus-5-5', 'claude-sonnet-5'],
             'complexity': 'high',
             'description': 'Critical bug investigation'
         },
         'refactoring': {
-            'models': ['claude-sonnet-5', 'cursor', 'claude-haiku-4-5-20251001'],
+            'models': ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
             'complexity': 'medium',
             'description': 'Code refactoring'
         },
@@ -578,7 +578,7 @@ class RHDisseminatorRouter:
             'description': 'Research and investigation'
         },
         'simple_task': {
-            'models': ['claude-haiku-4-5-20251001', 'cursor'],
+            'models': ['claude-haiku-4-5-20251001'],
             'complexity': 'low',
             'description': 'Simple tasks'
         }
@@ -829,7 +829,6 @@ def test_thompson_sampling():
         'claude-haiku-4-5-20251001': {'successes': 30, 'failures': 6, 'latency_ms': 2500, 'cost': 0.015},
         'claude-sonnet-5': {'successes': 18, 'failures': 3, 'latency_ms': 5000, 'cost': 0.050},
         'claude-opus-5-5': {'successes': 14, 'failures': 2, 'latency_ms': 8000, 'cost': 0.080},
-        'cursor': {'successes': 22, 'failures': 4, 'latency_ms': 4500, 'cost': 0.045}
     }
 
     for model_name, data in historical_data.items():
@@ -854,25 +853,25 @@ def test_thompson_sampling():
     # Opus for hard tasks. Thompson should learn to match task to model.
     test_cases = [
         # Code review - Haiku struggles (0.75), Sonnet good (0.93), Opus excellent (0.97)
-        {'type': 'code_review', 'model_hints': {'claude-haiku-4-5-20251001': 0.75, 'claude-sonnet-5': 0.93, 'claude-opus-5-5': 0.97, 'cursor': 0.92}},
+        {'type': 'code_review', 'model_hints': {'claude-haiku-4-5-20251001': 0.75, 'claude-sonnet-5': 0.93, 'claude-opus-5-5': 0.97: 0.92}},
         # Testing - Haiku sufficient (0.90), others also good
-        {'type': 'testing', 'model_hints': {'claude-haiku-4-5-20251001': 0.90, 'claude-sonnet-5': 0.87, 'claude-opus-5-5': 0.88, 'cursor': 0.92}},
+        {'type': 'testing', 'model_hints': {'claude-haiku-4-5-20251001': 0.90, 'claude-sonnet-5': 0.87, 'claude-opus-5-5': 0.88: 0.92}},
         # Documentation - Haiku good (0.92), others similar
-        {'type': 'documentation', 'model_hints': {'claude-haiku-4-5-20251001': 0.92, 'claude-sonnet-5': 0.91, 'claude-opus-5-5': 0.89, 'cursor': 0.90}},
+        {'type': 'documentation', 'model_hints': {'claude-haiku-4-5-20251001': 0.92, 'claude-sonnet-5': 0.91, 'claude-opus-5-5': 0.89: 0.90}},
         # Bug analysis - Haiku weak (0.65), Sonnet okay (0.88), Opus excellent (0.96)
-        {'type': 'bug_analysis', 'model_hints': {'claude-haiku-4-5-20251001': 0.65, 'claude-sonnet-5': 0.88, 'claude-opus-5-5': 0.96, 'cursor': 0.87}},
+        {'type': 'bug_analysis', 'model_hints': {'claude-haiku-4-5-20251001': 0.65, 'claude-sonnet-5': 0.88, 'claude-opus-5-5': 0.96: 0.87}},
         # Simple task - Haiku excellent (0.95), others sufficient
-        {'type': 'simple_task', 'model_hints': {'claude-haiku-4-5-20251001': 0.95, 'claude-sonnet-5': 0.91, 'claude-opus-5-5': 0.90, 'cursor': 0.92}},
+        {'type': 'simple_task', 'model_hints': {'claude-haiku-4-5-20251001': 0.95, 'claude-sonnet-5': 0.91, 'claude-opus-5-5': 0.90: 0.92}},
         # Architecture - Haiku weak (0.60), Sonnet decent (0.85), Opus excellent (0.94)
-        {'type': 'architecture', 'model_hints': {'claude-haiku-4-5-20251001': 0.60, 'claude-sonnet-5': 0.85, 'claude-opus-5-5': 0.94, 'cursor': 0.86}},
+        {'type': 'architecture', 'model_hints': {'claude-haiku-4-5-20251001': 0.60, 'claude-sonnet-5': 0.85, 'claude-opus-5-5': 0.94: 0.86}},
         # Refactoring - Haiku okay (0.88), Sonnet good (0.89), others similar
-        {'type': 'refactoring', 'model_hints': {'claude-haiku-4-5-20251001': 0.88, 'claude-sonnet-5': 0.89, 'claude-opus-5-5': 0.90, 'cursor': 0.91}},
+        {'type': 'refactoring', 'model_hints': {'claude-haiku-4-5-20251001': 0.88, 'claude-sonnet-5': 0.89, 'claude-opus-5-5': 0.90: 0.91}},
         # Research - Haiku weak (0.70), Opus excellent (0.95)
-        {'type': 'research', 'model_hints': {'claude-haiku-4-5-20251001': 0.70, 'claude-sonnet-5': 0.84, 'claude-opus-5-5': 0.95, 'cursor': 0.88}},
+        {'type': 'research', 'model_hints': {'claude-haiku-4-5-20251001': 0.70, 'claude-sonnet-5': 0.84, 'claude-opus-5-5': 0.95: 0.88}},
         # Code review (again) - Same quality tradeoffs
-        {'type': 'code_review', 'model_hints': {'claude-haiku-4-5-20251001': 0.76, 'claude-sonnet-5': 0.92, 'claude-opus-5-5': 0.96, 'cursor': 0.91}},
+        {'type': 'code_review', 'model_hints': {'claude-haiku-4-5-20251001': 0.76, 'claude-sonnet-5': 0.92, 'claude-opus-5-5': 0.96: 0.91}},
         # Testing (again) - Haiku good
-        {'type': 'testing', 'model_hints': {'claude-haiku-4-5-20251001': 0.91, 'claude-sonnet-5': 0.86, 'claude-opus-5-5': 0.87, 'cursor': 0.93}},
+        {'type': 'testing', 'model_hints': {'claude-haiku-4-5-20251001': 0.91, 'claude-sonnet-5': 0.86, 'claude-opus-5-5': 0.87: 0.93}},
     ]
 
     # Define cost per model (these are real from historical data)
@@ -880,7 +879,6 @@ def test_thompson_sampling():
         'claude-haiku-4-5-20251001': 0.015,
         'claude-sonnet-5': 0.050,
         'claude-opus-5-5': 0.080,
-        'cursor': 0.045
     }
 
     # Latencies (ms)
@@ -888,7 +886,6 @@ def test_thompson_sampling():
         'claude-haiku-4-5-20251001': 2500,
         'claude-sonnet-5': 5000,
         'claude-opus-5-5': 8000,
-        'cursor': 4500
     }
 
     print("Running 10 RH task simulations...\n")
