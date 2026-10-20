@@ -86,7 +86,7 @@ echo "Repository:  $REPO_PATH"
 echo "Claude profile: $CLAUDE_HOME"
 echo ""
 
-# Step 1: Create ~/.claude directories
+# Step 1: Create the selected isolated Claude Code profile directories
 echo "1. Setting up Claude Code profile directories at $CLAUDE_HOME..."
 mkdir -p "$CLAUDE_HOME"/{hooks,projects/memory,cost_tracking}
 echo "   ✓ Created directories"
@@ -297,6 +297,14 @@ install_managed_copy "$CLAUDE_HOME/memory-client.py" "$MEMORY_SOURCE" "memory-cl
 # enabled and started rather than merely rendered to disk.
 echo ""
 echo "7. Installing and starting systemd user services..."
+# Retire the legacy CE-only Alert/Messenger units on source-checkout upgrades too.
+SYSTEMD_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
+for legacy_unit in claude-alert.service claude-messenger.service; do
+    systemctl --user stop "$legacy_unit" >/dev/null 2>&1 || true
+    systemctl --user disable "$legacy_unit" >/dev/null 2>&1 || true
+    rm -f -- "$SYSTEMD_DIR/$legacy_unit"
+done
+systemctl --user daemon-reload
 SERVICE_INSTALLERS=(
     "memory-service/install.sh"
     "thompson-service/install.sh"
