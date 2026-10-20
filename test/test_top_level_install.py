@@ -148,6 +148,18 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     ordinary_sentinel = ordinary_claude / "sentinel"
     ordinary_sentinel.write_text("ordinary-profile-must-remain-untouched\\n", encoding="utf-8")
 
+    # Legacy service data is copied to the isolated state root, never moved or edited.
+    legacy_memory = ordinary_claude / "projects" / "memory"
+    legacy_memory.mkdir(parents=True)
+    (legacy_memory / "legacy-memory.json").write_text('{"event":"preserve"}\\n', encoding="utf-8")
+    legacy_learning = ordinary_claude / "projects" / "learning"
+    legacy_learning.mkdir(parents=True)
+    (legacy_learning / "outcome.json").write_text('{"outcome":"preserve"}\\n', encoding="utf-8")
+    (legacy_learning / "thompson-sampling-state.json").write_text('{"alpha":2}\\n', encoding="utf-8")
+    legacy_graph = home / ".local" / "share" / "claude-ensemble" / "graph.json"
+    legacy_graph.parent.mkdir(parents=True)
+    legacy_graph.write_text('{"nodes":[]}\\n', encoding="utf-8")
+
     # Existing settings in the selected CE profile contain unrelated user-owned configuration.
     settings = claude_home / "settings.json"
     settings_data = {
@@ -215,6 +227,20 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
         fail("installer modified ordinary ~/.claude")
     if (ordinary_claude / "settings.json").exists() or (ordinary_claude / "hooks").exists():
         fail("installer wrote CE configuration into ordinary ~/.claude")
+    state_root = home / ".FlossWare" / "claude-ensemble-state"
+    migrated_files = (
+        state_root / "data/memory/legacy-memory.json",
+        state_root / "data/learning/outcome.json",
+        state_root / "data/learning/thompson-sampling-state.json",
+        state_root / "data/graph.json",
+    )
+    for migrated in migrated_files:
+        if not migrated.is_file():
+            fail(f"legacy service state was not copied to the isolated state root: {migrated}")
+    if (legacy_memory / "legacy-memory.json").read_text(encoding="utf-8") != '{"event":"preserve"}\\n':
+        fail("legacy Memory source was modified during migration")
+    if legacy_graph.read_text(encoding="utf-8") != '{"nodes":[]}\\n':
+        fail("legacy Graph source was modified during migration")
     if "claude-ensemble/tools" not in bashrc.read_text(encoding="utf-8"):
         fail("installer did not add its PATH entry to existing shell config")
 
