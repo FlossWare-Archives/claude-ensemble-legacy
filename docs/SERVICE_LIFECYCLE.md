@@ -10,7 +10,7 @@ From a source checkout, create the Python virtualenv and isolated state/profile 
 tools/ce dev setup
 ```
 
-The virtualenv lives at `~/.FlossWare/venvs/claude-ensemble`; the profile and mutable state live under `~/.FlossWare/claude-ensemble-profile`. Ordinary `~/.claude/` is not modified by default.
+The virtualenv lives at `~/.FlossWare/venvs/claude-ensemble`; the profile lives at `~/.FlossWare/claude-ensemble-profile` and mutable service data lives at `~/.FlossWare/claude-ensemble-state`. Ordinary `~/.claude/` is not modified by default.
 
 ## Start the services
 
