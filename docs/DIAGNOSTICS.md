@@ -176,7 +176,7 @@ curl -s -f -X POST "${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}/memory/write"
 ```bash
 curl -s -f -X POST "${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}/memory/ingest" \
   -H "Content-Type: application/json" \
-  -d '{"path": "/tmp/acceptance_doc.md", "content": "# Acceptance Test Knowledge\nDurable Knowledge document retrieval verified.", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "metadata": {"scope": "/tmp"}}' \
+  -d '{"path": "/tmp/acceptance_doc.md", "content": "# Acceptance Test Knowledge\nDurable Knowledge document retrieval verified.", "sha256": "ee4ab4b4355aa05f2bde62d2ba89b55d39e33271ac08ed7e9a8b351fcae6bb55", "metadata": {"scope": "/tmp"}}' \
   -w "\nHTTP %{http_code}\n"
 ```
 
