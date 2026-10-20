@@ -41,6 +41,17 @@ if bash "$SOURCE/tools/create-ce-release-tag.sh" --repo "$SOURCE" >/dev/null 2>&
 fi
 git -C "$SOURCE" checkout -q main
 
+# A clean but ahead-of-upstream main must also fail closed.
+printf 'unreleased change\n' > "$SOURCE/unreleased.txt"
+git -C "$SOURCE" add unreleased.txt
+git -C "$SOURCE" commit -qm "ahead of upstream"
+if bash "$SOURCE/tools/create-ce-release-tag.sh" --repo "$SOURCE" >/dev/null 2>&1; then
+  printf 'ERROR: release tag creation accepted main ahead of upstream\n' >&2
+  exit 1
+fi
+git -C "$SOURCE" reset --hard -q origin/main
+[[ ! -e "$SOURCE/unreleased.txt" ]]
+
 # Ambiguous numeric dotted tags must fail closed.
 git -C "$SOURCE" tag 1.2.3
 if bash "$SOURCE/tools/create-ce-release-tag.sh" --repo "$SOURCE" >/dev/null 2>&1; then
