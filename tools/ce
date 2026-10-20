@@ -69,7 +69,7 @@ dev_setup() {
   echo "  Source: $ROOT"
   echo "  Virtualenv: $CE_VENV"
   echo "  Isolated state/profile: $CE_STATE"
-  echo "  Start each service in a separate terminal after running: eval \"$(tools/ce dev env)\""
+  echo '  Start each service in a separate terminal after running: eval "$(tools/ce dev env)"'
 }
 
 dev_run() {
