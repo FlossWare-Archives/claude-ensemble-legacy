@@ -30,7 +30,9 @@ if [ ! -d "$REPO_PATH" ]; then
 fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
-CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-$HOME/.claude}"
+# Never modify the ordinary ~/.claude profile by default. Standalone deployment
+# passes its own shared profile explicitly; source-checkout installs get an isolated profile.
+CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-$HOME/.FlossWare/claude-ensemble-profile}"
 case "$CLAUDE_HOME" in "~") CLAUDE_HOME="$HOME" ;; "~/"*) CLAUDE_HOME="$HOME/${CLAUDE_HOME#\~/}" ;; esac
 MEMORY_SERVICE_DIR="$REPO_PATH/memory-service"
 
