@@ -416,6 +416,20 @@ def run():
             assert status==200 and body["ok"] and body["data"][0]["model"]=="sonnet",body
             status,body=request(gateway,"POST","/api/v1/decision/query/patterns",{"model":"sonnet"})
             assert status==200 and body["ok"] and body["sample_count"]==1,body
+
+            # The deep diagnostic uses this read-only GET route. Require a
+            # JSON object and the documented no-data status rather than
+            # allowing a wrong listener or HTML response to look healthy.
+            status,headers,body=request_with_headers(
+                gateway,"GET","/api/v1/decision/query/problems"
+            )
+            assert headers.get("Content-Type","").split(";",1)[0].lower()=="application/json",headers
+            assert isinstance(body,dict),body
+            if status==200:
+                assert body.get("ok") is True,body
+            else:
+                assert status==422 and body.get("error_code")=="no_data",body
+
             status,body=request(gateway,"POST","/api/v1/decision/analytics/best-models",{})
             assert status==400 and not body["ok"] and body["error_code"]=="invalid_request"
             status,body=request(gateway,"POST","/api/v1/decision/query/semantic",{})
