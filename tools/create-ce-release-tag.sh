@@ -37,6 +37,10 @@ branch="$(git -C "$REPO" branch --show-current)"
 [[ "$branch" == "main" ]] || die "release tags may only be created from the main branch (current branch: ${branch:-detached HEAD})"
 [[ -z "$(git -C "$REPO" status --porcelain --untracked-files=all)" ]] || die "working tree must be clean, including untracked files"
 git -C "$REPO" rev-parse --verify HEAD >/dev/null 2>&1 || die "repository has no commit to tag"
+upstream="$(git -C "$REPO" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" || die "main must track an upstream branch; fetch and configure the release checkout before tagging"
+commit="$(git -C "$REPO" rev-parse HEAD)"
+upstream_commit="$(git -C "$REPO" rev-parse "$upstream^{commit}")"
+[[ "$commit" == "$upstream_commit" ]] || die "main must exactly match its upstream ($upstream); fetch/pull and reconcile before tagging"
 
 resolver_args=(--repo "$REPO")
 if [[ -n "$DEPLOYMENT_ROOT" ]]; then
@@ -48,7 +52,6 @@ if git -C "$REPO" show-ref --verify --quiet "refs/tags/$VERSION"; then
   die "release tag already exists: $VERSION"
 fi
 
-commit="$(git -C "$REPO" rev-parse HEAD)"
 git -C "$REPO" -c tag.gpgSign=false tag -a "$VERSION" -m "Claude Ensemble $VERSION" "$commit"
 [[ "$(git -C "$REPO" cat-file -t "refs/tags/$VERSION")" == "tag" ]] || die "created release reference is not an annotated tag"
 [[ "$(git -C "$REPO" rev-parse "$VERSION^{commit}")" == "$commit" ]] || die "created tag does not point to the validated HEAD commit"
