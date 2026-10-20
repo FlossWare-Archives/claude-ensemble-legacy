@@ -15,7 +15,7 @@ expect_version() {
   local expected="$1"
   shift
   local actual
-  actual="$("$RESOLVER" --repo "$@" 2>/dev/null)"
+  actual="$(bash "$RESOLVER" --repo "$@" 2>/dev/null)"
   [[ "$actual" == "$expected" ]] || {
     printf 'Expected version %s, got %s\n' "$expected" "$actual" >&2
     exit 1
@@ -24,7 +24,7 @@ expect_version() {
 expect_failure() {
   local repo="$1"
   shift
-  if "$RESOLVER" --repo "$repo" "$@" >"$TMP/stdout" 2>"$TMP/stderr"; then
+  if bash "$RESOLVER" --repo "$repo" "$@" >"$TMP/stdout" 2>"$TMP/stderr"; then
     printf 'Expected resolver failure for %s\n' "$repo" >&2
     exit 1
   fi
