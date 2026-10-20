@@ -404,3 +404,31 @@ time.sleep(30)
 
     with pytest.raises(ProcessLookupError):
         os.killpg(parent_pid, 0)
+
+
+@pytest.mark.parametrize(
+    ("request", "message"),
+    [
+        (
+            ModelRequest(
+                "current question",
+                messages=(
+                    {"role": "user", "content": "prior question"},
+                    {"role": "assistant", "content": "prior answer"},
+                ),
+            ),
+            "does not support prior conversation messages",
+        ),
+        (ModelRequest("hello", temperature=0), "does not support temperature overrides"),
+        (ModelRequest("hello", max_tokens=8), "does not support max_tokens overrides"),
+    ],
+)
+def test_unsupported_request_contract_fails_before_cli_invocation(
+    request: ModelRequest, message: str
+) -> None:
+    with patch("providers.claude_code.shutil.which", return_value="/usr/bin/claude"), patch(
+        "providers.claude_code.subprocess.Popen"
+    ) as popen:
+        with pytest.raises(ValueError, match=message):
+            ClaudeCodeProvider().generate(request)
+    popen.assert_not_called()
