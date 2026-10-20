@@ -126,6 +126,7 @@ def test_collaboration_rest_route_uses_strict_claude_code_provider(
                     "subtype": "success",
                     "result": self.result,
                     "model": "claude-sonnet-4-5",
+                    "modelUsage": {"claude-sonnet-4-5": {"provider": "vertex"}},
                     "apiProvider": "vertex",
                 }),
                 "",
