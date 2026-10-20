@@ -20,11 +20,11 @@ class ModelRequest:
 
     prompt: str
     model: str | None = None
-    system_prompt: str | None = None
+    system_prompt: str | None | object = _UNSET
     messages: tuple[Mapping[str, str], ...] | object = _UNSET
     temperature: float | object = _UNSET
     max_tokens: int | object = _UNSET
-    timeout: float = 300.0
+    timeout: float | object = _UNSET
     metadata: Mapping[str, Any] = field(default_factory=dict)
     explicit_fields: frozenset[str] = field(init=False, repr=False, compare=False)
 
@@ -32,19 +32,25 @@ class ModelRequest:
         explicit = frozenset(
             name
             for name, value in (
+                ("system_prompt", self.system_prompt),
                 ("messages", self.messages),
                 ("temperature", self.temperature),
                 ("max_tokens", self.max_tokens),
+                ("timeout", self.timeout),
             )
             if value is not _UNSET
         )
         object.__setattr__(self, "explicit_fields", explicit)
+        if self.system_prompt is _UNSET:
+            object.__setattr__(self, "system_prompt", None)
         if self.messages is _UNSET:
             object.__setattr__(self, "messages", ())
         if self.temperature is _UNSET:
             object.__setattr__(self, "temperature", 0.7)
         if self.max_tokens is _UNSET:
             object.__setattr__(self, "max_tokens", 2000)
+        if self.timeout is _UNSET:
+            object.__setattr__(self, "timeout", 300.0)
         if not isinstance(self.prompt, str) or not self.prompt:
             raise ValueError("prompt must be a non-empty string")
         if self.model is not None and not isinstance(self.model, str):
