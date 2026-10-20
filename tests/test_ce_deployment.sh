@@ -127,6 +127,17 @@ if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/../escape-parent/root" b
   exit 1
 fi
 [[ ! -e "$ESCAPE_PARENT" ]] || { echo 'FAIL: rejected installer traversal created a directory outside HOME' >&2; exit 1; }
+
+# The lifecycle manager must enforce the same .FlossWare parent-symlink rule
+# as the installer, even when the symlink target still resolves under HOME.
+SYMLINK_HOME="$TMP/symlink-home"
+mkdir -p "$SYMLINK_HOME/real-flossware"
+ln -s "$SYMLINK_HOME/real-flossware" "$SYMLINK_HOME/.FlossWare"
+if HOME="$SYMLINK_HOME" ENSEMBLE_INSTALL_ROOT="$SYMLINK_HOME/.FlossWare/claude-ensemble" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment manager accepted a symlinked .FlossWare parent' >&2
+  exit 1
+fi
+[[ ! -e "$SYMLINK_HOME/real-flossware/claude-ensemble" ]] || { echo 'FAIL: rejected parent symlink created a deployment root' >&2; exit 1; }
 OUTSIDE_PARENT="$TMP/outside-parent"
 mkdir -p "$OUTSIDE_PARENT"
 ln -s "$OUTSIDE_PARENT" "$HOME/external-link"
