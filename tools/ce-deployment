@@ -349,12 +349,10 @@ case "$cmd" in
     ;;
   activate)
     [[ $# -eq 2 ]] || die "usage: ce-deployment activate MAJOR.MINOR"
-    "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
     [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
     version="$2"
     validate_release "$version"
     preflight_units "$version"
-    mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
     assert_managed_layout
     if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
       previous="$(active_version)" || die "current symlink is invalid; refusing activation"
@@ -365,6 +363,9 @@ case "$cmd" in
       recorded_active="$(known_good_field active)" || die "known-good state is invalid"
       [[ "$recorded_active" == "$previous" ]] || die "current release ${previous:-none} does not match known-good state $recorded_active; recover or reconcile deployment state first"
     fi
+    "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
+    mkdir -p "$RELEASES" "$ROOT/shared/claude-code" "$ROOT/shared/config" "$ROOT/shared/data" "$ROOT/shared/logs" "$BACKUPS"
+    assert_managed_layout
     [[ "$previous" != "$version" ]] || { printf "Release %s is already active.\n" "$version"; exit 0; }
     backup="$BACKUPS/activation.$(date +%Y%m%d%H%M%S).$$"
     mkdir -m 700 "$backup"
