@@ -55,6 +55,32 @@ def test_capability_builder_rejects_unsupported_controls(kwargs, message):
         build_model_request(provider, prompt="task", **kwargs)
 
 
+def test_builder_preserves_controls_supported_by_selected_provider():
+    class ConfigurableProvider:
+        name = "configurable"
+        capabilities = ModelCapabilities(
+            provider=name,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+        )
+
+    request = build_model_request(
+        ConfigurableProvider(),
+        prompt="task",
+        messages=({"role": "user", "content": "prior"},),
+        temperature=0.2,
+        max_tokens=100,
+    )
+
+    assert request.messages == ({"role": "user", "content": "prior"},)
+    assert request.temperature == 0.2
+    assert request.max_tokens == 100
+    assert request.explicit_fields == frozenset(
+        {"messages", "temperature", "max_tokens"}
+    )
+
+
 def test_direct_provider_invocation_uses_same_capability_contract():
     provider = ClaudeCodeProvider(expected_provider="vertex")
 
