@@ -38,4 +38,4 @@ Run the separate tag command only from a clean `main` checkout:
 bash tools/create-ce-release-tag.sh
 ```
 
-It re-runs the resolver (optionally checking a deployment root), creates the next `MAJOR.MINOR` version as an annotated local Git tag, and verifies that the tag points to the current `HEAD`. It refuses dirty or non-`main` checkouts and ambiguous version state. It does **not** push the tag, create a GitHub release, stage a deployment, or activate services. Review and push the tag through the repository's normal release process as a separate deliberate action.
+It re-runs the resolver (optionally checking a deployment root), creates the next `MAJOR.MINOR` version as an annotated local Git tag, and verifies that the tag points to the current `HEAD`. It refuses dirty or non-`main` checkouts, a `main` branch that is not exactly synchronized with its configured upstream, and ambiguous version state. It does **not** push the tag, create a GitHub release, stage a deployment, or activate services. Review and push the tag through the repository's normal release process as a separate deliberate action.
