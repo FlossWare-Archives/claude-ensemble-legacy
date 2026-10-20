@@ -3,9 +3,9 @@
 /**
  * Operational acceptance verification script for Claude Ensemble Memory REST integration.
  *
- * Verifies that the production UserPromptSubmit hook (hooks/memory-search-on-prompt.js)
- * communicates with the configured Memory REST endpoint and injects identifiable
- * Memory and Knowledge records into the prompt context.
+ * Verifies that the installed UserPromptSubmit hook communicates with the configured
+ * Memory REST endpoint and injects identifiable Memory and Knowledge records into
+ * the prompt context. FLOSSWARE_HOOK_PATH can select a deliberate test fixture.
  *
  * Exit status codes:
  *   0 - Success: Both expected Memory and Knowledge records retrieved and injected into prompt context.
@@ -17,10 +17,16 @@
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
-const hookPath = process.env.FLOSSWARE_HOOK_PATH || path.join(repoRoot, 'hooks', 'memory-search-on-prompt.js');
+const profileDir = process.env.ENSEMBLE_CLAUDE_CODE_CONFIG_DIR
+  || process.env.CLAUDE_CONFIG_DIR
+  || path.join(os.homedir(), '.FlossWare', 'claude-ensemble', 'shared', 'claude-code');
+// Acceptance must exercise the installed hook, not silently fall back to the
+// repository copy and accidentally pass when installation is broken.
+const hookPath = process.env.FLOSSWARE_HOOK_PATH || path.join(profileDir, 'hooks', 'memory-search-on-prompt.js');
 
 const memoryUrl = process.env.FLOSSWARE_MEMORY_URL || process.env.ENSEMBLE_MEMORY_URL || 'http://127.0.0.1:8767';
 
@@ -43,7 +49,8 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (!fs.existsSync(hookPath)) {
-  console.error(`ACCEPTANCE ERROR (Exit 2): Hook script not found at ${hookPath}`);
+  console.error(`ACCEPTANCE ERROR (Exit 2): Installed hook script not found at ${hookPath}`);
+  console.error('  Remediation: install Claude Ensemble into the managed profile or set FLOSSWARE_HOOK_PATH explicitly for a deliberate test.');
   process.exit(2);
 }
 
