@@ -86,7 +86,7 @@ cd "$CE_CODE"
 "$CE_VENV/bin/python" server/ensemble_server.py
 ```
 
-If the dependencies are already installed in the active Python environment, the equivalent service entry points are `python3 memory-service/memory_service.py`, `python3 thompson-service/thompson_service.py`, `python3 learning-service/learning_service.py`, and `python3 graph-service/graph_service.py`. No Alert or Messenger process is required. Use Ctrl-C to stop its service in its terminal. CE clients do not silently start a replacement daemon.
+If the dependencies are already installed in the active Python environment, the equivalent service entry points are `python3 memory-service/memory_service.py`, `python3 thompson-service/thompson_service.py`, `python3 learning-service/learning_service.py`, and `python3 graph-service/graph_service.py`. No Alert or Messenger process is required. In each terminal, use Ctrl-C to stop its service. CE clients do not silently start a replacement daemon.
 
 If Memory is unavailable, `MemoryClient.append()` returns `False`; there is no automatic replay or flush. Start the missing service and retry the operation explicitly. Do not start a second process against the same state directory or ports.
 
