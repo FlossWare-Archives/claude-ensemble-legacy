@@ -2,6 +2,7 @@
 # Create a durable, private snapshot before CE installation or upgrade.
 # Usage: tools/backup-ce-state.sh REASON [deployment-root] [profile-directory]
 set -Eeuo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ "$#" -lt 1 || "$#" -gt 3 || ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]]; then
   printf 'Usage: %s REASON [deployment-root] [profile-directory]\n' "$0" >&2
   exit 2
