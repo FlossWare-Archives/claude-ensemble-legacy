@@ -162,7 +162,8 @@ function formatContext(query, payload, graphContext = []) {
   if (memory.length) {
     lines.push('### Relevant Memory (what happened)');
     for (const [index, result] of memory.entries()) {
-      lines.push(`[${index + 1}] ${result.content}`);
+      const source = [result.file, result.section].filter(value => typeof value === 'string' && value.trim()).join(' · ');
+      lines.push(`[${index + 1}]${source ? ` (${source})` : ''} ${result.content}`);
     }
     lines.push('');
   }
@@ -170,7 +171,8 @@ function formatContext(query, payload, graphContext = []) {
   if (knowledge.length) {
     lines.push('### Relevant Knowledge (what is currently known)');
     for (const [index, result] of knowledge.entries()) {
-      lines.push(`[${index + 1}] ${result.content}`);
+      const source = [result.file, result.section].filter(value => typeof value === 'string' && value.trim()).join(' · ');
+      lines.push(`[${index + 1}]${source ? ` (${source})` : ''} ${result.content}`);
     }
     lines.push('');
   }
