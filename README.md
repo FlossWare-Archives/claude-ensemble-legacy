@@ -59,7 +59,7 @@ ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
 
 Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
 
-After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the seven CE user services**:
+After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the five CE user services**:
 
 ```bash
 bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
@@ -145,7 +145,7 @@ Run a correlated health and integration check before testing a live Claude Code 
 bash tools/ce diagnose --deep --json
 ```
 
-This probes the configured gateway, Memory, Graph, decision endpoint, Learning, Thompson, Messenger, and Alert service. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
+This probes the configured gateway, Memory, Graph, decision endpoint, Learning, and Thompson services. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
 
 To exercise the installed `UserPromptSubmit` hook against live Memory/Graph services without writing production data:
 
@@ -155,7 +155,7 @@ bash tools/ce diagnose --hook-smoke --json
 
 Hook lookup follows `CLAUDE_HOOK_DIR`, then the explicitly selected `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR`. With none configured, it uses the standalone CE profile at `~/.FlossWare/claude-ensemble/shared/claude-code/hooks`. It does **not** silently inspect ordinary `~/.claude/hooks`; pass `--hook-dir` explicitly when intentionally testing another profile.
 
-To also exercise installed SessionEnd capture and Messenger delivery, explicitly authorize one uniquely identified metadata-only event in production Memory:
+To also exercise installed SessionEnd capture, explicitly authorize one uniquely identified metadata-only event in production Memory:
 
 ```bash
 bash tools/ce diagnose --session-end-smoke --allow-memory-write --json
@@ -458,7 +458,7 @@ configured with environment variables:
 | `ENSEMBLE_*_SOCKET` | Per-service Unix socket override | Existing service socket |
 
 For a standalone installation, services are optional. The memory client already degrades
-gracefully when its daemon is unavailable, and the learning/Thompson/alert services can
+gracefully when its daemon is unavailable, and the Learning/Thompson services can
 be run only when their corresponding features are needed. No Red Hat GitLab host,
 credential file, or repository path is required by the core runtime.
 
@@ -538,7 +538,7 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 - **`MODEL_REGISTRY.md`** — Available models and capabilities
 
 **Component Docs:**
-- **`SERVICES_GUIDE.md`** — Systemd services (memory, thompson, learning, alert, messenger, graph)
+- **`SERVICES_GUIDE.md`** — Systemd services (memory, thompson, learning, graph, and gateway)
 - **`TOOLS_INTEGRATION_GUIDE.md`** — Thompson router, GA tuning, learning system
 - **`cost_tracking/`** — Cost logging and aggregation
 - **`ga_tuning/`** — Genetic algorithm parameter optimization
@@ -577,7 +577,7 @@ tools/ce diagnose --json
 
 ## Uninstalling a standalone deployment
 
-Use the repository's `uninstall.sh` entry point to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
+Use the repository's `uninstall.sh` entry point to stop CE's five managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
 
 ```bash
 SOURCE="$HOME/.FlossWare/ce-source"
