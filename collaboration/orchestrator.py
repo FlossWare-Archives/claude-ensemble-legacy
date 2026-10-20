@@ -254,10 +254,10 @@ class CollaborationOrchestrator:
             candidate_id = f"r{self.state.round}-{model}"
             try:
                 response = provider.generate(
-                    ModelRequest(
+                    build_model_request(
+                        provider,
                         prompt=prompt,
                         model=self.solver_model_ids.get(model, model),
-                        temperature=0.4,
                         metadata={"collaboration_round": self.state.round},
                     )
                 )
