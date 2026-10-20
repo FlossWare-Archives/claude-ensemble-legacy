@@ -29,7 +29,7 @@ if [[ "$REASON" =~ ^[0-9]+\.[0-9]+$ ]]; then
   BACKUP_STEM="$BACKUP_BASE/${REASON}_${STAMP}"
 else
   # Keep reason-oriented names for other backup callers.
-  BACKUP_STEM="$BACKUP_BASE/${STAMP}-${REASON}-$"
+  BACKUP_STEM="$BACKUP_BASE/${STAMP}-${REASON}-$$"
 fi
 BACKUP="$BACKUP_STEM"
 suffix=0
