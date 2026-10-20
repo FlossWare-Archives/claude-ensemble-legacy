@@ -42,6 +42,8 @@ def test_capability_builder_accepts_omitted_and_explicit_default_controls():
     [
         ({"temperature": 0.2}, "claude-code does not support temperature overrides"),
         ({"max_tokens": 100}, "claude-code does not support max_tokens overrides"),
+        ({"system_prompt": "system"}, "claude-code does not support system_prompt"),
+        ({"timeout": 10.0}, "claude-code does not support timeout overrides"),
         (
             {"messages": ({"role": "user", "content": "prior turn"},)},
             "claude-code does not support prior conversation messages",
@@ -70,16 +72,20 @@ def test_builder_preserves_controls_supported_by_selected_provider():
     request = build_model_request(
         ConfigurableProvider(),
         prompt="task",
+        system_prompt="be precise",
         messages=({"role": "user", "content": "prior"},),
         temperature=0.2,
         max_tokens=100,
+        timeout=600.0,
     )
 
+    assert request.system_prompt == "be precise"
     assert request.messages == ({"role": "user", "content": "prior"},)
     assert request.temperature == 0.2
     assert request.max_tokens == 100
+    assert request.timeout == 600.0
     assert request.explicit_fields == frozenset(
-        {"messages", "temperature", "max_tokens"}
+        {"system_prompt", "messages", "temperature", "max_tokens", "timeout"}
     )
 
 
