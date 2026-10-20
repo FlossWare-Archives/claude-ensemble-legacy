@@ -1,7 +1,7 @@
 """Mocked end-to-end tests for the Claude Code hook lifecycle.
 
 These tests execute the real Node hook scripts against fake Memory and Graph REST
-services plus a fake Messenger Unix socket. They require Node.js but never start CE
+the four core services. They require Node.js but never start CE
 daemons or call external APIs.
 """
 from __future__ import annotations
@@ -313,17 +313,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertNotIn("private/transcript", serialized)
         self.assertNotIn("private/project", serialized)
 
-        self.assertEqual(len(self.messenger.requests), 2)
-        for request in self.messenger.requests:
-            self.assertEqual(request["op"], "publish")
-            self.assertEqual(request["topic"], "sessions")
-            self.assertEqual(request["event_type"], "claude_code.session_end")
-            self.assertEqual(request["data"]["session_id"], "stable-session-id")
-            self.assertEqual(request["data"]["source"], "claude-code")
-            messenger_payload = json.dumps(request)
-            self.assertNotIn("transcript_path", messenger_payload)
-            self.assertNotIn("private/transcript", messenger_payload)
-            self.assertNotIn("private/project", messenger_payload)
+        self.assertEqual(self.messenger.requests, [], "SessionEnd must not depend on Messenger")
 
     def test_session_end_capture_fails_open_but_reports_missing_session_id(self) -> None:
         missing_id = self.run_hook("session-end-memory-capture.js", {"hook_event_name": "SessionEnd"})
@@ -339,8 +329,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(unavailable.returncode, 0)
         self.assertIn("Memory capture unavailable", unavailable.stderr)
-        self.assertEqual(len(self.messenger.requests), 1)
-        self.assertEqual(self.messenger.requests[0]["data"]["session_id"], "session-down")
+        self.assertEqual(self.messenger.requests, [], "Memory failure must not trigger a Messenger dependency")
 
     def test_default_settings_register_only_the_canonical_safe_lifecycle_hooks(self) -> None:
         self.assertFalse((HOOKS / "workflow-completion-hook.js").exists())
@@ -498,7 +487,7 @@ finally:
         self.assertEqual("claude_code.session_end", capture[0]["entry"]["event_type"])
         self.assertNotIn("transcript_path", json.dumps(capture[0]))
         self.assertNotIn("/private/", json.dumps(capture[0]))
-        self.assertEqual(session_id, self.messenger.requests[-1]["data"]["session_id"])
+        self.assertEqual(self.messenger.requests, [], "SessionEnd must not publish through Messenger")
         # SessionEnd is capture/event delivery only. Thompson was updated exactly
         # once by the explicit, evidence-bearing process_outcome request above.
         self.assertEqual(1, learning_result["thompson"]["calls"])
