@@ -257,7 +257,8 @@ class CollaborationOrchestrator:
                     ModelRequest(
                         prompt=prompt,
                         model=self.solver_model_ids.get(model, model),
-                        temperature=0.4,
+                        # Use provider-neutral defaults. Strict adapters must not be
+                        # forced to honor collaboration-specific controls they do not support.
                         metadata={"collaboration_round": self.state.round},
                     )
                 )
@@ -506,7 +507,7 @@ class CollaborationOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         response = self.arbiter.generate(
-            ModelRequest(prompt=prompt, model=self.arbiter_model_id, temperature=0, max_tokens=4000)
+            ModelRequest(prompt=prompt, model=self.arbiter_model_id)
         )
         adjudication = self._parse_adjudication(response.text)
         selected = adjudication["selected_candidate"]
