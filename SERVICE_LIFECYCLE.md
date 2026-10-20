@@ -41,7 +41,7 @@ Uninstalling removes CE's five managed unit files and active-release pointer but
 
 ## Run from a source checkout without systemd
 
-CE has a venv-based foreground mode for development and hosts without a systemd user manager. It uses an isolated profile/state root at `~/.FlossWare/claude-ensemble-profile` and a virtualenv at `~/.FlossWare/venvs/claude-ensemble`; it does not change ordinary `~/.claude`.
+CE has a venv-based foreground mode for development and hosts without a systemd user manager. It uses the isolated Claude profile `~/.FlossWare/claude-ensemble-profile`, separate service state under `~/.FlossWare/claude-ensemble-state`, and a virtualenv at `~/.FlossWare/venvs/claude-ensemble`; it does not change ordinary `~/.claude`.
 
 From the source checkout, set up the environment once:
 
