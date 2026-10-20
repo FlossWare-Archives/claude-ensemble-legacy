@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from providers import ModelProvider, ModelRequest
+from providers import ModelProvider, build_model_request
 
 from .reviewer import Reviewer, ReviewerResult
 
@@ -254,11 +254,10 @@ class CollaborationOrchestrator:
             candidate_id = f"r{self.state.round}-{model}"
             try:
                 response = provider.generate(
-                    ModelRequest(
+                    build_model_request(
+                        provider,
                         prompt=prompt,
                         model=self.solver_model_ids.get(model, model),
-                        # Use provider-neutral defaults. Strict adapters must not be
-                        # forced to honor collaboration-specific controls they do not support.
                         metadata={"collaboration_round": self.state.round},
                     )
                 )
@@ -507,7 +506,7 @@ class CollaborationOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         response = self.arbiter.generate(
-            ModelRequest(prompt=prompt, model=self.arbiter_model_id)
+            build_model_request(self.arbiter, prompt=prompt, model=self.arbiter_model_id)
         )
         adjudication = self._parse_adjudication(response.text)
         selected = adjudication["selected_candidate"]
