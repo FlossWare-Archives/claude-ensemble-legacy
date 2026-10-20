@@ -349,6 +349,7 @@ case "$cmd" in
     ;;
   activate)
     [[ $# -eq 2 ]] || die "usage: ce-deployment activate MAJOR.MINOR"
+    "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
     [[ ! -e "$JOURNAL" ]] || die "interrupted activation journal exists; run ce-deployment recover first"
     version="$2"
     validate_release "$version"
