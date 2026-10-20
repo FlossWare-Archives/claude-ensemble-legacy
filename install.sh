@@ -62,8 +62,6 @@ for required_path in \
     "$REPO_PATH/memory-service/install.sh" \
     "$REPO_PATH/thompson-service/install.sh" \
     "$REPO_PATH/learning-service/install.sh" \
-    "$REPO_PATH/alert_service/install.sh" \
-    "$REPO_PATH/session-messaging/install.sh" \
     "$REPO_PATH/graph-service/install.sh" \
     "$REPO_PATH/server/install.sh" \
     "$REPO_PATH/server/claude-ensemble.service.template" \
