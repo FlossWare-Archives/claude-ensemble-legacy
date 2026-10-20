@@ -65,6 +65,8 @@ dev_setup() {
     python3 -m venv "$CE_VENV"
   fi
   "$CE_VENV/bin/python" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
+  ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$CE_STATE" CLAUDE_CONFIG_DIR="$CE_STATE" \
+    bash "$ROOT/tools/claude-config/bin/claude-config" install --non-interactive
   echo "CE development environment ready."
   echo "  Source: $ROOT"
   echo "  Virtualenv: $CE_VENV"
