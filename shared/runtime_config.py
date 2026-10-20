@@ -16,12 +16,12 @@ def path_from_env(name: str, default: Path) -> Path:
 def memory_dir() -> Path:
     return path_from_env(
         "ENSEMBLE_MEMORY_DIR",
-        Path.home() / ".FlossWare" / "claude-ensemble-profile" / "data" / "memory",
+        Path.home() / ".FlossWare" / "claude-ensemble-state" / "data" / "memory",
     )
 
 
 def log_dir() -> Path:
-    return path_from_env("ENSEMBLE_LOG_DIR", Path.home() / ".FlossWare" / "claude-ensemble-profile" / "logs")
+    return path_from_env("ENSEMBLE_LOG_DIR", Path.home() / ".FlossWare" / "claude-ensemble-state" / "logs")
 
 
 def runtime_dir() -> Path:
@@ -42,7 +42,7 @@ def socket_path(env_name: str, default_filename: str) -> Path:
 def learning_dir() -> Path:
     return path_from_env(
         "ENSEMBLE_LEARNING_DIR",
-        Path.home() / ".FlossWare" / "claude-ensemble-profile" / "data" / "learning",
+        Path.home() / ".FlossWare" / "claude-ensemble-state" / "data" / "learning",
     )
 
 
@@ -54,7 +54,7 @@ def thompson_state_file() -> Path:
 
 
 def alert_dir() -> Path:
-    return path_from_env("ENSEMBLE_ALERT_DIR", Path.home() / ".FlossWare" / "claude-ensemble-profile" / "data" / "alerts")
+    return path_from_env("ENSEMBLE_ALERT_DIR", Path.home() / ".FlossWare" / "claude-ensemble-state" / "data" / "alerts")
 
 
 def repo_root() -> Path:
