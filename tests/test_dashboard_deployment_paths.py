@@ -22,7 +22,7 @@ class CEIsolatedRuntimePathTests(unittest.TestCase):
     def test_default_service_state_is_outside_the_normal_claude_profile(self):
         home = Path("/home/ce-test")
         with patch.object(Path, "home", return_value=home), patch.dict(os.environ, {}, clear=True):
-            expected = home / ".FlossWare" / "claude-ensemble-profile"
+            expected = home / ".FlossWare" / "claude-ensemble-state"
             self.assertEqual(RUNTIME_CONFIG.memory_dir(), expected / "data" / "memory")
             self.assertEqual(RUNTIME_CONFIG.learning_dir(), expected / "data" / "learning")
             self.assertEqual(RUNTIME_CONFIG.log_dir(), expected / "logs")
