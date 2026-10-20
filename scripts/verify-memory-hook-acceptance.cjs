@@ -3,9 +3,9 @@
 /**
  * Operational acceptance verification script for Claude Ensemble Memory REST integration.
  *
- * Verifies that the production UserPromptSubmit hook (hooks/memory-search-on-prompt.js)
- * communicates with the configured Memory REST endpoint and injects identifiable
- * Memory and Knowledge records into the prompt context.
+ * Verifies that the installed UserPromptSubmit hook communicates with the configured
+ * Memory REST endpoint and injects identifiable Memory and Knowledge records into
+ * the prompt context. FLOSSWARE_HOOK_PATH can select a deliberate test fixture.
  *
  * Exit status codes:
  *   0 - Success: Both expected Memory and Knowledge records retrieved and injected into prompt context.
