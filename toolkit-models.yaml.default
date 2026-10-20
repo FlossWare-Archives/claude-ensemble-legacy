@@ -1,128 +1,46 @@
-# RH Toolkit Model Registry (Default Template)
-# Copy to ~/.claude/rh-toolkit-models.yaml and customize
+# Legacy RH toolkit model template, retained for compatibility only.
+# This file is not read by the active Claude Ensemble runtime.
+# The active runtime invokes Claude Code and accepts only haiku, sonnet, opus,
+# or concrete Claude model IDs. Do not add external provider entries here.
 
 user: "${USER}"
 workspace: redhat
-description: Model access for RH toolkit
+description: Model aliases available through the installed Claude Code runtime
 
 models:
-  claude-opus:
-    provider: anthropic
-    id: "claude-opus-5"
+  haiku:
+    provider: claude-code
+    id: haiku
     available: true
-    access_via: "vertex-ai"
-    pricing:
-      input_per_m: 15.00
-      output_per_m: 45.00
-    capabilities: [arbiter, code-review, design]
-
-  claude-sonnet:
-    provider: anthropic
-    id: "claude-sonnet-5"
-    available: true
-    access_via: "vertex-ai"
-    pricing:
-      input_per_m: 3.00
-      output_per_m: 15.00
-    capabilities: [code-review, documentation]
-
-  claude-haiku:
-    provider: anthropic
-    id: "claude-haiku-4-5"
-    available: true
-    access_via: "vertex-ai"
-    pricing:
-      input_per_m: 0.80
-      output_per_m: 2.40
     capabilities: [fast-review, analysis]
-
-  gemini:
-    provider: google
-    id: "gemini-2.0-flash"
+  sonnet:
+    provider: claude-code
+    id: sonnet
     available: true
-    access_via: "mcp-server"
-    mcp_server: "google-workspace-personal"
-    pricing:
-      input_per_m: 0.075
-      output_per_m: 0.30
-    capabilities: [code-review, alternative-perspective]
-
-  cursor:
-    provider: jetbrains
-    id: "cursor"
+    capabilities: [code-review, documentation, testing]
+  opus:
+    provider: claude-code
+    id: opus
     available: true
-    access_via: "api-token"
-    token_env: "CURSOR_API_KEY"
-    pricing:
-      input_per_m: 0.00
-      output_per_m: 0.00
-    capabilities: [code-review, refactoring]
-
-  gpt-4:
-    provider: openai
-    id: "gpt-4-turbo"
-    available: false
-    access_via: "api-token"
-    reason: "OPENAI_API_KEY not configured"
-    pricing:
-      input_per_m: 10.00
-      output_per_m: 30.00
-
-  grok:
-    provider: xai
-    id: "grok-3"
-    available: false
-    access_via: "api-token"
-    reason: "XAI_API_KEY not configured"
-    pricing:
-      input_per_m: 2.00
-      output_per_m: 6.00
-
-accounts:
-  anthropic:
-    provider: vertex-ai
-    status: active
-  google:
-    provider: google-workspace
-    status: active
-  cursor:
-    provider: jetbrains
-    status: active
-  openai:
-    provider: openai
-    status: missing
-  xai:
-    provider: xai
-    status: missing
+    capabilities: [arbiter, code-review, design]
 
 skill_defaults:
   rh-pr-review:
-    models: [claude-opus, claude-sonnet, claude-haiku, gemini, cursor]
-    arbiter: claude-opus
-
+    models: [opus, sonnet, haiku]
+    arbiter: opus
   rh-doc:
-    models: [claude-opus, claude-sonnet, claude-haiku, gemini, cursor]
-    arbiter: claude-opus
-
+    models: [opus, sonnet, haiku]
+    arbiter: opus
   rh-release-notes:
-    models: [claude-opus, claude-sonnet, claude-haiku, gemini, cursor]
-    arbiter: claude-opus
-
+    models: [opus, sonnet, haiku]
+    arbiter: opus
   rh-pr-review-auto:
-    models: [claude-opus, claude-sonnet, claude-haiku, gemini, cursor]
-    arbiter: claude-opus
-
+    models: [opus, sonnet, haiku]
+    arbiter: opus
   rh-doc-auto:
-    models: [claude-opus, claude-sonnet, claude-haiku, gemini, cursor]
-    arbiter: claude-opus
+    models: [opus, sonnet, haiku]
+    arbiter: opus
 
 thompson_routing:
   enabled: true
   required_capability: 0.7
-
-notes: |
-  To customize:
-  1. Mark unavailable models as available: false
-  2. Add new models when accounts become available
-  3. Change workers list per skill if desired
-  4. Update pricing if it changes
