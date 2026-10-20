@@ -127,6 +127,17 @@ if ENSEMBLE_STAGING_ONLY=1 ENSEMBLE_INSTALL_ROOT="$HOME/../escape-parent/root" b
   exit 1
 fi
 [[ ! -e "$ESCAPE_PARENT" ]] || { echo 'FAIL: rejected installer traversal created a directory outside HOME' >&2; exit 1; }
+
+# The lifecycle manager must enforce the same .FlossWare parent-symlink rule
+# as the installer, even when the symlink target still resolves under HOME.
+SYMLINK_HOME="$TMP/symlink-home"
+mkdir -p "$SYMLINK_HOME/real-flossware"
+ln -s "$SYMLINK_HOME/real-flossware" "$SYMLINK_HOME/.FlossWare"
+if HOME="$SYMLINK_HOME" ENSEMBLE_INSTALL_ROOT="$SYMLINK_HOME/.FlossWare/claude-ensemble" bash "$SCRIPT" status >/dev/null 2>&1; then
+  echo 'FAIL: deployment manager accepted a symlinked .FlossWare parent' >&2
+  exit 1
+fi
+[[ ! -e "$SYMLINK_HOME/real-flossware/claude-ensemble" ]] || { echo 'FAIL: rejected parent symlink created a deployment root' >&2; exit 1; }
 OUTSIDE_PARENT="$TMP/outside-parent"
 mkdir -p "$OUTSIDE_PARENT"
 ln -s "$OUTSIDE_PARENT" "$HOME/external-link"
@@ -170,6 +181,21 @@ if ENSEMBLE_INSTALL_ROOT="$LINKED_ROOT" bash "$SCRIPT" status >/dev/null 2>&1; t
   echo 'FAIL: symlinked shared config directory was accepted' >&2
   exit 1
 fi
+
+# Direct activation must fail before creating a journal/backup or switching current
+# when the systemd user manager is unavailable.
+cat > "$TMP/bin/systemctl-unavailable" <<NO_SYSTEMD
+#!/usr/bin/env bash
+exit 1
+NO_SYSTEMD
+chmod +x "$TMP/bin/systemctl-unavailable"
+if ENSEMBLE_SYSTEMCTL_BIN="$TMP/bin/systemctl-unavailable" bash "$SCRIPT" activate 0.1 >/dev/null 2>&1; then
+  echo "FAIL: activation proceeded without a systemd user manager" >&2
+  exit 1
+fi
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/activation.json" ]] || { echo "FAIL: unavailable manager left an activation journal" >&2; exit 1; }
+[[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo "FAIL: unavailable manager switched current" >&2; exit 1; }
+[[ ! -e "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups" ]] || { echo "FAIL: unavailable manager created activation backups" >&2; exit 1; }
 
 # First activation should start all seven mocked services.
 bash "$SCRIPT" activate 0.1
