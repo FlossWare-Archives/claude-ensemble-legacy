@@ -152,10 +152,8 @@ jobs:
             learning \
             learning-service \
             memory-service \
-            session-messaging \
             shared \
-            thompson-service \
-            alert_service
+            thompson-service
 
       - name: Verify required service templates and installers
         shell: bash
@@ -165,9 +163,8 @@ jobs:
             "memory-service/claude-memory.service.template"
             "thompson-service/claude-thompson.service.template"
             "learning-service/claude-learning.service.template"
-            "alert_service/claude-alert.service.template"
-            "session-messaging/claude-messenger.service.template"
             "graph-service/claude-graph.service.template"
+            "server/claude-ensemble.service.template"
           )
 
           for template in "${services[@]}"; do
@@ -179,9 +176,8 @@ jobs:
             memory-service/install.sh \
             thompson-service/install.sh \
             learning-service/install.sh \
-            alert_service/install.sh \
-            session-messaging/install.sh \
-            graph-service/install.sh; do
+            graph-service/install.sh \
+            server/install.sh; do
             test -x "$script"
             echo "Executable $script"
           done
