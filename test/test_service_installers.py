@@ -28,8 +28,6 @@ SERVICES = (
     ("memory-service", "claude-memory.service"),
     ("thompson-service", "claude-thompson.service"),
     ("learning-service", "claude-learning.service"),
-    ("alert_service", "claude-alert.service"),
-    ("session-messaging", "claude-messenger.service"),
     ("graph-service", "claude-graph.service"),
     ("server", "claude-ensemble.service"),
 )
