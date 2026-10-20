@@ -118,6 +118,12 @@ start_services() {
     ENSEMBLE_INSTALL_ROOT="$ROOT" \
     ENSEMBLE_USER_UNIT_DIR="$UNIT_DIR" \
     ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
+    ENSEMBLE_MEMORY_DIR="$ROOT/shared/data/memory" \
+    ENSEMBLE_LEARNING_DIR="$ROOT/shared/data/learning" \
+    ENSEMBLE_THOMPSON_STATE_FILE="$ROOT/shared/data/thompson-sampling-state.json" \
+    ENSEMBLE_GRAPH_STORE="$ROOT/shared/data/graph.json" \
+    ENSEMBLE_LOG_DIR="$ROOT/shared/logs" \
+    ENSEMBLE_RUNTIME_DIR="$ROOT/shared/runtime" \
     ENSEMBLE_DEFER_SERVICE_START=1 \
     bash "$CURRENT/install.sh" "$CURRENT"
   # Keep managed deployment state out of the development profile and global config.
