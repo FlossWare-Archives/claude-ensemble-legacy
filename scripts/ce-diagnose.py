@@ -135,25 +135,6 @@ def read_json_line(client: socket.socket) -> dict[str, Any]:
     return value
 
 
-def shutil_which_systemctl() -> bool:
-    return shutil.which("systemctl") is not None
-
-
-def unit_status(unit: str, timeout: float = 2.0) -> tuple[str, str, int]:
-    start = time.monotonic()
-    try:
-        result = subprocess.run(
-            ["systemctl", "--user", "is-active", unit],
-            capture_output=True, text=True, timeout=timeout, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return "warn", f"unit state unavailable ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
-    elapsed = round((time.monotonic() - start) * 1000)
-    state = result.stdout.strip() or result.stderr.strip() or "unknown"
-    return ("pass", state, elapsed) if result.returncode == 0 else ("fail", state, elapsed)
-
-
-
 def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
                         include_session_end: bool = False,
                         require_context: bool = False,
@@ -273,9 +254,10 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
                 env=env, check=False,
             )
             elapsed = round((time.monotonic() - started) * 1000)
-            failed = (result.returncode != 0
-                      or "Memory capture unavailable:" in result.stderr
-)
+            failed = (
+                result.returncode != 0
+                or "Memory capture unavailable:" in result.stderr
+            )
             record(results, "hooks.session_end", "fail" if failed else "pass",
                    "SessionEnd reported a Memory capture failure" if failed
                    else "metadata-only SessionEnd capture completed",
