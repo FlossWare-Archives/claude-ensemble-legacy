@@ -252,6 +252,7 @@ jobs:
         run: |
           bash tests/test_ce_deployment.sh
           bash tests/test_versioned_staging_only.sh
+          bash tests/test_backup_ce_state.sh
 
   docs-check:
     runs-on: ubuntu-latest
