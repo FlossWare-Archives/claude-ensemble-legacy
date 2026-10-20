@@ -20,9 +20,11 @@ class FakeProvider(ModelProvider):
         # composition is separately tested against ClaudeCodeProvider.
         return ModelCapabilities(
             provider="fake",
+            supports_system_prompt=True,
             supports_messages=True,
             supports_temperature_override=True,
             supports_max_tokens_override=True,
+            supports_timeout_override=True,
         )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
