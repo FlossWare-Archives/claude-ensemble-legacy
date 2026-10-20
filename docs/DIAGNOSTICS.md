@@ -53,8 +53,6 @@ The supported runtime path uses existing interfaces rather than introducing a br
 - **Prompt retrieval:** Claude Code UserPromptSubmit hook calls Memory REST /memory/search; when cwd is present, it also queries Graph REST for the project node and bounded one-hop relationships.
 - **Gateway-backed checks:** gateway REST reaches configured Memory and Graph health/operation endpoints. Gateway readiness reports its configured core dependencies.
 - **Learning outcome path:** Learning Unix socket uses Memory capture/acknowledgement and a Thompson Unix-socket client. --deep or --pipeline-test verifies this path with isolated temporary state rather than changing production learner state.
-- **Transient messaging:** Messenger Unix socket uses a unique diagnostic topic and event type for a local subscribe/publish round trip; it does not send external notifications or persist a message.
-- **Alert service:** diagnostics only ping the Alert Unix socket. They do not trigger alert delivery.
 
 A diagnostic only proves the operations it actually exercised. Standard mode primarily checks health/ping contracts; --deep adds read operations and the isolated Learning-to-Thompson integration. Neither mode proves an unexercised capability such as real provider invocation or external reviewer delivery.
 
@@ -69,14 +67,14 @@ bash tools/ce diagnose --service memory --json
 bash tools/ce diagnose --service gateway --timeout 3 --json
 ```
 
-Supported service selectors are `gateway`, `memory`, `graph`, `decision`, `learning`, `thompson`, `messenger`, and `alert`. Per-request timeouts must be between 0.1 and 10 seconds.
+Supported service selectors are `gateway`, `memory`, `graph`, `decision`, `learning`, and `thompson`. Per-request timeouts must be between 0.1 and 10 seconds.
 
 - Standard mode checks selected gateway/service endpoints or sockets.
 - `--deep` adds read operations and, for a full-stack run, an isolated Learning-to-Thompson pipeline test using temporary state and sockets.
 - `--pipeline-test` explicitly runs that isolated pipeline test.
 - `--hook-smoke` runs the installed UserPromptSubmit hook against configured Memory/Graph services. It does not invoke a model.
 - `--prompt-context-smoke` requires emitted context and at least one Knowledge result. It does not prove Claude Code delivered the context to a model.
-- `--session-end-smoke` also runs SessionEnd capture and transient Messenger delivery. This appends one synthetic metadata-only event to production Memory, so it requires the additional explicit `--allow-memory-write` flag.
+- `--session-end-smoke` also runs SessionEnd capture. This appends one synthetic metadata-only event to production Memory, so it requires the additional explicit `--allow-memory-write` flag.
 
 Hook selection is isolated from unrelated Claude profiles. Lookup order is `CLAUDE_HOOK_DIR`, then the `hooks/` directory under `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR`, then the standalone CE profile at `~/.FlossWare/claude-ensemble/shared/claude-code/hooks`. Use `--hook-dir` only when intentionally testing a different profile.
 
@@ -115,6 +113,6 @@ Values are illustrative. Each result includes a stable step name, status, endpoi
 - Neither command invokes a model by default. They do not send prompts or source code to model providers or external reviewers.
 - Standard diagnose checks are read-only. Deep mode's Learning-to-Thompson exercise uses isolated temporary state.
 - Hook smoke executes the selected installed hook directly. Prompt-context smoke remains a hook/service test, not proof of model receipt.
-- SessionEnd smoke is the one explicit exception that writes a metadata-only synthetic event to production Memory. It is opt-in and requires `--allow-memory-write`; it publishes only a transient Messenger event, not a real alert.
+- SessionEnd smoke is the one explicit exception that writes a metadata-only synthetic event to production Memory. It is opt-in and requires `--allow-memory-write`; it does not publish a message or send an alert.
 - A skipped check means it was not verified, not that it passed. A warning is not equivalent to a clean pass.
 - Passing automated tests and diagnostics do not replace the separate release gate in [issue #505](https://github.com/FlossWare/claude-ensemble/issues/505), including trusted-host acceptance. Do not treat host staging or activation as complete until that work is explicitly authorized and its evidence is recorded.

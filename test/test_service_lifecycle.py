@@ -2,8 +2,11 @@
 """Verify the baseline systemd service ownership contract."""
 
 from pathlib import Path
+import os
 import re
+import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,8 +14,6 @@ EXPECTED_SERVICES = {
     "memory-service/claude-memory.service.template",
     "thompson-service/claude-thompson.service.template",
     "learning-service/claude-learning.service.template",
-    "alert_service/claude-alert.service.template",
-    "session-messaging/claude-messenger.service.template",
     "graph-service/claude-graph.service.template",
 }
 
@@ -72,23 +73,50 @@ for relative_path in EXPECTED_SERVICES:
     if text.count("[Service]") != 1:
         fail(f"{relative_path}: expected exactly one [Service] section")
 
+# The venv runner must be syntactically valid and export isolated defaults.
+syntax = subprocess.run(["bash", "-n", str(ROOT / "tools/ce")], capture_output=True, text=True)
+if syntax.returncode:
+    fail(f"tools/ce has invalid shell syntax: {syntax.stderr}")
+with tempfile.TemporaryDirectory(prefix="ce-dev-env-test-") as home:
+    env = os.environ.copy()
+    env["HOME"] = home
+    env.pop("ENSEMBLE_CE_DEV_STATE", None)
+    env.pop("ENSEMBLE_CE_DEV_VENV", None)
+    result = subprocess.run(
+        ["bash", str(ROOT / "tools/ce"), "dev", "env"],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    if result.returncode:
+        fail(f"tools/ce dev env failed: {result.stderr}")
+    expected_profile = Path(home) / ".FlossWare" / "claude-ensemble-profile"
+    expected_state = Path(home) / ".FlossWare" / "claude-ensemble-state"
+    for expected in (
+        f"export CLAUDE_CONFIG_DIR={expected_profile}",
+        f"export ENSEMBLE_MEMORY_DIR={expected_state / 'data/memory'}",
+        "export ENSEMBLE_GATEWAY_URL=http://127.0.0.1:18080",
+    ):
+        if expected not in result.stdout:
+            fail(f"development environment omitted expected setting: {expected}")
+
 print("PASS: service lifecycle ownership contract")
 
 
 # The manual fallback is documented as explicit foreground commands, not a
 # hidden process supervisor. Keep this list aligned with the actual service entrypoints.
 lifecycle_docs = (ROOT / "SERVICE_LIFECYCLE.md").read_text(encoding="utf-8")
-manual_commands = {
-    "thompson-service/thompson_service.py",
-    "memory-service/memory_service.py",
-    "learning-service/learning_service.py",
-    "alert_service/alert_service.py",
-    "session-messaging/messenger_service.py",
-    "graph-service/graph_service.py",
+manual_services = {
+    "memory": "memory-service/memory_service.py",
+    "thompson": "thompson-service/thompson_service.py",
+    "learning": "learning-service/learning_service.py",
+    "graph": "graph-service/graph_service.py",
+    "gateway": "server/ensemble_server.py",
 }
-for command in manual_commands:
-    if f"python3 {command}" not in lifecycle_docs:
-        fail(f"manual foreground instructions missing service entrypoint: {command}")
+runner = (ROOT / "tools/ce").read_text(encoding="utf-8")
+for service, entrypoint in manual_services.items():
+    if f"tools/ce dev run {service}" not in lifecycle_docs:
+        fail(f"venv-based development instructions missing service: {service}")
+    if f'{service}) target="{entrypoint}"' not in runner:
+        fail(f"development runner does not map {service} to {entrypoint}")
 if "use Ctrl-C to stop its service" not in lifecycle_docs:
     fail("manual foreground instructions must document explicit shutdown")
 if "CE clients do not silently start a replacement daemon" not in lifecycle_docs:

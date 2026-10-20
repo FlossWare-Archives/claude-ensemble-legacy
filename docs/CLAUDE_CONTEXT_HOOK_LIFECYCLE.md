@@ -14,7 +14,7 @@ The `UserPromptSubmit` hook exposes these as separate sections in its `additiona
 ## Retrieval lifecycle
 
 1. Claude Code submits a user prompt.
-2. `~/.claude/hooks/memory-search-on-prompt.js` receives the event.
+2. The installed `memory-search-on-prompt.js` in the selected CE profile's `hooks/` directory receives the event. Source-checkout mode defaults to `~/.FlossWare/claude-ensemble-profile/hooks/`; versioned mode uses `~/.FlossWare/claude-ensemble/shared/claude-code/hooks/`.
 3. The complete prompt is used as the retrieval query. Retrieval is relevance-driven and does not depend on trigger words such as `remember`, `recall`, or `prior`.
 4. The hook calls the loopback Memory REST endpoint `POST /memory/search` and, when Claude Code supplies `cwd`, queries Graph for a project node matching the working-directory basename and traverses one hop of related nodes.
 5. Results are validated against the canonical `{ok: true, results: []}` envelope and require a string `content` field.
@@ -56,7 +56,7 @@ Future cross-hook deduplication should use the query hash exposed in the hook me
 | `UserPromptSubmit` canonical context hook | Memory and Knowledge through Memory REST search; project Graph nodes and one-hop relationships | Nothing; it only returns context | Capture events, invoke learners, or promote Knowledge |
 | `SessionStart` context loader | Local, already-approved context index | Nothing | Trigger learning or update learner state |
 | `PostToolUse` capture adapter | The event payload needed for capture | An idempotent capture request to Memory | Update Thompson/GA state or promote Knowledge |
-| `SessionEnd` capture adapter | Session ID and safe lifecycle metadata only | An idempotent Memory event and a transient metadata-only Messenger event | Read transcripts, infer task quality, invoke learners, or replay historical outcomes |
+| `SessionEnd` capture adapter | Session ID and safe lifecycle metadata only | One idempotent metadata-only Memory event | Read transcripts, infer task quality, invoke learners, or replay historical outcomes |
 | Workflow-completion adapter | The completed workflow result and stable run ID | One operational outcome/learning artifact through the Learning service | Directly mutate Thompson/GA state or infer correctness from completion alone |
 | Learning service / scheduled learner | Persisted outcome artifacts plus evidence and provenance | Learner state and learning artifacts | Treat telemetry, model consensus, or successful completion as ground truth |
 | Knowledge promotion | Validated learning artifacts and cited evidence | Explicit Knowledge additions/updates | Promote raw hook output or unreviewed suggestions automatically |
@@ -79,7 +79,7 @@ The older session-end capture scripts also have no stable per-event idempotency 
 
 ### Existing installation warning
 
-The disabled source files do not automatically disable copies already installed in a user's `~/.claude` hooks directory or referenced by existing Claude Code settings. During rollout, inspect each installation's hook registrations and replace or unregister any copied `post-task-analysis.js` or `post-workflow-learning.js` adapter. Do not assume updating the repository alone updates deployed copies. The installer should eventually perform ownership-aware migration and verification for these legacy adapters.
+The disabled source files do not automatically disable copies already installed in a user's prior `~/.claude` hooks directory or referenced by existing Claude Code settings. CE now defaults to its isolated profile under `~/.FlossWare/claude-ensemble-profile/` for source-checkout installs and `~/.FlossWare/claude-ensemble/shared/claude-code/` for versioned installs; it does not rewrite ordinary `~/.claude/` by default. During migration from an older install, inspect legacy hook registrations and replace or unregister any copied `post-task-analysis.js` or `post-workflow-learning.js` adapter. Do not assume updating the repository alone updates deployed copies.
 
 
 ## Implemented SessionEnd capture

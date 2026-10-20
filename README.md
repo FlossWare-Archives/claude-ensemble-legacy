@@ -8,6 +8,12 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 
 ---
 
+## CE Service Boundary
+
+The managed runtime consists of the gateway plus four application services: **Memory, Thompson, Graph, and Learning**. Alert and Messenger are legacy components; new installs do not activate them, and upgrades retire their old systemd units. SessionEnd capture writes metadata to Memory directly and does not depend on a message bus.
+
+For a source-checkout install, `install.sh` defaults to the isolated profile at `~/.FlossWare/claude-ensemble-profile` and service data at `~/.FlossWare/claude-ensemble-state`. The versioned deployment uses `~/.FlossWare/claude-ensemble/shared/claude-code` for its profile. Neither mode should modify the ordinary `~/.claude` profile unless the user explicitly overrides the profile path.
+
 ## What's Inside
 
 ### Core Infrastructure
@@ -59,7 +65,7 @@ ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
 
 Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
 
-After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the seven CE user services**:
+After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the five CE user services**:
 
 ```bash
 bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
@@ -130,7 +136,7 @@ On startup, `scripts/ensemble-init.sh` automatically:
 ✓ Autonomous learner ready
 ✓ Claude Ensemble Toolkit initialized
   Tools: compression, caching, cost_tracking, ga_tuning, thompson_router, arbitration
-  Memory: ~/.claude/projects/memory
+  Memory: ~/.FlossWare/claude-ensemble-state/data/memory (source-checkout install)
   Arbitration: multi-phase orchestrator for critical decisions
   Autonomous learning: Thompson continuously improving from real tasks
 ```
@@ -145,7 +151,7 @@ Run a correlated health and integration check before testing a live Claude Code 
 bash tools/ce diagnose --deep --json
 ```
 
-This probes the configured gateway, Memory, Graph, decision endpoint, Learning, Thompson, Messenger, and Alert service. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
+This probes the configured gateway, Memory, Graph, decision endpoint, Learning, and Thompson services. Deep mode also runs the real Learning-to-Thompson request path with temporary state and sockets. It does not call a model or write to production Learning/Thompson state.
 
 To exercise the installed `UserPromptSubmit` hook against live Memory/Graph services without writing production data:
 
@@ -155,7 +161,7 @@ bash tools/ce diagnose --hook-smoke --json
 
 Hook lookup follows `CLAUDE_HOOK_DIR`, then the explicitly selected `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` or `CLAUDE_CONFIG_DIR`. With none configured, it uses the standalone CE profile at `~/.FlossWare/claude-ensemble/shared/claude-code/hooks`. It does **not** silently inspect ordinary `~/.claude/hooks`; pass `--hook-dir` explicitly when intentionally testing another profile.
 
-To also exercise installed SessionEnd capture and Messenger delivery, explicitly authorize one uniquely identified metadata-only event in production Memory:
+To also exercise installed SessionEnd capture, explicitly authorize one uniquely identified metadata-only event in production Memory:
 
 ```bash
 bash tools/ce diagnose --session-end-smoke --allow-memory-write --json
@@ -449,18 +455,14 @@ configured with environment variables:
 |---|---|---|
 | `ENSEMBLE_ROOT` | Repository root used by shell initialization | Repository containing `scripts/ensemble-init.sh` |
 | `ENSEMBLE_CREDENTIALS_FILE` | Optional credentials file | `~/.FlossWare/secrets.env` |
-| `ENSEMBLE_MEMORY_DIR` | Persistent memory directory | `~/.claude/projects/memory` |
-| `ENSEMBLE_LOG_DIR` | Service log directory | `~/.claude` |
+| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-state/data/memory` for source-checkout installs |
+| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-state/logs` for source-checkout installs |
 | `ENSEMBLE_RUNTIME_DIR` | Runtime directory for configurable service sockets | XDG runtime/cache location |
-| `ENSEMBLE_REPO_ROOT` | Repository inspected by alerting | Current working directory |
-| `ENSEMBLE_LEARNING_DIR` | Learning state directory | Existing Claude Ensemble learning path |
-| `ENSEMBLE_ALERT_DIR` | Alert state directory | `~/.claude/alerts` |
+| `ENSEMBLE_REPO_ROOT` | Repository/release root used by CE services | Current working directory |
+| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-state/data/learning` for source-checkout installs |
 | `ENSEMBLE_*_SOCKET` | Per-service Unix socket override | Existing service socket |
 
-For a standalone installation, services are optional. The memory client already degrades
-gracefully when its daemon is unavailable, and the learning/Thompson/alert services can
-be run only when their corresponding features are needed. No Red Hat GitLab host,
-credential file, or repository path is required by the core runtime.
+Both versioned and source-checkout installers manage the gateway and four core services. The memory client degrades gracefully when the daemon is unavailable. No Red Hat GitLab host, credential file, or repository path is required by the core runtime.
 
 Example:
 
@@ -478,13 +480,13 @@ than installing the optional user services.
 
 ## Configuration
 
-**Settings:** `settings.json.default` (copy to `~/.claude/settings.json` to customize)
+**Settings:** `settings.json.default` (copy to the selected CE profile's `settings.json`; do not edit ordinary `~/.claude/settings.json` for CE)
 
 **Model authentication:** The active CE runtime invokes the installed Claude Code runtime, which owns model authentication. CE does not use `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `CURSOR_API_KEY` to route model requests in the supported single-runtime path.
 
 **MCP credentials:** Configure credentials for each MCP server using its documented secure mechanism. Do not commit credentials or synchronize them through Git.
 
-**MCP Servers:** `~/.mcp.json` (configure as needed)
+**MCP Servers:** configure the selected CE profile's `.mcp.json` as needed
 
 ---
 
@@ -538,7 +540,7 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 - **`MODEL_REGISTRY.md`** — Available models and capabilities
 
 **Component Docs:**
-- **`SERVICES_GUIDE.md`** — Systemd services (memory, thompson, learning, alert, messenger, graph)
+- **`SERVICES_GUIDE.md`** — Systemd services (memory, thompson, learning, graph, and gateway)
 - **`TOOLS_INTEGRATION_GUIDE.md`** — Thompson router, GA tuning, learning system
 - **`cost_tracking/`** — Cost logging and aggregation
 - **`ga_tuning/`** — Genetic algorithm parameter optimization
@@ -577,7 +579,7 @@ tools/ce diagnose --json
 
 ## Uninstalling a standalone deployment
 
-Use the repository's `uninstall.sh` entry point to stop CE's seven managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
+Use the repository's `uninstall.sh` entry point to stop CE's five managed user services, remove only CE's managed unit files, and remove the active-release pointer. Set `SOURCE` to the source checkout you used for deployment, or to the selected immutable release before uninstalling:
 
 ```bash
 SOURCE="$HOME/.FlossWare/ce-source"
@@ -590,4 +592,4 @@ The default uninstall **preserves** immutable releases and all data under `share
 bash "$SOURCE/uninstall.sh" --purge
 ```
 
-Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
+Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the five current CE unit files and retires the two legacy Alert/Messenger units; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.

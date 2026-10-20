@@ -42,7 +42,7 @@ The aggregate installer is idempotent and preserves conflicting user-owned skill
 
 ### Direct development/runtime installer
 
-The root `install.sh` is the per-release/runtime installer used by the deployment manager and can also be run against a source checkout for development. In direct mode, its profile target is `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` when set, otherwise `~/.claude`. That default is intentionally different from the versioned standalone deployment. Before running direct mode, set an explicit profile path if you do not intend to change ordinary `~/.claude`.
+The root `install.sh` is the runtime installer used by the deployment manager and can also be run against a source checkout for development. In direct mode, its profile target is `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` when set, otherwise `~/.FlossWare/claude-ensemble-profile`. The versioned standalone deployment instead uses `~/.FlossWare/claude-ensemble/shared/claude-code/`. Neither mode modifies ordinary `~/.claude/` by default. Before migrating, the installer backs up legacy service data and copies missing Memory, Learning, Thompson, and Graph state into the selected isolated state directory; the original legacy paths are left untouched, and existing destination files are never overwritten.
 
 Do not treat direct source-checkout installation and standalone deployment as interchangeable. The standalone workflow provides immutable releases, a stable active pointer, deployment manifests, health checks, and release rollback.
 
@@ -75,13 +75,14 @@ Backups are stored outside the deployment root at:
 Each backup contains:
 
 - A copy of the complete existing versioned deployment tree, when one exists. This includes releases and mutable shared state.
-- The legacy CE profile at `~/.FlossWare/claude-ensemble-profile`, when present.
-- Copies of the seven CE-managed user systemd unit files that existed before the operation.
+- The source-checkout CE profile at `~/.FlossWare/claude-ensemble-profile`, when present.
+- The isolated source-checkout service state at `~/.FlossWare/claude-ensemble-state`, when present.
+- Copies of the five current CE service units and any legacy Alert/Messenger unit files that existed before the operation.
 - A private manifest recording the operation and what was captured.
 
 Backups are private to the current user (directory mode 0700; manifest mode 0600) because profile and shared-state copies may contain sensitive material. Keep the backup directory outside the deployment root so a normal uninstall or purge of the deployment cannot silently erase the recovery copy. Backups are not automatically pruned; delete one only after verifying recovery and deciding the retention policy.
 
-The backup is a filesystem recovery point, not a guarantee that an external provider session remains valid forever. It does not back up remote services, remote databases, or state stored outside the CE deployment and the explicitly listed CE unit/profile paths.
+The backup is a filesystem recovery point, not a guarantee that an external provider session remains valid forever. It does not back up remote services, remote databases, or state stored outside the CE deployment and the explicitly listed CE state, unit, and profile paths.
 
 Staging-only mode deliberately does not create a host-state backup because it must not alter host state. A backup failure in a real install/upgrade is a hard stop; do not bypass it to get the deployment moving.
 

@@ -54,9 +54,11 @@ esac
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
 KNOWN_GOOD="$ROOT/known-good.json"
-UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
-STOP_ORDER=(claude-ensemble.service claude-graph.service claude-messenger.service claude-alert.service claude-learning.service claude-thompson.service claude-memory.service)
-START_ORDER=(claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service)
+UNITS=(claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service)
+LEGACY_UNITS=(claude-alert.service claude-messenger.service)
+ALL_UNITS=(${UNITS[@]} ${LEGACY_UNITS[@]})
+STOP_ORDER=(claude-ensemble.service claude-graph.service claude-learning.service claude-thompson.service claude-memory.service claude-messenger.service claude-alert.service)
+START_ORDER=(claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service)
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 valid_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+$ ]]; }
@@ -75,8 +77,6 @@ preflight_units() {
     memory-service/install.sh
     thompson-service/install.sh
     learning-service/install.sh
-    alert_service/install.sh
-    session-messaging/install.sh
     graph-service/install.sh
     server/install.sh
   )
@@ -102,7 +102,7 @@ preflight_units() {
 stop_services() {
   local unit
   for unit in "${STOP_ORDER[@]}"; do "$SYSTEMCTL_BIN" --user stop "$unit" >/dev/null 2>&1 || true; done
-  for unit in "${UNITS[@]}"; do
+  for unit in "${ALL_UNITS[@]}"; do
     if "$SYSTEMCTL_BIN" --user is-active --quiet "$unit"; then
       printf 'ERROR: service remained active after stop: %s\n' "$unit" >&2
       return 1
@@ -118,11 +118,18 @@ start_services() {
     ENSEMBLE_INSTALL_ROOT="$ROOT" \
     ENSEMBLE_USER_UNIT_DIR="$UNIT_DIR" \
     ENSEMBLE_CLAUDE_CODE_CONFIG_DIR="$ROOT/shared/claude-code" \
+    ENSEMBLE_MEMORY_DIR="$ROOT/shared/data/memory" \
+    ENSEMBLE_LEARNING_DIR="$ROOT/shared/data/learning" \
+    ENSEMBLE_THOMPSON_STATE_FILE="$ROOT/shared/data/thompson-sampling-state.json" \
+    ENSEMBLE_GRAPH_STORE="$ROOT/shared/data/graph.json" \
+    ENSEMBLE_LOG_DIR="$ROOT/shared/logs" \
+    ENSEMBLE_RUNTIME_DIR="$ROOT/shared/runtime" \
     ENSEMBLE_DEFER_SERVICE_START=1 \
     bash "$CURRENT/install.sh" "$CURRENT"
   # Keep managed deployment state out of the development profile and global config.
   mkdir -p "$ROOT/shared/config" "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
-    "$ROOT/shared/data/alerts" "$ROOT/shared/logs" "$ROOT/shared/runtime"
+    "$ROOT/shared/logs" "$ROOT/shared/runtime"
+  for unit in "${LEGACY_UNITS[@]}"; do rm -f -- "$UNIT_DIR/$unit"; done
   python3 "$CURRENT/tools/managed_unit_config.py" configure "$UNIT_DIR" "$ROOT" "$CURRENT"
   local unit file
   for unit in "${UNITS[@]}"; do
@@ -191,7 +198,7 @@ assert_managed_layout() {
   for path in \
     "$RELEASES" "$ROOT/shared" "$ROOT/shared/claude-code" "$ROOT/shared/config" \
     "$ROOT/shared/data" "$ROOT/shared/data/memory" "$ROOT/shared/data/learning" \
-    "$ROOT/shared/data/alerts" "$ROOT/shared/runtime" "$ROOT/shared/logs" "$BACKUPS"; do
+    "$ROOT/shared/runtime" "$ROOT/shared/logs" "$BACKUPS"; do
     [[ ! -L "$path" ]] || die "managed deployment path must not be a symlink: $path"
     [[ ! -e "$path" || -d "$path" ]] || die "managed deployment path is not a directory: $path"
   done
@@ -274,7 +281,7 @@ PY
 
 restore_units() {
   local backup="$1" active_file="$2" unit file
-  for unit in "${UNITS[@]}"; do
+  for unit in "${ALL_UNITS[@]}"; do
     file="$UNIT_DIR/$unit"
     if [[ -e "$backup/$unit" || -L "$backup/$unit" ]]; then cp -a -- "$backup/$unit" "$file"; else rm -f -- "$file"; fi
   done
@@ -323,10 +330,10 @@ case "$cmd" in
     fi
     # Fail before changing services or unit files if the user manager is unavailable.
     "$SYSTEMCTL_BIN" --user show-environment >/dev/null 2>&1 || die "systemd user manager is unavailable; deployment left unchanged"
-    # Stop only CE's seven named services and remove only their managed unit files.
+    # Stop the five current CE services and retire legacy Alert/Messenger units.
     # Default uninstall preserves immutable releases and all shared user data.
     stop_services || die "CE services could not be stopped; deployment retained"
-    for unit in "${UNITS[@]}"; do
+    for unit in "${ALL_UNITS[@]}"; do
       rm -f -- "$UNIT_DIR/$unit"
     done
     "$SYSTEMCTL_BIN" --user daemon-reload || die "systemd user manager could not reload after removing CE units"
@@ -371,7 +378,7 @@ case "$cmd" in
     mkdir -m 700 "$backup"
     active_file="$backup/active-before.txt"
     : > "$active_file"
-    for unit in "${UNITS[@]}"; do
+    for unit in "${ALL_UNITS[@]}"; do
       file="$UNIT_DIR/$unit"
       if [[ -e "$file" || -L "$file" ]]; then cp -a -- "$file" "$backup/$unit"; fi
       "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true

@@ -20,7 +20,7 @@ Environment="PATH=%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="ENSEMBLE_GRAPH_HOST=127.0.0.1"
 Environment="ENSEMBLE_GRAPH_PORT=8766"
-Environment="ENSEMBLE_GRAPH_STORE=%h/.local/share/claude-ensemble/graph.json"
+Environment="ENSEMBLE_GRAPH_STORE=%h/.FlossWare/claude-ensemble-state/data/graph.json"
 
 # Resource limits
 MemoryLimit=256M

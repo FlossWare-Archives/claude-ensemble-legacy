@@ -55,7 +55,7 @@ chmod +x "$TMP/bin/systemctl" "$TMP/bin/python3"
 export PATH="$TMP/bin:$PATH"
 
 for version in 0.1 0.2; do
-  for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+  for service_dir in memory-service thompson-service learning-service graph-service server; do
     cp -a "$SCRIPT_DIR/../$service_dir" "$ENSEMBLE_INSTALL_ROOT/releases/$version/"
   done
   cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$ENSEMBLE_INSTALL_ROOT/releases/$version/tools/managed_unit_config.py"
@@ -64,7 +64,7 @@ for version in 0.1 0.2; do
 set -Eeuo pipefail
 unit_dir="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$unit_dir"
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
 done
 MOCK_INSTALL
@@ -197,10 +197,20 @@ fi
 [[ ! -L "$ENSEMBLE_INSTALL_ROOT/current" ]] || { echo "FAIL: unavailable manager switched current" >&2; exit 1; }
 [[ ! -e "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups" ]] || { echo "FAIL: unavailable manager created activation backups" >&2; exit 1; }
 
-# First activation should start all seven mocked services.
+# Simulate an upgrade from a legacy deployment with Alert and Messenger active.
+for unit in claude-alert.service claude-messenger.service; do
+  printf '[Unit]\nDescription=legacy fixture\n' > "$ENSEMBLE_USER_UNIT_DIR/$unit"
+  touch "$CE_TEST_STATE/active/$unit"
+done
+
+# First activation should start the four application services and gateway.
 bash "$SCRIPT" activate 0.1
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-alert.service claude-messenger.service; do
+  [[ ! -e "$ENSEMBLE_USER_UNIT_DIR/$unit" ]] || { echo "FAIL: legacy unit file was not retired: $unit" >&2; exit 1; }
+  [[ ! -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: legacy service remained active: $unit" >&2; exit 1; }
+done
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: $unit not active" >&2; exit 1; }
   unit_file="$ENSEMBLE_USER_UNIT_DIR/$unit"
   [[ -f "$unit_file" ]] || { echo "FAIL: generated unit missing from isolated directory: $unit_file" >&2; exit 1; }
@@ -216,7 +226,6 @@ for unit in claude-memory.service claude-thompson.service claude-learning.servic
 done
 grep -Fq "ENSEMBLE_MEMORY_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/memory" "$ENSEMBLE_USER_UNIT_DIR/claude-memory.service" || { echo "FAIL: memory data path not isolated" >&2; exit 1; }
 grep -Fq "ENSEMBLE_LEARNING_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/learning" "$ENSEMBLE_USER_UNIT_DIR/claude-learning.service" || { echo "FAIL: learning data path not isolated" >&2; exit 1; }
-grep -Fq "ENSEMBLE_ALERT_DIR=$ENSEMBLE_INSTALL_ROOT/shared/data/alerts" "$ENSEMBLE_USER_UNIT_DIR/claude-alert.service" || { echo "FAIL: alert data path not isolated" >&2; exit 1; }
 grep -Fq "ENSEMBLE_GRAPH_STORE=$ENSEMBLE_INSTALL_ROOT/shared/data/graph.json" "$ENSEMBLE_USER_UNIT_DIR/claude-graph.service" || { echo "FAIL: graph data path not isolated" >&2; exit 1; }
 grep -Fq "ENSEMBLE_THOMPSON_STATE_FILE=$ENSEMBLE_INSTALL_ROOT/shared/data/thompson-sampling-state.json" "$ENSEMBLE_USER_UNIT_DIR/claude-thompson.service" || { echo "FAIL: Thompson state path not isolated" >&2; exit 1; }
 
@@ -226,7 +235,7 @@ if FAIL_START_UNIT=claude-ensemble.service bash "$SCRIPT" activate 0.2; then
   exit 1
 fi
 [[ "$(bash "$SCRIPT" status | grep '^Current:' | awk '{print $2}')" == 0.1 ]]
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: rollback did not recover $unit" >&2; exit 1; }
 done
 
@@ -235,7 +244,7 @@ done
 BACKUP="$ENSEMBLE_INSTALL_ROOT/shared/activation-backups/activation.test"
 mkdir -p "$BACKUP" "$ENSEMBLE_INSTALL_ROOT/shared/activation-backups"
 : > "$BACKUP/active-before.txt"
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   cp -a "$ENSEMBLE_USER_UNIT_DIR/$unit" "$BACKUP/$unit"
   printf "%s\n" "$unit" >> "$BACKUP/active-before.txt"
   rm -f "$CE_TEST_STATE/active/$unit"
@@ -252,7 +261,7 @@ JOURNAL
 bash "$SCRIPT" recover
 [[ "$(readlink "$ENSEMBLE_INSTALL_ROOT/current")" == releases/0.1 ]]
 [[ ! -e "$ENSEMBLE_INSTALL_ROOT/activation.json" ]]
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   [[ -e "$CE_TEST_STATE/active/$unit" ]] || { echo "FAIL: recovery did not restart $unit" >&2; exit 1; }
 done
 [[ ! -e "$BACKUP" ]]
@@ -276,7 +285,7 @@ INSTALL_HOME="$TMP/install-home"
 INSTALL_ROOT="$INSTALL_HOME/.FlossWare/claude-ensemble"
 SOURCE_FIXTURE="$TMP/source-fixture"
 mkdir -p "$INSTALL_HOME/.FlossWare/claude-ensemble-profile" "$INSTALL_ROOT/claude-code" "$INSTALL_ROOT/shared/claude-code" "$SOURCE_FIXTURE/tools"
-for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+for service_dir in memory-service thompson-service learning-service graph-service server; do
   cp -a "$SCRIPT_DIR/../$service_dir" "$SOURCE_FIXTURE/"
 done
 cp "$SCRIPT_DIR/../tools/managed_unit_config.py" "$SOURCE_FIXTURE/tools/managed_unit_config.py"
@@ -294,7 +303,7 @@ cat > "$SOURCE_FIXTURE/install.sh" <<'FIXTURE_INSTALL'
 set -Eeuo pipefail
 unit_dir="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$unit_dir"
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=%s/current/fake-service\n' "$ENSEMBLE_INSTALL_ROOT" > "$unit_dir/$unit"
 done
 FIXTURE_INSTALL
@@ -379,7 +388,7 @@ assert "cat >" not in standalone_block, "standalone mode must not create credent
 CREDENTIAL_CONTRACT
 echo "Standalone credential isolation contract passed."
 
-# Exercise the real seven service installers through a logical current symlink.
+# Exercise the real five managed service installers through a logical current symlink.
 # They must render stable-current ExecStart paths rather than pinned release paths.
 SERVICE_HOME="$TMP/service-home"
 SERVICE_ROOT="$SERVICE_HOME/.FlossWare/claude-ensemble"
@@ -387,16 +396,16 @@ SERVICE_RELEASE="$SERVICE_ROOT/releases/0.1"
 SERVICE_UNIT_DIR="$SERVICE_HOME/staged-systemd-units"
 mkdir -p "$SERVICE_RELEASE" "$SERVICE_HOME/.config/systemd/user" "$SERVICE_UNIT_DIR"
 export ENSEMBLE_USER_UNIT_DIR="$SERVICE_UNIT_DIR"
-for service_dir in memory-service thompson-service learning-service alert_service session-messaging graph-service server; do
+for service_dir in memory-service thompson-service learning-service graph-service server; do
   cp -a "$SCRIPT_DIR/../$service_dir" "$SERVICE_RELEASE/"
 done
 ln -s releases/0.1 "$SERVICE_ROOT/current"
 export HOME="$SERVICE_HOME"
 export ENSEMBLE_INSTALL_ROOT="$SERVICE_ROOT"
-for installer in memory-service/install.sh thompson-service/install.sh learning-service/install.sh alert_service/install.sh session-messaging/install.sh graph-service/install.sh server/install.sh; do
+for installer in memory-service/install.sh thompson-service/install.sh learning-service/install.sh graph-service/install.sh server/install.sh; do
   ENSEMBLE_DEFER_SERVICE_START=1 bash "$SERVICE_ROOT/current/$installer"
 done
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   unit_file="$SERVICE_UNIT_DIR/$unit"
   [[ -f "$unit_file" ]] || { echo "FAIL: real installer did not generate $unit" >&2; exit 1; }
   grep -Fq "$SERVICE_ROOT/current" "$unit_file" || { echo "FAIL: $unit does not use stable current path" >&2; cat "$unit_file" >&2; exit 1; }
@@ -421,7 +430,7 @@ printf 'preserve-me\n' > "$UNINSTALL_ROOT/shared/data/memory/record.jsonl"
 printf '{"user":"keep"}\n' > "$UNINSTALL_HOME/.claude/settings.json"
 printf '# user shell config\n' > "$UNINSTALL_HOME/.bashrc"
 printf '[Service]\nExecStart=/user/owned/service\n' > "$UNINSTALL_UNITS/claude-user-custom.service"
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   printf '[Service]\nExecStart=/test/current/service\n' > "$UNINSTALL_UNITS/$unit"
 done
 cat > "$TMP/uninstall-bin/systemctl-mock" <<'MOCK_SYSTEMCTL'
@@ -439,7 +448,7 @@ HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNI
 [[ ! -e "$UNINSTALL_ROOT/known-good.json" ]] || { echo "FAIL: uninstall retained known-good activation state" >&2; exit 1; }
 [[ -f "$UNINSTALL_ROOT/shared/data/memory/record.jsonl" ]] || { echo "FAIL: uninstall deleted shared data without --purge" >&2; exit 1; }
 [[ -d "$UNINSTALL_ROOT/releases/0.1" ]] || { echo "FAIL: uninstall deleted immutable releases without --purge" >&2; exit 1; }
-for unit in claude-memory.service claude-thompson.service claude-learning.service claude-alert.service claude-messenger.service claude-graph.service claude-ensemble.service; do
+for unit in claude-memory.service claude-thompson.service claude-learning.service claude-graph.service claude-ensemble.service; do
   [[ ! -e "$UNINSTALL_UNITS/$unit" ]] || { echo "FAIL: uninstall left managed CE unit $unit" >&2; exit 1; }
 done
 [[ -f "$UNINSTALL_UNITS/claude-user-custom.service" ]] || { echo "FAIL: uninstall removed unrelated user service" >&2; exit 1; }
@@ -452,7 +461,7 @@ HOME="$UNINSTALL_HOME" ENSEMBLE_INSTALL_ROOT="$UNINSTALL_ROOT" ENSEMBLE_USER_UNI
 echo "Versioned uninstall preservation/purge contract passed."
 
 # Durable pre-operation backup contract: snapshot deployment, selected profile,
-# and the seven managed user units before any install/upgrade mutation.
+# and the five managed user units before any install/upgrade mutation.
 BACKUP_PROFILE="$HOME/.config/claude-ensemble/backup-test-profile"
 mkdir -p "$BACKUP_PROFILE" "$HOME/.FlossWare/claude-ensemble-profile"
 printf '{"profile":"before"}\\n' > "$BACKUP_PROFILE/settings.json"

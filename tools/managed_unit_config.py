@@ -19,13 +19,6 @@ UNITS = {
         "ENSEMBLE_LEARNING_DIR": "data/learning",
         "ENSEMBLE_LEARNING_SOCKET": "runtime/learning.sock",
     },
-    "claude-alert.service": {
-        "ENSEMBLE_ALERT_DIR": "data/alerts",
-        "ENSEMBLE_ALERT_SOCKET": "runtime/alert.sock",
-    },
-    "claude-messenger.service": {
-        "CLAUDE_MESSENGER_SOCKET": "runtime/messenger.sock",
-    },
     "claude-graph.service": {
         "ENSEMBLE_GRAPH_STORE": "data/graph.json",
     },

@@ -28,8 +28,6 @@ SERVICES = (
     ("memory-service", "claude-memory.service"),
     ("thompson-service", "claude-thompson.service"),
     ("learning-service", "claude-learning.service"),
-    ("alert_service", "claude-alert.service"),
-    ("session-messaging", "claude-messenger.service"),
     ("graph-service", "claude-graph.service"),
     ("server", "claude-ensemble.service"),
 )
@@ -72,6 +70,9 @@ exit 0
 
     env = os.environ.copy()
     env["HOME"] = str(home)
+    ce_profile = home / ".FlossWare" / "claude-ensemble-profile"
+    env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"] = str(ce_profile)
+    env["CLAUDE_CONFIG_DIR"] = str(ce_profile)
     # Exercise the same unit-directory override used by versioned staging.
     # Every real service installer must honor it and leave the normal user
     # unit directory untouched.
@@ -123,7 +124,12 @@ exit 0
 
     # Regression case 1: an identical existing hook with mode 0644 must
     # retain its content while becoming executable.
-    hook_home = home / ".claude/hooks"
+    ordinary_claude = home / ".claude"
+    ordinary_claude.mkdir(parents=True, exist_ok=True)
+    ordinary_sentinel = ordinary_claude / "sentinel"
+    ordinary_sentinel.write_text("ordinary-profile-must-remain-untouched\\n", encoding="utf-8")
+
+    hook_home = ce_profile / "hooks"
     hook_home.mkdir(parents=True, exist_ok=True)
     identical_source = ROOT / "hooks/memory-rag-search.js"
     identical_deployment = hook_home / identical_source.name
@@ -168,6 +174,10 @@ exit 0
         fail("installer did not deploy an executable copy of the symlinked hook")
     if symlink_deployment.read_bytes() != symlink_source.read_bytes():
         fail("deployed copy differs from repository hook source")
+    if ordinary_sentinel.read_text(encoding="utf-8") != "ordinary-profile-must-remain-untouched\\n":
+        fail("installer modified the ordinary ~/.claude profile")
+    if (ordinary_claude / "hooks" / identical_source.name).exists():
+        fail("installer copied CE hooks into the ordinary ~/.claude profile")
 
     systemctl_log = Path(env["SYSTEMCTL_LOG"]).read_text(encoding="utf-8")
     for service_dir, service_name in SERVICES:

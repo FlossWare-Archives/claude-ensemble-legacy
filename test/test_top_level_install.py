@@ -24,9 +24,8 @@ EXPECTED = (
     "claude-memory.service",
     "claude-thompson.service",
     "claude-learning.service",
-    "claude-alert.service",
-    "claude-messenger.service",
     "claude-graph.service",
+    "claude-ensemble.service",
 )
 
 class ReadyHandler(http.server.BaseHTTPRequestHandler):
@@ -79,6 +78,8 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
         cli.chmod(0o755)
     env = os.environ.copy()
     env["HOME"] = str(home)
+    env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"] = str(home / ".FlossWare" / "claude-ensemble-profile")
+    env["CLAUDE_CONFIG_DIR"] = env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"]
     env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
     env["SYSTEMCTL_LOG"] = str(systemctl_log)
     env["SYSTEMCTL_BIN"] = str(systemctl)
@@ -118,7 +119,11 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     success_base = base / "success"
     success_base.mkdir()
     home, env = make_harness(success_base)
-    claude_home = home / ".claude"
+    legacy_unit_dir = home / ".config" / "systemd" / "user"
+    legacy_unit_dir.mkdir(parents=True)
+    for legacy_unit in ("claude-alert.service", "claude-messenger.service"):
+        (legacy_unit_dir / legacy_unit).write_text("[Unit]\\nDescription=legacy CE unit\\n", encoding="utf-8")
+    claude_home = home / ".FlossWare" / "claude-ensemble-profile"
     hooks = claude_home / "hooks"
     hooks.mkdir(parents=True)
 
@@ -137,7 +142,25 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     differing_deployment.write_bytes(custom_hook_bytes)
     differing_deployment.chmod(0o700)
 
-    # Existing settings contain unrelated user-owned configuration.
+    # Ordinary ~/.claude is unrelated to CE and must remain untouched.
+    ordinary_claude = home / ".claude"
+    ordinary_claude.mkdir(parents=True)
+    ordinary_sentinel = ordinary_claude / "sentinel"
+    ordinary_sentinel.write_text("ordinary-profile-must-remain-untouched\\n", encoding="utf-8")
+
+    # Legacy service data is copied to the isolated state root, never moved or edited.
+    legacy_memory = ordinary_claude / "projects" / "memory"
+    legacy_memory.mkdir(parents=True)
+    (legacy_memory / "legacy-memory.json").write_text('{"event":"preserve"}\\n', encoding="utf-8")
+    legacy_learning = ordinary_claude / "projects" / "learning"
+    legacy_learning.mkdir(parents=True)
+    (legacy_learning / "outcome.json").write_text('{"outcome":"preserve"}\\n', encoding="utf-8")
+    (legacy_learning / "thompson-sampling-state.json").write_text('{"alpha":2}\\n', encoding="utf-8")
+    legacy_graph = home / ".local" / "share" / "claude-ensemble" / "graph.json"
+    legacy_graph.parent.mkdir(parents=True)
+    legacy_graph.write_text('{"nodes":[]}\\n', encoding="utf-8")
+
+    # Existing settings in the selected CE profile contain unrelated user-owned configuration.
     settings = claude_home / "settings.json"
     settings_data = {
         "permissions": {"allow": ["Bash(git status:*)"]},
@@ -159,12 +182,12 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     config_path.symlink_to(external_target)
 
     # Existing unrelated files should not be replaced by template defaults.
-    mcp = home / ".mcp.json"
+    mcp = claude_home / ".mcp.json"
     mcp.write_text('{"mcpServers":{"user-server":{"command":"user-tool"}}}\n', encoding="utf-8")
     models = claude_home / "toolkit-models.yaml"
     models.write_text("# user model config\n", encoding="utf-8")
     secrets_dir = home / ".FlossWare"
-    secrets_dir.mkdir()
+    secrets_dir.mkdir(parents=True, exist_ok=True)
     secrets = secrets_dir / "secrets.env"
     secrets.write_text("# user secrets placeholder\n", encoding="utf-8")
     bashrc = home / ".bashrc"
@@ -200,10 +223,31 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
         fail("installer overwrote existing model configuration")
     if secrets.read_text(encoding="utf-8") != "# user secrets placeholder\n":
         fail("installer overwrote existing secrets file")
+    if ordinary_sentinel.read_text(encoding="utf-8") != "ordinary-profile-must-remain-untouched\\n":
+        fail("installer modified ordinary ~/.claude")
+    if (ordinary_claude / "settings.json").exists() or (ordinary_claude / "hooks").exists():
+        fail("installer wrote CE configuration into ordinary ~/.claude")
+    state_root = home / ".FlossWare" / "claude-ensemble-state"
+    migrated_files = (
+        state_root / "data/memory/legacy-memory.json",
+        state_root / "data/learning/outcome.json",
+        state_root / "data/learning/thompson-sampling-state.json",
+        state_root / "data/graph.json",
+    )
+    for migrated in migrated_files:
+        if not migrated.is_file():
+            fail(f"legacy service state was not copied to the isolated state root: {migrated}")
+    if (legacy_memory / "legacy-memory.json").read_text(encoding="utf-8") != '{"event":"preserve"}\\n':
+        fail("legacy Memory source was modified during migration")
+    if legacy_graph.read_text(encoding="utf-8") != '{"nodes":[]}\\n':
+        fail("legacy Graph source was modified during migration")
     if "claude-ensemble/tools" not in bashrc.read_text(encoding="utf-8"):
         fail("installer did not add its PATH entry to existing shell config")
 
     service_dir = home / ".config/systemd/user"
+    for legacy_unit in ("claude-alert.service", "claude-messenger.service"):
+        if (service_dir / legacy_unit).exists():
+            fail(f"legacy service unit was not retired: {legacy_unit}")
     for unit in EXPECTED:
         if not (service_dir / unit).is_file():
             fail(f"top-level installer did not create {unit}")

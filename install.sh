@@ -30,7 +30,9 @@ if [ ! -d "$REPO_PATH" ]; then
 fi
 
 REPO_PATH="$(cd "$REPO_PATH" && pwd)"
-CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-$HOME/.claude}"
+# Never modify the ordinary ~/.claude profile by default. Standalone deployment
+# passes its own shared profile explicitly; source-checkout installs get an isolated profile.
+CLAUDE_HOME="${ENSEMBLE_CLAUDE_CODE_CONFIG_DIR:-$HOME/.FlossWare/claude-ensemble-profile}"
 case "$CLAUDE_HOME" in "~") CLAUDE_HOME="$HOME" ;; "~/"*) CLAUDE_HOME="$HOME/${CLAUDE_HOME#\~/}" ;; esac
 MEMORY_SERVICE_DIR="$REPO_PATH/memory-service"
 
@@ -62,8 +64,6 @@ for required_path in \
     "$REPO_PATH/memory-service/install.sh" \
     "$REPO_PATH/thompson-service/install.sh" \
     "$REPO_PATH/learning-service/install.sh" \
-    "$REPO_PATH/alert_service/install.sh" \
-    "$REPO_PATH/session-messaging/install.sh" \
     "$REPO_PATH/graph-service/install.sh" \
     "$REPO_PATH/server/install.sh" \
     "$REPO_PATH/server/claude-ensemble.service.template" \
@@ -78,6 +78,35 @@ done
 # before the first configuration or service mutation. If backup fails, stop here.
 bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
 
+# Migrate existing service state by copying missing files only. The original
+# ~/.claude data remains untouched and the backup above captures it first.
+STATE_ROOT="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
+MEMORY_STATE="${ENSEMBLE_MEMORY_DIR:-$STATE_ROOT/data/memory}"
+LEARNING_STATE="${ENSEMBLE_LEARNING_DIR:-$STATE_ROOT/data/learning}"
+GRAPH_STATE="${ENSEMBLE_GRAPH_STORE:-$STATE_ROOT/data/graph.json}"
+THOMPSON_STATE="${ENSEMBLE_THOMPSON_STATE_FILE:-$LEARNING_STATE/thompson-sampling-state.json}"
+migrate_legacy_directory() {
+    local source="$1" target="$2"
+    [[ -d "$source" ]] || return 0
+    [[ "$source" != "$target" ]] || return 0
+    if [[ -e "$target" && ! -d "$target" ]]; then
+        echo "ERROR: Cannot migrate legacy directory; target is not a directory: $target" >&2
+        return 1
+    fi
+    mkdir -p -- "$target"
+    cp -a --update=none -- "$source/." "$target/"
+}
+migrate_legacy_file() {
+    local source="$1" target="$2"
+    [[ -f "$source" && ! -e "$target" ]] || return 0
+    mkdir -p -- "$(dirname -- "$target")"
+    cp -a -- "$source" "$target"
+}
+migrate_legacy_directory "$HOME/.claude/projects/memory" "$MEMORY_STATE"
+migrate_legacy_directory "$HOME/.claude/projects/learning" "$LEARNING_STATE"
+migrate_legacy_file "$HOME/.claude/projects/learning/thompson-sampling-state.json" "$THOMPSON_STATE"
+migrate_legacy_file "$HOME/.local/share/claude-ensemble/graph.json" "$GRAPH_STATE"
+
 echo "================================================"
 echo "  Claude Ensemble Toolkit Installer"
 echo "================================================"
@@ -86,7 +115,7 @@ echo "Repository:  $REPO_PATH"
 echo "Claude profile: $CLAUDE_HOME"
 echo ""
 
-# Step 1: Create ~/.claude directories
+# Step 1: Create the selected isolated Claude Code profile directories
 echo "1. Setting up Claude Code profile directories at $CLAUDE_HOME..."
 mkdir -p "$CLAUDE_HOME"/{hooks,projects/memory,cost_tracking}
 echo "   ✓ Created directories"
@@ -297,12 +326,18 @@ install_managed_copy "$CLAUDE_HOME/memory-client.py" "$MEMORY_SOURCE" "memory-cl
 # enabled and started rather than merely rendered to disk.
 echo ""
 echo "7. Installing and starting systemd user services..."
+# Retire the legacy CE-only Alert/Messenger units on source-checkout upgrades too.
+SYSTEMD_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
+for legacy_unit in claude-alert.service claude-messenger.service; do
+    systemctl --user stop "$legacy_unit" >/dev/null 2>&1 || true
+    systemctl --user disable "$legacy_unit" >/dev/null 2>&1 || true
+    rm -f -- "$SYSTEMD_DIR/$legacy_unit"
+done
+systemctl --user daemon-reload
 SERVICE_INSTALLERS=(
     "memory-service/install.sh"
     "thompson-service/install.sh"
     "learning-service/install.sh"
-    "alert_service/install.sh"
-    "session-messaging/install.sh"
     "graph-service/install.sh"
     "server/install.sh"
 )
@@ -323,8 +358,6 @@ if [[ "${ENSEMBLE_DEFER_SERVICE_START:-0}" != "1" ]]; then
         claude-memory.service \
         claude-thompson.service \
         claude-learning.service \
-        claude-alert.service \
-        claude-messenger.service \
         claude-graph.service \
         claude-ensemble.service; do
         if ! systemctl --user is-active --quiet "$unit"; then
