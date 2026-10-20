@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """
-Real Anthropic API validation for prompt caching.
+OPTIONAL LEGACY LIVE TEST: direct Anthropic API prompt-cache validation.
 
-This test validates that:
-1. Cache control format works with actual Anthropic API
-2. Prompt structure is compatible with messages.create()
-3. Cache metrics are properly extracted from responses
-4. Both ephemeral and last_message cache types function
-
-IMPORTANT: This requires ANTHROPIC_API_KEY environment variable
-and has a small cost for API calls. Run with test model (claude-3-5-haiku).
+This is not part of Claude Ensemble's supported Claude Code-only runtime or
+required CI. It tests the retired direct-Anthropic messages.create() path only.
+Run manually, only if deliberately validating that legacy API integration, with
+ENSEMBLE_LIVE_CACHE_TESTS=1 and ANTHROPIC_API_KEY set. It makes paid API calls.
+Do not use this script as evidence that the active Claude Code runtime works.
 """
 
 import json

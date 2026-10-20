@@ -5,7 +5,7 @@ Test suite validating fixes for 5 critical blockers in Phase 1 prompt caching.
 Blockers fixed:
 1. Cache key invalidation false negatives (nanosecond precision)
 2. Unvalidated 69.8% savings claims (projection disclaimer)
-3. Cache control API compatibility (test_anthropic_api.py)
+3. Cache control API compatibility (manual_anthropic_api_validation.py)
 4. Cache TTL not tracked (CacheableBlock.time_until_expiration())
 5. Wrong cost calculation (cache_metrics.py with correct pricing)
 """
@@ -210,7 +210,7 @@ class BlockerFixValidator:
         """Fix #3: Cache control API compatibility uncertain.
 
         Problem: Code assumes `cache_control` format, no real API validation.
-        Solution: Created test_anthropic_api.py for real API validation.
+        Solution: Retained manual_anthropic_api_validation.py as an optional legacy live check.
 
         Returns:
             Dict with test results for blocker #3
@@ -223,18 +223,18 @@ class BlockerFixValidator:
             "blocker_id": 3,
             "name": "Cache control API compatibility uncertain",
             "issue": "Code assumes cache_control format, no real API validation",
-            "fix": "Created test_anthropic_api.py for real Anthropic API testing",
+            "fix": "Retained manual_anthropic_api_validation.py as an optional legacy live check",
             "test_cases": []
         }
 
         try:
-            # Test 1: Verify test_anthropic_api.py exists and has required components
-            test_api_path = Path(__file__).parent / "test_anthropic_api.py"
+            # Test 1: Verify manual_anthropic_api_validation.py exists and has required components
+            test_api_path = Path(__file__).parent / "manual_anthropic_api_validation.py"
             test_exists = test_api_path.exists()
-            logger.info(f"\n✓ test_anthropic_api.py exists: {test_exists}")
+            logger.info(f"\n✓ manual_anthropic_api_validation.py exists: {test_exists}")
 
             test_result['test_cases'].append({
-                "name": "test_anthropic_api.py file exists",
+                "name": "manual_anthropic_api_validation.py file exists",
                 "passed": test_exists,
                 "path": str(test_api_path)
             })
@@ -253,7 +253,7 @@ class BlockerFixValidator:
                     "extracts_usage_metrics": "usage" in api_test_content or "cache_creation_input_tokens" in api_test_content,
                 }
 
-                logger.info("\ntest_anthropic_api.py Component Checks:")
+                logger.info("\nmanual_anthropic_api_validation.py Component Checks:")
                 for check_name, passed in checks.items():
                     status = "✓" if passed else "✗"
                     logger.info(f"  {status} {check_name}")
