@@ -303,6 +303,17 @@ def test_memory_failure_is_distinguishable_from_successful_model_execution() -> 
 
 @dataclass
 class FailingProvider:
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test-failing",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
+
     def generate(self, request: ModelRequest) -> ModelResponse:
         raise RuntimeError("provider failed")
 
