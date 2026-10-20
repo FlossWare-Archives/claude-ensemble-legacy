@@ -12,7 +12,7 @@ It is designed to work both in Red Hat-centric environments and as a standalone 
 
 The managed runtime consists of the gateway plus four application services: **Memory, Thompson, Graph, and Learning**. Alert and Messenger are legacy components; new installs do not activate them, and upgrades retire their old systemd units. SessionEnd capture writes metadata to Memory directly and does not depend on a message bus.
 
-For a source-checkout install, `install.sh` defaults to the isolated profile at `~/.FlossWare/claude-ensemble-profile`. The versioned deployment uses `~/.FlossWare/claude-ensemble/shared/claude-code`. Neither mode should modify the ordinary `~/.claude` profile unless the user explicitly overrides the profile path.
+For a source-checkout install, `install.sh` defaults to the isolated profile at `~/.FlossWare/claude-ensemble-profile` and service data at `~/.FlossWare/claude-ensemble-state`. The versioned deployment uses `~/.FlossWare/claude-ensemble/shared/claude-code` for its profile. Neither mode should modify the ordinary `~/.claude` profile unless the user explicitly overrides the profile path.
 
 ## What's Inside
 
@@ -136,7 +136,7 @@ On startup, `scripts/ensemble-init.sh` automatically:
 ✓ Autonomous learner ready
 ✓ Claude Ensemble Toolkit initialized
   Tools: compression, caching, cost_tracking, ga_tuning, thompson_router, arbitration
-  Memory: ~/.FlossWare/claude-ensemble-profile/data/memory (source-checkout install)
+  Memory: ~/.FlossWare/claude-ensemble-state/data/memory (source-checkout install)
   Arbitration: multi-phase orchestrator for critical decisions
   Autonomous learning: Thompson continuously improving from real tasks
 ```
@@ -455,11 +455,11 @@ configured with environment variables:
 |---|---|---|
 | `ENSEMBLE_ROOT` | Repository root used by shell initialization | Repository containing `scripts/ensemble-init.sh` |
 | `ENSEMBLE_CREDENTIALS_FILE` | Optional credentials file | `~/.FlossWare/secrets.env` |
-| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-profile/data/memory` for source-checkout installs |
-| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-profile/logs` for source-checkout installs |
+| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-state/data/memory` for source-checkout installs |
+| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-state/logs` for source-checkout installs |
 | `ENSEMBLE_RUNTIME_DIR` | Runtime directory for configurable service sockets | XDG runtime/cache location |
 | `ENSEMBLE_REPO_ROOT` | Repository/release root used by CE services | Current working directory |
-| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-profile/data/learning` for source-checkout installs |
+| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-state/data/learning` for source-checkout installs |
 | `ENSEMBLE_*_SOCKET` | Per-service Unix socket override | Existing service socket |
 
 Both versioned and source-checkout installers manage the gateway and four core services. The memory client degrades gracefully when the daemon is unavailable. No Red Hat GitLab host, credential file, or repository path is required by the core runtime.
