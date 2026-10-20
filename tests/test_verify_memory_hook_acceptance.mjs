@@ -18,6 +18,9 @@ function runAcceptanceScript({ url, args = [], env = {}, cwd = repoRoot }) {
       env: {
         ...process.env,
         FLOSSWARE_MEMORY_URL: url,
+        // Unit tests explicitly exercise the repository fixture. The operational
+        // script itself defaults to the managed installed profile.
+        FLOSSWARE_HOOK_PATH: path.join(repoRoot, 'hooks', 'memory-search-on-prompt.js'),
         ...env,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -173,6 +176,24 @@ try {
     assert.equal(resOutside.code, 0, `Expected exit 0 from outside cwd, got ${resOutside.code}. stderr: ${resOutside.stderr}`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
+  }
+
+  // 9. Missing installed hook fails clearly instead of falling back to repo source
+  const missingProfile = await mkdtemp(path.join(os.tmpdir(), 'ce-missing-installed-hook-'));
+  try {
+    const resMissingHook = await runAcceptanceScript({
+      url,
+      args: commonArgs,
+      env: {
+        FLOSSWARE_HOOK_PATH: '',
+        ENSEMBLE_CLAUDE_CODE_CONFIG_DIR: missingProfile,
+      },
+    });
+    assert.equal(resMissingHook.code, 2, `Expected exit 2 for missing installed hook, got ${resMissingHook.code}`);
+    assert.match(resMissingHook.stderr, /Installed hook script not found/);
+    assert.match(resMissingHook.stderr, /managed profile/);
+  } finally {
+    await rm(missingProfile, { recursive: true, force: true });
   }
 
   console.log('ALL verify-memory-hook-acceptance regression tests passed successfully!');
