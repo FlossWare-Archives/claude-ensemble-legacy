@@ -16,16 +16,64 @@
  * magic prompt keywords such as "remember" or "recall".
  */
 
+// process.getBuiltinModule works both inside this repository's ESM package scope
+// and when Claude Code executes the installed hook as a standalone .js file.
+const fs = process.getBuiltinModule('fs');
+const path = process.getBuiltinModule('path');
+
 const MEMORY_URL = process.env.FLOSSWARE_MEMORY_URL || 'http://127.0.0.1:8767';
 const MEMORY_SEARCH_PATH = '/memory/search';
-const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.FLOSSWARE_MEMORY_TIMEOUT_MS || '1500', 10);
 const MAX_CONTEXT_CHARS = 12000;
 const MAX_RESULTS = 10;
 const GRAPH_URL = process.env.FLOSSWARE_GRAPH_URL || 'http://127.0.0.1:8766';
-const GRAPH_TIMEOUT_MS = Number.parseInt(process.env.FLOSSWARE_GRAPH_TIMEOUT_MS || '400', 10);
-const MAX_GRAPH_ROOTS = 3;
-const MAX_GRAPH_NODES = 8;
-const MAX_GRAPH_CONTEXT_CHARS = 3000;
+const DEFAULT_RAG_CONFIG = {
+  memory: { enabled: true, timeout_ms: 1500, max_results: 10 },
+  knowledge: { enabled: true, timeout_ms: 1500, max_results: 10, max_queries: 3 },
+  graph: { enabled: true, timeout_ms: 400, max_roots: 3, max_nodes: 8, max_context_chars: 3000 },
+};
+
+function ragConfigPath() {
+  return process.env.FLOSSWARE_CE_RAG_CONFIG || path.resolve(path.dirname(process.argv[1]), '..', '.flossware-claude-config', 'rag.json');
+}
+
+function loadRagConfig() {
+  let supplied = {};
+  try { if (fs.existsSync(ragConfigPath())) supplied = JSON.parse(fs.readFileSync(ragConfigPath(), 'utf8')); }
+  catch (error) { return { error: 'cannot read ' + ragConfigPath() + ': ' + error.message }; }
+  if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) return { error: 'configuration must be a JSON object' };
+  const config = JSON.parse(JSON.stringify(DEFAULT_RAG_CONFIG));
+  for (const section of Object.keys(supplied)) {
+    if (!Object.hasOwn(config, section) || !supplied[section] || typeof supplied[section] !== 'object' || Array.isArray(supplied[section])) return { error: 'unknown or invalid section: ' + section };
+    for (const key of Object.keys(supplied[section])) {
+      if (!Object.hasOwn(config[section], key)) return { error: 'unknown setting: ' + section + '.' + key };
+      config[section][key] = supplied[section][key];
+    }
+  }
+  const ranges = {
+    'memory.timeout_ms': [50, 10000], 'memory.max_results': [1, 10],
+    'knowledge.timeout_ms': [50, 10000], 'knowledge.max_results': [1, 10], 'knowledge.max_queries': [1, 3],
+    'graph.timeout_ms': [50, 5000], 'graph.max_roots': [1, 3], 'graph.max_nodes': [1, 8], 'graph.max_context_chars': [100, 3000],
+  };
+  for (const [section, values] of Object.entries(config)) {
+    if (typeof values.enabled !== 'boolean') return { error: section + '.enabled must be boolean' };
+    for (const [key, value] of Object.entries(values)) {
+      if (key === 'enabled') continue;
+      const range = ranges[section + '.' + key];
+      if (!range || !Number.isInteger(value) || value < range[0] || value > range[1]) return { error: section + '.' + key + ' is outside its supported range' };
+    }
+  }
+  if (process.env.FLOSSWARE_MEMORY_TIMEOUT_MS !== undefined) {
+    const value = Number.parseInt(process.env.FLOSSWARE_MEMORY_TIMEOUT_MS, 10);
+    if (!Number.isInteger(value) || value < 50 || value > 10000) return { error: 'FLOSSWARE_MEMORY_TIMEOUT_MS must be 50..10000' };
+    config.memory.timeout_ms = value; config.knowledge.timeout_ms = value;
+  }
+  if (process.env.FLOSSWARE_GRAPH_TIMEOUT_MS !== undefined) {
+    const value = Number.parseInt(process.env.FLOSSWARE_GRAPH_TIMEOUT_MS, 10);
+    if (!Number.isInteger(value) || value < 50 || value > 5000) return { error: 'FLOSSWARE_GRAPH_TIMEOUT_MS must be 50..5000' };
+    config.graph.timeout_ms = value;
+  }
+  return { config };
+}
 
 function buildSearchUrl() {
   return new URL(MEMORY_SEARCH_PATH, MEMORY_URL.endsWith('/') ? MEMORY_URL : `${MEMORY_URL}/`).toString();
@@ -175,9 +223,9 @@ async function readHookEvent() {
   }
 }
 
-async function graphRequest(route, payload) {
+async function graphRequest(route, payload, config) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GRAPH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), config.graph.timeout_ms);
   try {
     const endpoint = new URL(route, GRAPH_URL.endsWith('/') ? GRAPH_URL : `${GRAPH_URL}/`);
     const response = await fetch(endpoint, {
@@ -194,14 +242,15 @@ async function graphRequest(route, payload) {
   }
 }
 
-async function searchGraphContext(cwd) {
+async function searchGraphContext(cwd, config) {
+  if (!config.graph.enabled) return { lines: [], status: 'disabled' };
   if (typeof cwd !== 'string' || !cwd.trim()) return { lines: [], status: 'skipped_no_cwd' };
   const projectName = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
   if (!projectName || projectName === '.' || projectName === '..') return { lines: [], status: 'skipped_invalid_cwd' };
 
-  const match = await graphRequest('/graph/query', { properties: { name: projectName } });
+  const match = await graphRequest('/graph/query', { properties: { name: projectName } }, config);
   const roots = Array.isArray(match?.nodes)
-    ? match.nodes.filter(node => node && typeof node.id === 'string').slice(0, MAX_GRAPH_ROOTS)
+    ? match.nodes.filter(node => node && typeof node.id === 'string').slice(0, config.graph.max_roots)
     : [];
   if (!roots.length) return { lines: [], status: 'no_project_match' };
 
@@ -209,7 +258,7 @@ async function searchGraphContext(cwd) {
   for (const root of roots) nodes.set(root.id, { node: root, relationship: 'current project' });
 
   const traversals = await Promise.all(roots.map(root =>
-    graphRequest('/graph/traverse', { start: root.id, direction: 'both', max_depth: 1 })
+    graphRequest('/graph/traverse', { start: root.id, direction: 'both', max_depth: 1 }, config)
       .catch(error => {
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Graph context unavailable for project ${projectName}: ${message}\n`);
@@ -230,11 +279,11 @@ async function searchGraphContext(cwd) {
   }
 
   const lines = [...nodes.values()]
-    .slice(0, MAX_GRAPH_NODES)
+    .slice(0, config.graph.max_nodes)
     .map(({ node, relationship }) => formatGraphNode(node, relationship))
     .filter(Boolean)
     .join('\n')
-    .slice(0, MAX_GRAPH_CONTEXT_CHARS)
+    .slice(0, config.graph.max_context_chars)
     .split('\n')
     .filter(Boolean);
   return {
@@ -243,9 +292,10 @@ async function searchGraphContext(cwd) {
   };
 }
 
-async function searchContext(query, source) {
+async function searchContext(query, source, config) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const section = source === 'claude-code' ? config.knowledge : config.memory;
+  const timer = setTimeout(() => controller.abort(), section.timeout_ms);
 
   try {
     const response = await fetch(buildSearchUrl(), {
@@ -254,7 +304,7 @@ async function searchContext(query, source) {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({ query, limit: MAX_RESULTS, source }),
+      body: JSON.stringify({ query, limit: section.max_results, source }),
       signal: controller.signal,
     });
 
@@ -268,7 +318,7 @@ async function searchContext(query, source) {
   }
 }
 
-function buildKnowledgeQueries(query) {
+function buildKnowledgeQueries(query, maxQueries) {
   const normalized = query.replace(/\\s+/g, ' ').trim();
   if (!normalized) return [];
 
@@ -284,17 +334,18 @@ function buildKnowledgeQueries(query) {
     const key = candidate.toLocaleLowerCase();
     if (queries.some(item => item.toLocaleLowerCase() === key)) continue;
     queries.push(candidate);
-    if (queries.length >= 3) break;
+    if (queries.length >= maxQueries) break;
   }
   return queries;
 }
 
-async function searchKnowledgeContext(query) {
-  const queries = buildKnowledgeQueries(query);
+async function searchKnowledgeContext(query, config) {
+  if (!config.knowledge.enabled) return { ok: true, results: [], disabled: true };
+  const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
   if (!queries.length) return { ok: true, results: [] };
 
   const responses = await Promise.all(queries.map(candidate =>
-    searchContext(candidate, 'claude-code').catch(error => ({ error }))
+    searchContext(candidate, 'claude-code', config).catch(error => ({ error }))
   ));
   const successful = responses.filter(response => !response.error && response?.ok === true);
   if (!successful.length && responses.some(response => response.error)) {
@@ -308,9 +359,9 @@ async function searchKnowledgeContext(query) {
   return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, MAX_RESULTS) };
 }
 
-async function searchKnowledgeStatus() {
+async function searchKnowledgeStatus(config) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), config.knowledge.timeout_ms);
   try {
     const response = await fetch(buildKnowledgeStatusUrl(), {
       method: 'POST',
@@ -348,34 +399,41 @@ async function main() {
     return;
   }
 
+  const loadedConfig = loadRagConfig();
+  if (loadedConfig.error) {
+    process.stderr.write('RAG configuration invalid: ' + loadedConfig.error + '\n');
+    emitDiagnostics('configuration_error', { queryHash, error: loadedConfig.error });
+    return;
+  }
+  const config = loadedConfig.config;
   emitDiagnostics('started', { queryHash, cwdPresent: Boolean(event.cwd) });
   let memoryError = null;
   let graphError = null;
   let knowledgeIndexError = null;
   const [memoryPayload, knowledgePayload, graphResult, knowledgeIndex] = await Promise.all([
-    searchContext(query, 'memory').catch(error => {
+    config.memory.enabled ? searchContext(query, 'memory', config).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       memoryError = message;
-      process.stderr.write(`Memory search unavailable: ${message}\n`);
+      process.stderr.write('Memory search unavailable: ' + message + '\n');
       return null;
-    }),
-    searchKnowledgeContext(query).catch(error => {
+    }) : Promise.resolve({ ok: true, results: [], disabled: true }),
+    searchKnowledgeContext(query, config).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Knowledge search unavailable: ${message}\n`);
+      process.stderr.write('Knowledge search unavailable: ' + message + '\n');
       return null;
     }),
-    searchGraphContext(event.cwd).catch(error => {
+    searchGraphContext(event.cwd, config).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       graphError = message;
-      process.stderr.write(`Graph context unavailable: ${message}\n`);
+      process.stderr.write('Graph context unavailable: ' + message + '\n');
       return { lines: [], status: 'error' };
     }),
-    searchKnowledgeStatus().catch(error => {
+    config.knowledge.enabled ? searchKnowledgeStatus(config).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       knowledgeIndexError = message;
-      process.stderr.write(`Knowledge index status unavailable: ${message}\n`);
+      process.stderr.write('Knowledge index status unavailable: ' + message + '\n');
       return null;
-    }),
+    }) : Promise.resolve({ status: 'disabled', indexed_document_count: null }),
   ]);
 
   const graphContext = graphResult.lines;
@@ -393,17 +451,17 @@ async function main() {
   const additionalContext = formatContext(query, payload, graphContext);
   const diagnostics = {
     queryHash,
-    memoryStatus: memoryError ? 'error' : memoryPayload?.ok === true ? 'ok' : 'empty_or_invalid',
+    memoryStatus: !config.memory.enabled ? 'disabled' : memoryError ? 'error' : memoryPayload?.ok === true ? 'ok' : 'empty_or_invalid',
     memoryResultCount: memoryResults.length,
     memoryCount: memory.length,
-    knowledgeStatus: knowledgePayload?.ok !== true ? 'error' : knowledgeResults.length ? 'ok' : 'empty',
+    knowledgeStatus: !config.knowledge.enabled ? 'disabled' : knowledgePayload?.ok !== true ? 'error' : knowledgeResults.length ? 'ok' : 'empty',
     knowledgeResultCount: knowledgeResults.length,
     knowledgeCount: knowledge.length,
     knowledgeSource: 'claude-code',
-    knowledgeIndexStatus: knowledgeIndexError ? 'error' : knowledgeIndex?.status || 'unavailable',
+    knowledgeIndexStatus: !config.knowledge.enabled ? 'disabled' : knowledgeIndexError ? 'error' : knowledgeIndex?.status || 'unavailable',
     knowledgeIndexedDocumentCount: Number.isInteger(knowledgeIndex?.indexed_document_count)
       ? knowledgeIndex.indexed_document_count : null,
-    graphStatus: graphError ? 'error' : graphResult.status,
+    graphStatus: !config.graph.enabled ? 'disabled' : graphError ? 'error' : graphResult.status,
     graphCount: graphContext.length,
     contextEmitted: Boolean(additionalContext),
   };
