@@ -34,7 +34,7 @@ fi
 BACKUP="$BACKUP_STEM"
 suffix=0
 while ! mkdir -m 700 -- "$BACKUP" 2>/dev/null; do
-  [[ -e "$BACKUP" || -L "$BACKUP" ]] || { printf "ERROR: unable to create backup directory: %s\\n" "$BACKUP" >&2; exit 1; }
+  [[ -e "$BACKUP" || -L "$BACKUP" ]] || { printf "ERROR: unable to create backup directory: %s\n" "$BACKUP" >&2; exit 1; }
   suffix=$((suffix + 1))
   BACKUP="${BACKUP_STEM}_$(printf "%02d" "$suffix")"
 done
