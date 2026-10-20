@@ -18,6 +18,23 @@ profile is `shared/claude-code/`; the normal `~/.claude/` profile is not used by
 default. Source-checkout installs use the isolated
 `~/.FlossWare/claude-ensemble-profile/` profile unless explicitly overridden.
 
+## Source-checkout development mode
+
+For an isolated Python virtualenv and foreground services, run:
+
+```bash
+tools/ce dev setup
+```
+
+Then, in each service terminal, load the same profile and runtime environment and start one process:
+
+```bash
+eval "$(tools/ce dev env)"
+tools/ce dev run memory
+```
+
+Repeat with `thompson`, `learning`, and `graph` in separate terminals; start `gateway` last. Setup installs the hook configuration into the dedicated CE profile. This mode uses alternate loopback ports and does not modify ordinary `~/.claude/`.
+
 ## Status and diagnostics
 
 Check the service units:
