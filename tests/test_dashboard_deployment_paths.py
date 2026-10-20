@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-import importlib.util
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
