@@ -6,6 +6,12 @@
 # never a resolved releases/<version> directory.
 set -Eeuo pipefail
 
+FLOSSWARE_HOME="$HOME/.FlossWare"
+if [[ -L "$FLOSSWARE_HOME" ]]; then
+  printf 'ERROR: %s must be a real directory, not a symlink. Resolve the path explicitly before managing releases.\n' "$FLOSSWARE_HOME" >&2
+  exit 1
+fi
+
 ROOT="${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}"
 SYSTEMCTL_BIN="${ENSEMBLE_SYSTEMCTL_BIN:-systemctl}"
 UNIT_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
