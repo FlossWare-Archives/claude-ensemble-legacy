@@ -116,3 +116,98 @@ Values are illustrative. Each result includes a stable step name, status, endpoi
 - SessionEnd smoke is the one explicit exception that writes a metadata-only synthetic event to production Memory. It is opt-in and requires `--allow-memory-write`; it does not publish a message or send an alert.
 - A skipped check means it was not verified, not that it passed. A warning is not equivalent to a clean pass.
 - Passing automated tests and diagnostics do not replace the separate release gate in [issue #505](https://github.com/FlossWare/claude-ensemble/issues/505), including trusted-host acceptance. Do not treat host staging or activation as complete until that work is explicitly authorized and its evidence is recorded.
+
+## Memory REST Acceptance Testing (Phase 5)
+
+The Memory REST service listens by default on `http://127.0.0.1:8767` (or port configured via `ENSEMBLE_MEMORY_HTTP_PORT`).
+
+### 1. Direct Curl Commands
+
+**Health / Readiness Check:**
+```bash
+curl -s -f http://127.0.0.1:8767/health
+```
+
+**Seed Disposable Test Memory:**
+```bash
+curl -s -X POST http://127.0.0.1:8767/memory/write \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acceptance_test_memory", "content": "# Acceptance Test\nClaude Ensemble Memory REST integration contract."}'
+```
+
+**Retrieve Test Memory via Search API:**
+```bash
+curl -s -X POST http://127.0.0.1:8767/memory/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "REST integration contract", "limit": 10, "source": "memory"}'
+```
+
+**Read Memory directly:**
+```bash
+curl -s -X POST http://127.0.0.1:8767/memory/read \
+  -H "Content-Type: application/json" \
+  -d '{"name": "acceptance_test_memory"}'
+```
+
+**Append Idempotent Event:**
+```bash
+curl -s -X POST http://127.0.0.1:8767/memory/append-once \
+  -H "Content-Type: application/json" \
+  -d '{"name": "session_events", "event_id": "test-evt-001", "entry": {"event_type": "acceptance_check", "session_id": "test-session"}}'
+```
+
+**Cleanup Disposable Test Memory:**
+Remove `acceptance_test_memory.md` from the configured memory state directory (`ENSEMBLE_MEMORY_DIR` / `$HOME/.FlossWare/claude-ensemble-state/data/memory`).
+
+### 2. Automated Hook Acceptance Command
+
+Run the following command to invoke the actual CE `UserPromptSubmit` hook and verify context emission:
+
+```bash
+FLOSSWARE_MEMORY_URL="${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}" node -e '
+const { spawn } = require("child_process");
+const prompt = process.argv[1] || "REST integration contract";
+const child = spawn(process.argv[0], ["hooks/memory-search-on-prompt.js"], {
+  env: { ...process.env },
+  stdio: ["pipe", "pipe", "pipe"]
+});
+let stdout = "", stderr = "";
+child.stdout.on("data", d => stdout += d);
+child.stderr.on("data", d => stderr += d);
+child.stdin.end(JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt }));
+child.on("close", code => {
+  if (code !== 0) {
+    console.error("Hook process exited with error code", code);
+    process.exit(2);
+  }
+  if (stderr.includes("Memory search unavailable")) {
+    console.error("ACCEPTANCE FAILURE: Memory REST service is unavailable");
+    process.exit(1);
+  }
+  if (!stdout.trim()) {
+    console.log("ACCEPTANCE RESULT: Successful request, but no matching memory found (empty context)");
+    process.exit(3);
+  }
+  try {
+    const payload = JSON.parse(stdout);
+    const context = payload?.hookSpecificOutput?.additionalContext;
+    if (typeof context === "string" && context.trim().length > 0) {
+      console.log("ACCEPTANCE SUCCESS: Context injected into prompt context:\n" + context);
+      process.exit(0);
+    } else {
+      console.error("ACCEPTANCE FAILURE: Malformed payload or missing context");
+      process.exit(2);
+    }
+  } catch (err) {
+    console.error("ACCEPTANCE FAILURE: Output is not valid JSON:", err.message);
+    process.exit(2);
+  }
+});
+' "REST integration contract"
+```
+
+Exit status codes:
+- `0`: Successful retrieval and prompt context injection.
+- `1`: Service unavailable (Memory REST daemon not running or unreachable).
+- `2`: HTTP or contract failure / malformed output.
+- `3`: Successful request but no matching memory records found.
