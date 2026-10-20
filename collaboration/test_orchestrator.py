@@ -6,7 +6,7 @@ import pytest
 
 from collaboration.orchestrator import CollaborationOrchestrator
 from collaboration.reviewer import ReviewerResult
-from providers import ModelCapabilities, ModelProvider, ModelRequest, ModelResponse
+from providers import ClaudeCodeProvider, ModelCapabilities, ModelProvider, ModelRequest, ModelResponse
 
 
 class FakeProvider(ModelProvider):
@@ -534,3 +534,81 @@ def test_failed_follow_up_reviewer_escalates_without_second_arbiter_call():
         for item in loop.state.audit
     )
 
+
+
+
+def test_real_claude_code_provider_composes_with_candidate_generation_and_arbiter(
+    monkeypatch,
+):
+    """Exercise strict provider validation while mocking only Claude CLI I/O."""
+    import subprocess
+
+    import providers.claude_code as claude_code_module
+
+    arbiter_result = adjudication()
+    cli_results = iter(["solution from Claude Code", arbiter_result])
+    commands = []
+
+    class FakeProcess:
+        returncode = 0
+
+        def __init__(self, result):
+            self.result = result
+
+        def communicate(self, input=None, timeout=None):
+            assert input
+            assert timeout == 300.0
+            return (
+                json.dumps({
+                    "type": "result",
+                    "subtype": "success",
+                    "result": self.result,
+                    "model": "claude-sonnet-4-5",
+                    "modelUsage": {"claude-sonnet-4-5": {"provider": "vertex"}},
+                    "apiProvider": "vertex",
+                }),
+                "",
+            )
+
+    provider = ClaudeCodeProvider(
+        executable="claude",
+        expected_provider="vertex",
+    )
+
+    monkeypatch.setattr(claude_code_module.shutil, "which", lambda _: "/mock/claude")
+
+    def fake_preflight(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0], returncode=0, stdout=json.dumps({"apiProvider": "vertex"}), stderr=""
+        )
+
+    monkeypatch.setattr(claude_code_module.subprocess, "run", fake_preflight)
+
+    def fake_start_process(command):
+        commands.append(command)
+        return FakeProcess(next(cli_results))
+
+    monkeypatch.setattr(provider, "_start_process", fake_start_process)
+
+    loop = CollaborationOrchestrator(
+        "Design a safe feature.",
+        solvers={"sonnet": provider},
+        arbiter=provider,
+        reviewers={},
+        solver_model_ids={"sonnet": "claude-sonnet-4-5"},
+        arbiter_model_id="claude-opus-4-1",
+        max_rounds=1,
+    )
+
+    result = loop.run()
+
+    assert result.status == "accepted"
+    assert result.selected_candidate is not None
+    assert result.selected_candidate.proposal == "solution from Claude Code"
+    assert len(commands) == 2
+    assert commands[0][0] == "/mock/claude"
+    assert commands[1][0] == "/mock/claude"
+    assert "--model" in commands[0]
+    assert "claude-sonnet-4-5" in commands[0]
+    assert "--model" in commands[1]
+    assert "claude-opus-4-1" in commands[1]
