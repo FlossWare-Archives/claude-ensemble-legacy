@@ -78,6 +78,7 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
         cli.chmod(0o755)
     env = os.environ.copy()
     env["HOME"] = str(home)
+    env["SHELL"] = "/bin/bash"
     env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"] = str(home / ".FlossWare" / "claude-ensemble-profile")
     env["CLAUDE_CONFIG_DIR"] = env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"]
     env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
@@ -241,7 +242,7 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
         fail("legacy Memory source was modified during migration")
     if legacy_graph.read_text(encoding="utf-8") != '{"nodes":[]}\\n':
         fail("legacy Graph source was modified during migration")
-    if "claude-ensemble/tools" not in bashrc.read_text(encoding="utf-8"):
+    if "claude-ensemble/tools" not in bashrc.read_text(encoding="utf-8") and str(ROOT / "tools") not in bashrc.read_text(encoding="utf-8"):
         fail("installer did not add its PATH entry to existing shell config")
 
     service_dir = home / ".config/systemd/user"
