@@ -207,20 +207,36 @@ install(){
   node --check "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" >/dev/null 2>&1 || die "source SessionEnd hook JavaScript is invalid"
   if [ -f "$CC_SETTINGS_PATH" ]; then python3 "$CC_ROOT/lib/json_tool.py" validate-input "$CC_SETTINGS_PATH"; fi
   if [ -f "$CC_SESSION_END_HOOK_PATH" ] && [ "$force" != true ]; then
-    [ -f "$CC_MANIFEST" ] || die "conflict: existing SessionEnd hook has no FlossWare ownership manifest; use --force after review"
-    python3 "$CC_ROOT/lib/json_tool.py" validate-manifest "$CC_MANIFEST" "$CC_SESSION_END_HOOK_PATH" >/dev/null || die "conflict: existing SessionEnd hook cannot be verified against the FlossWare manifest; use --force after review"
-    local expected_session actual_session
-    expected_session="$(python3 "$CC_ROOT/lib/json_tool.py" manifest-sha "$CC_MANIFEST" "$CC_SESSION_END_HOOK_PATH")"
-    actual_session="$(sha256_file "$CC_SESSION_END_HOOK_PATH")"
-    [ "$expected_session" = "$actual_session" ] || die "conflict: managed SessionEnd hook was modified after installation; use --force after review"
+    if [ -f "$CC_MANIFEST" ] &&
+       python3 "$CC_ROOT/lib/json_tool.py" validate-manifest "$CC_MANIFEST" "$CC_SESSION_END_HOOK_PATH" >/dev/null 2>&1; then
+      local expected_session actual_session
+      expected_session="$(python3 "$CC_ROOT/lib/json_tool.py" manifest-sha "$CC_MANIFEST" "$CC_SESSION_END_HOOK_PATH")"
+      actual_session="$(sha256_file "$CC_SESSION_END_HOOK_PATH")"
+      [ "$expected_session" = "$actual_session" ] || {
+        cmp -s "$CC_SESSION_END_HOOK_PATH" "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" ||
+          die "conflict: managed SessionEnd hook was modified after installation; refusing to overwrite"
+      }
+    else
+      # Recover interrupted/legacy installs only when the existing file is
+      # byte-for-byte identical to the canonical source. Never adopt unknown code.
+      cmp -s "$CC_SESSION_END_HOOK_PATH" "$CC_REPO_ROOT/hooks/session-end-memory-capture.js" ||
+        die "conflict: existing SessionEnd hook is not provably FlossWare-managed; review it before using --force"
+    fi
   fi
   if [ -f "$CC_HOOK_PATH" ] && [ "$force" != true ]; then
-    [ -f "$CC_MANIFEST" ] || die "conflict: existing memory hook has no FlossWare ownership manifest; use --force after review"
-    python3 "$CC_ROOT/lib/json_tool.py" validate-manifest "$CC_MANIFEST" "$CC_HOOK_PATH" >/dev/null || die "conflict: existing managed hook cannot be verified against the FlossWare manifest; use --force after review"
-    local expected actual
-    expected="$(python3 "$CC_ROOT/lib/json_tool.py" manifest-sha "$CC_MANIFEST" "$CC_HOOK_PATH")"
-    actual="$(sha256_file "$CC_HOOK_PATH")"
-    [ "$expected" = "$actual" ] || die "conflict: managed memory hook was modified after installation; use --force after review"
+    if [ -f "$CC_MANIFEST" ] &&
+       python3 "$CC_ROOT/lib/json_tool.py" validate-manifest "$CC_MANIFEST" "$CC_HOOK_PATH" >/dev/null 2>&1; then
+      local expected actual
+      expected="$(python3 "$CC_ROOT/lib/json_tool.py" manifest-sha "$CC_MANIFEST" "$CC_HOOK_PATH")"
+      actual="$(sha256_file "$CC_HOOK_PATH")"
+      [ "$expected" = "$actual" ] || {
+        cmp -s "$CC_HOOK_PATH" "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" ||
+          die "conflict: managed memory hook was modified after installation; refusing to overwrite"
+      }
+    else
+      cmp -s "$CC_HOOK_PATH" "$CC_REPO_ROOT/hooks/memory-search-on-prompt.js" ||
+        die "conflict: existing memory hook is not provably FlossWare-managed; review it before using --force"
+    fi
   fi
   if [ -f "$CC_SETTINGS_PATH" ]; then CC_SETTINGS_EXISTED="true"; backup_file "$CC_SETTINGS_PATH"; CC_SETTINGS_BACKUP="$LAST_BACKUP"; fi
   if [ -e "$CC_HOOK_PATH" ]; then CC_HOOK_EXISTED="true"; backup_file "$CC_HOOK_PATH"; CC_HOOK_BACKUP="$LAST_BACKUP"; fi
