@@ -117,97 +117,87 @@ Values are illustrative. Each result includes a stable step name, status, endpoi
 - A skipped check means it was not verified, not that it passed. A warning is not equivalent to a clean pass.
 - Passing automated tests and diagnostics do not replace the separate release gate in [issue #505](https://github.com/FlossWare/claude-ensemble/issues/505), including trusted-host acceptance. Do not treat host staging or activation as complete until that work is explicitly authorized and its evidence is recorded.
 
-## Memory REST Acceptance Testing (Phase 5)
+## Memory REST Acceptance Testing
 
-The Memory REST service listens by default on `http://127.0.0.1:8767` (or port configured via `ENSEMBLE_MEMORY_HTTP_PORT`).
+### Distinguishing Test Modes
 
-### 1. Direct Curl Commands
+1. **Automated Fixture / CI Testing:**
+   Executed in CI via `python3 -m pytest tests/test_claude_code_hook_lifecycle.py` and `node --test tools/claude-config/tests/test-memory-hook.mjs`. These tests spawn ephemeral, in-memory mock HTTP servers or isolated daemon instances on random ports (`port 0`) with temporary directories. They prove code logic without touching user state or running services.
+2. **Live Operational Acceptance Testing:**
+   Executed against a running Memory REST daemon instance on a target host. Proves that the actual installed hook retrieves seeded Memory and Knowledge records and formats them into Claude Code prompt context.
 
-**Health / Readiness Check:**
+### Identifying Endpoint and Storage Directory
+
+CE supports two execution environments:
+
+- **Installed Mode (systemd user service):**
+  - **Memory REST URL:** `FLOSSWARE_MEMORY_URL` or `http://127.0.0.1:8767`
+  - **Memory Data Directory:** `$HOME/.FlossWare/claude-ensemble/shared/data/memory` (or configured via `ENSEMBLE_MEMORY_DIR`)
+- **Development Mode (`tools/ce dev`):**
+  - **Memory REST URL:** Exported via `eval "$(tools/ce dev env)"` -> `FLOSSWARE_MEMORY_URL="http://127.0.0.1:18767"`
+  - **Memory Data Directory:** `$HOME/.FlossWare/claude-ensemble-state/data/memory`
+
+Identify the active endpoint in any shell:
 ```bash
-curl -s -f http://127.0.0.1:8767/health
+echo "${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}"
 ```
 
-**Seed Disposable Test Memory:**
+### Safe Curl Acceptance Procedures
+
+Run these commands against your active `FLOSSWARE_MEMORY_URL` (replace port 8767 with 18767 if in dev mode).
+
+**1. Read-Only Health Check:**
 ```bash
-curl -s -X POST http://127.0.0.1:8767/memory/write \
+curl -s -f -w "\nHTTP %{http_code}\n" http://127.0.0.1:8767/health
+```
+
+**2. Seed Uniquely Identifiable Test Memory:**
+```bash
+curl -s -f -X POST http://127.0.0.1:8767/memory/write \
   -H "Content-Type: application/json" \
-  -d '{"name": "acceptance_test_memory", "content": "# Acceptance Test\nClaude Ensemble Memory REST integration contract."}'
+  -d '{"name": "acceptance_test_record_001", "content": "# Acceptance Test Record\nClaude Ensemble Memory REST integration contract verified."}' \
+  -w "\nHTTP %{http_code}\n"
 ```
 
-**Retrieve Test Memory via Search API:**
+**3. Search Memory via REST API:**
 ```bash
-curl -s -X POST http://127.0.0.1:8767/memory/search \
+curl -s -f -X POST http://127.0.0.1:8767/memory/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "REST integration contract", "limit": 10, "source": "memory"}'
+  -d '{"query": "REST integration contract", "limit": 10, "source": "memory"}' \
+  -w "\nHTTP %{http_code}\n"
 ```
 
-**Read Memory directly:**
+**4. Read Memory Entry directly:**
 ```bash
-curl -s -X POST http://127.0.0.1:8767/memory/read \
+curl -s -f -X POST http://127.0.0.1:8767/memory/read \
   -H "Content-Type: application/json" \
-  -d '{"name": "acceptance_test_memory"}'
+  -d '{"name": "acceptance_test_record_001"}' \
+  -w "\nHTTP %{http_code}\n"
 ```
 
-**Append Idempotent Event:**
+**5. Safe Non-Destructive Cleanup:**
+Target only the specific acceptance test record created above. Never delete entire memory directories or user state.
 ```bash
-curl -s -X POST http://127.0.0.1:8767/memory/append-once \
-  -H "Content-Type: application/json" \
-  -d '{"name": "session_events", "event_id": "test-evt-001", "entry": {"event_type": "acceptance_check", "session_id": "test-session"}}'
+MEM_DIR="${ENSEMBLE_MEMORY_DIR:-$HOME/.FlossWare/claude-ensemble-state/data/memory}"
+rm -f "$MEM_DIR/acceptance_test_record_001.md"
 ```
 
-**Cleanup Disposable Test Memory:**
-Remove `acceptance_test_memory.md` from the configured memory state directory (`ENSEMBLE_MEMORY_DIR` / `$HOME/.FlossWare/claude-ensemble-state/data/memory`).
+### Reproducible Automated Hook Acceptance Script
 
-### 2. Automated Hook Acceptance Command
-
-Run the following command to invoke the actual CE `UserPromptSubmit` hook and verify context emission:
+The repository includes an operational acceptance script `scripts/verify-memory-hook-acceptance.cjs`. It can be run from any working directory:
 
 ```bash
-FLOSSWARE_MEMORY_URL="${FLOSSWARE_MEMORY_URL:-http://127.0.0.1:8767}" node -e '
-const { spawn } = require("child_process");
-const prompt = process.argv[1] || "REST integration contract";
-const child = spawn(process.argv[0], ["hooks/memory-search-on-prompt.js"], {
-  env: { ...process.env },
-  stdio: ["pipe", "pipe", "pipe"]
-});
-let stdout = "", stderr = "";
-child.stdout.on("data", d => stdout += d);
-child.stderr.on("data", d => stderr += d);
-child.stdin.end(JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt }));
-child.on("close", code => {
-  if (code !== 0) {
-    console.error("Hook process exited with error code", code);
-    process.exit(2);
-  }
-  if (stderr.includes("Memory search unavailable")) {
-    console.error("ACCEPTANCE FAILURE: Memory REST service is unavailable");
-    process.exit(1);
-  }
-  if (!stdout.trim()) {
-    console.log("ACCEPTANCE RESULT: Successful request, but no matching memory found (empty context)");
-    process.exit(3);
-  }
-  try {
-    const payload = JSON.parse(stdout);
-    const context = payload?.hookSpecificOutput?.additionalContext;
-    if (typeof context === "string" && context.trim().length > 0) {
-      console.log("ACCEPTANCE SUCCESS: Context injected into prompt context:\n" + context);
-      process.exit(0);
-    } else {
-      console.error("ACCEPTANCE FAILURE: Malformed payload or missing context");
-      process.exit(2);
-    }
-  } catch (err) {
-    console.error("ACCEPTANCE FAILURE: Output is not valid JSON:", err.message);
-    process.exit(2);
-  }
-});
-' "REST integration contract"
+node scripts/verify-memory-hook-acceptance.cjs ["prompt query"]
 ```
 
-Exit status codes:
-- `0`: Successful retrieval and prompt context injection.
-- `1`: Service unavailable (Memory REST daemon not running or unreachable).
-- `2`: HTTP or contract failure / malformed output.
-- `3`: Successful request but no matching memory records found.
+#### Behavior & Verification Steps:
+1. Queries the `/health` endpoint at `FLOSSWARE_MEMORY_URL` (default `http://127.0.0.1:8767`).
+2. Invokes the production `hooks/memory-search-on-prompt.js` script with `UserPromptSubmit` event.
+3. Parses output JSON and inspects `hookSpecificOutput.additionalContext`.
+4. Verifies that both Memory records (what happened) and Knowledge documents (what is currently known) were retrieved and injected into prompt context.
+
+#### Exit Codes:
+- `0`: Success — Both Memory and Knowledge records retrieved and injected into prompt context.
+- `1`: Service Unavailable — Memory REST daemon not running or unreachable.
+- `2`: Contract / Schema Error — Hook process error or malformed JSON payload.
+- `3`: Missing / Partial Context — Returned context was empty or missing required Memory or Knowledge records.
