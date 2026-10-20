@@ -13,7 +13,7 @@ Components:
 1. State Tracker (WORKER 1 - Haiku): Persist model performance data
 2. Beta Estimator (WORKER 2 - Sonnet): Bayesian inference on posteriors
 3. Router Logic (WORKER 3 - Opus): Decision function with exploration schedule
-4. Integration (WORKER 4 - Gemini): Wire into RH and test
+4. Integration (WORKER 4): Wire into RH and test
 """
 
 import json
@@ -534,7 +534,7 @@ class ThompsonRouter:
 
 
 # ============================================================================
-# WORKER 4: INTEGRATION (Gemini) - Wire into RH and test
+# WORKER 4: INTEGRATION - Wire into RH and test
 # ============================================================================
 
 class RHDisseminatorRouter:
