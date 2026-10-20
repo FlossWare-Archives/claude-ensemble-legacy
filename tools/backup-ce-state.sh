@@ -34,13 +34,17 @@ if [[ "$REASON" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
 elif [[ -n "${ENSEMBLE_BACKUP_VERSION:-}" ]]; then
   BACKUP_VERSION="$ENSEMBLE_BACKUP_VERSION"
 else
-  SOURCE_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
-  if git -C "$SOURCE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    BACKUP_VERSION="$(bash "$SOURCE_ROOT/tools/resolve-ce-version.sh" --repo "$SOURCE_ROOT" --deployment-root "$ROOT")"
-  elif [[ -L "$ROOT/current" ]]; then
+  # If a deployment is active, label the snapshot with the exact release being
+  # protected. Only a first install (no current pointer) resolves the next version.
+  if [[ -L "$ROOT/current" ]]; then
     current_target="$(readlink -- "$ROOT/current")"
     if [[ "$current_target" =~ ^releases/((0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ && -d "$ROOT/$current_target" && ! -L "$ROOT/$current_target" ]]; then
       BACKUP_VERSION="${BASH_REMATCH[1]}"
+    fi
+  else
+    SOURCE_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+    if git -C "$SOURCE_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+      BACKUP_VERSION="$(bash "$SOURCE_ROOT/tools/resolve-ce-version.sh" --repo "$SOURCE_ROOT" --deployment-root "$ROOT")"
     fi
   fi
 fi
