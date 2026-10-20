@@ -372,7 +372,7 @@ case "$cmd" in
     mkdir -m 700 "$backup"
     active_file="$backup/active-before.txt"
     : > "$active_file"
-    for unit in "${UNITS[@]}"; do
+    for unit in "${ALL_UNITS[@]}"; do
       file="$UNIT_DIR/$unit"
       if [[ -e "$file" || -L "$file" ]]; then cp -a -- "$file" "$backup/$unit"; fi
       "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
