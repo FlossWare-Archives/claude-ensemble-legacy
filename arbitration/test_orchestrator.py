@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from providers import ModelProvider, ModelRequest, ModelResponse
+from providers import ModelCapabilities, ModelProvider, ModelRequest, ModelResponse
 
 from arbitration.orchestrator import (
     ArbiterResult,
@@ -32,6 +32,17 @@ class FakeProvider(ModelProvider):
         self.responses = responses
         self.failures = failures or set()
         self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        # Test doubles declare permissive behavior intentionally; strict
+        # composition is separately tested against ClaudeCodeProvider.
+        return ModelCapabilities(
+            provider="fake",
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.requests.append(request)
