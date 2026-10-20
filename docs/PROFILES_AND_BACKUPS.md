@@ -69,8 +69,10 @@ Every **non-staging versioned first install or upgrade** must create a durable b
 Backups are stored outside the deployment root at:
 
 ```
-~/.FlossWare/claude-ensemble-backups/<UTC timestamp>-pre-install-<version>-<pid>/
+~/.FlossWare/claude-ensemble-backups/<MAJOR.MINOR>_<YYYY-MM-DD_HH-MM-SS-mmm>/
 ```
+
+The timestamp is UTC and includes milliseconds. If a name collision still occurs, the backup creator appends a numeric collision suffix rather than overwriting an existing snapshot. The version is taken from the explicit release version supplied by the versioned installer; other backup callers resolve the next MAJOR.MINOR version from the source checkout and deployment state. A source checkout without a resolvable release state fails closed instead of creating an ambiguously named backup. The manifest records both the caller's reason and the resolved version.
 
 Each backup contains:
 
