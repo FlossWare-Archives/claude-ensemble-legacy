@@ -455,11 +455,11 @@ configured with environment variables:
 |---|---|---|
 | `ENSEMBLE_ROOT` | Repository root used by shell initialization | Repository containing `scripts/ensemble-init.sh` |
 | `ENSEMBLE_CREDENTIALS_FILE` | Optional credentials file | `~/.FlossWare/secrets.env` |
-| `ENSEMBLE_MEMORY_DIR` | Persistent memory directory | `~/.claude/projects/memory` |
-| `ENSEMBLE_LOG_DIR` | Service log directory | `~/.claude` |
+| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-profile/data/memory` for source-checkout installs
+| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-profile/logs` for source-checkout installs
 | `ENSEMBLE_RUNTIME_DIR` | Runtime directory for configurable service sockets | XDG runtime/cache location |
-| `ENSEMBLE_REPO_ROOT` | Repository inspected by alerting | Current working directory |
-| `ENSEMBLE_LEARNING_DIR` | Learning state directory | Existing Claude Ensemble learning path |
+| `ENSEMBLE_REPO_ROOT` | Repository/release root used by CE services | Current working directory
+| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-profile/data/learning` for source-checkout installs
 | `ENSEMBLE_ALERT_DIR` | Alert state directory | `~/.claude/alerts` |
 | `ENSEMBLE_*_SOCKET` | Per-service Unix socket override | Existing service socket |
 
