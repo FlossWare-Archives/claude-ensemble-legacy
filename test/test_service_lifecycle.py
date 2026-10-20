@@ -76,15 +76,19 @@ print("PASS: service lifecycle ownership contract")
 # The manual fallback is documented as explicit foreground commands, not a
 # hidden process supervisor. Keep this list aligned with the actual service entrypoints.
 lifecycle_docs = (ROOT / "SERVICE_LIFECYCLE.md").read_text(encoding="utf-8")
-manual_commands = {
-    "thompson-service/thompson_service.py",
-    "memory-service/memory_service.py",
-    "learning-service/learning_service.py",
-    "graph-service/graph_service.py",
+manual_services = {
+    "memory": "memory-service/memory_service.py",
+    "thompson": "thompson-service/thompson_service.py",
+    "learning": "learning-service/learning_service.py",
+    "graph": "graph-service/graph_service.py",
+    "gateway": "server/ensemble_server.py",
 }
-for command in manual_commands:
-    if f"python3 {command}" not in lifecycle_docs:
-        fail(f"manual foreground instructions missing service entrypoint: {command}")
+runner = (ROOT / "tools/ce").read_text(encoding="utf-8")
+for service, entrypoint in manual_services.items():
+    if f"tools/ce dev run {service}" not in lifecycle_docs:
+        fail(f"venv-based development instructions missing service: {service}")
+    if f'{service}) target="{entrypoint}"' not in runner:
+        fail(f"development runner does not map {service} to {entrypoint}")
 if "use Ctrl-C to stop its service" not in lifecycle_docs:
     fail("manual foreground instructions must document explicit shutdown")
 if "CE clients do not silently start a replacement daemon" not in lifecycle_docs:
