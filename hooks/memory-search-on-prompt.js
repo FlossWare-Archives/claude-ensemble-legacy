@@ -339,6 +339,60 @@ function buildKnowledgeQueries(query, maxQueries) {
   return queries;
 }
 
+function buildMemoryQueries(query, maxQueries = 3) {
+  const normalized = query.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+
+  // Historical references are often described conversationally rather than
+  // with the exact title used when they were saved. Search the original prompt,
+  // a version without conversational framing, and a compact keyword query.
+  const stripped = normalized
+    .replace(/^(?:(?:hey\s+)?(?:can|could|would)\s+you\s+|please\s+|what about\s+|what do you remember about\s+|what have you remembered about\s+|tell me about\s+|look up\s+|search for\s+|find\s+)/i, '')
+    .replace(/[?!.]+$/, '')
+    .trim();
+  const stopWords = new Set([
+    'a', 'an', 'and', 'are', 'about', 'do', 'does', 'for', 'have', 'i',
+    'is', 'it', 'me', 'of', 'please', 'the', 'this', 'to', 'what', 'you',
+    'your', 'remember', 'remembered', 'thing', 'things', 'document', 'doc',
+  ]);
+  const keywords = stripped.split(/\s+/).filter(word => !stopWords.has(word.toLocaleLowerCase())).join(' ');
+  const candidates = [normalized, stripped, keywords];
+  const queries = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (queries.some(item => item.toLocaleLowerCase() === candidate.toLocaleLowerCase())) continue;
+    queries.push(candidate);
+    if (queries.length >= maxQueries) break;
+  }
+  return queries;
+}
+
+async function searchMemoryContext(query, config) {
+  const queries = buildMemoryQueries(query);
+  const responses = await Promise.all(queries.map(candidate =>
+    searchContext(candidate, 'memory', config).catch(error => ({ error }))
+  ));
+  const successful = responses.filter(response => !response.error && response?.ok === true);
+  if (!successful.length && responses.some(response => response.error)) {
+    throw responses.find(response => response.error).error;
+  }
+
+  // Interleave results from each query so the first broad query cannot crowd
+  // every useful result out of the keyword-specific searches.
+  const merged = [];
+  const maxLength = Math.max(0, ...successful.map(response =>
+    Array.isArray(response.results) ? response.results.length : 0
+  ));
+  for (let index = 0; index < maxLength; index += 1) {
+    for (const response of successful) {
+      if (Array.isArray(response.results) && response.results[index]) {
+        merged.push(response.results[index]);
+      }
+    }
+  }
+  return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, config.memory.max_results) };
+}
+
 async function searchKnowledgeContext(query, config) {
   if (!config.knowledge.enabled) return { ok: true, results: [], disabled: true };
   const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
@@ -411,7 +465,7 @@ async function main() {
   let graphError = null;
   let knowledgeIndexError = null;
   const [memoryPayload, knowledgePayload, graphResult, knowledgeIndex] = await Promise.all([
-    config.memory.enabled ? searchContext(query, 'memory', config).catch(error => {
+    config.memory.enabled ? searchMemoryContext(query, config).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       memoryError = message;
       process.stderr.write('Memory search unavailable: ' + message + '\n');

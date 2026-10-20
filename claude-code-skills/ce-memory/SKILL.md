@@ -16,6 +16,10 @@ Treat Memory and Knowledge as distinct sources. Do not invent a shared schema or
 
 ## 2. Answer questions about remembered context
 
+- For prompts asking what is remembered, what exists, or for a complete memory list, do not treat prompt-time search results or a session-local `MEMORY.md` as a complete inventory.
+- From the verified active checkout, run the read-only inventory utility with the same environment/profile selection used by the Memory service: `python3 memory-service/memory_inventory.py`. Confirm the utility's resolved memory directory matches the service's configured directory before trusting an empty result.
+- If the utility is unavailable or its directory cannot be verified, report inventory as unavailable; do not say no memories exist.
+- For a specific historical item, search Memory and Knowledge independently using the user's wording plus concise title/keyword variants. Report whether a matching record was found, whether a source was unavailable, or whether no match was returned. A failed search is not proof that the record was never saved.
 - Use read-only search/retrieval only.
 - Report Memory and Knowledge results separately, with their source identifiers and relevance metadata when provided.
 - Summarize only retrieved evidence. If a source is unavailable, empty, or ambiguous, state that instead of filling gaps from assumptions.
