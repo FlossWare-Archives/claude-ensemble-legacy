@@ -10,12 +10,24 @@ import pytest
 from execution.context import ExecutionContext, ExecutionStatus
 from execution.engine import ExecutionEngine
 from execution.nodes import CompositeExecution, ModelExecution, PipelineExecution
+from providers import ModelCapabilities
 from providers.model_provider import ModelRequest, ModelResponse
 
 
 @dataclass
 class FakeProvider:
     prompts: list[str] = field(default_factory=list)
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.prompts.append(request.prompt)
