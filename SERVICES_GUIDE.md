@@ -16,7 +16,8 @@ For a versioned install, CE owns its mutable profile and service state beneath
 `~/.FlossWare/claude-ensemble/shared/`. In particular, the dedicated Claude Code
 profile is `shared/claude-code/`; the normal `~/.claude/` profile is not used by
 default. Source-checkout installs use the isolated
-`~/.FlossWare/claude-ensemble-profile/` profile unless explicitly overridden.
+`~/.FlossWare/claude-ensemble-profile/` profile and keep service data under
+`~/.FlossWare/claude-ensemble-state/` unless explicitly overridden.
 
 ## Source-checkout development mode
 
