@@ -175,5 +175,5 @@ def test_collaboration_rest_route_uses_strict_claude_code_provider(
     assert body["status"] == "accepted"
     assert body["selected_candidate"]["proposal"] == "REST route solution"
     assert len(commands) == 2
-    assert "claude-sonnet" in commands[0][commands[0].index("--model") + 1]
-    assert "opus" in commands[1][commands[1].index("--model") + 1]
+    assert commands[0][commands[0].index("--model") + 1] == "sonnet"
+    assert commands[1][commands[1].index("--model") + 1] == "opus"
