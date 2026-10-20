@@ -23,9 +23,21 @@ BACKUP_BASE="$FLOSSWARE_HOME/claude-ensemble-backups"
 mkdir -p -- "$BACKUP_BASE"
 BACKUP_BASE="$(cd -- "$BACKUP_BASE" && pwd -P)"
 case "$BACKUP_BASE" in "$HOME_REAL"/*) ;; *) printf 'ERROR: backup directory resolves outside HOME.\n' >&2; exit 1;; esac
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP="$BACKUP_BASE/$STAMP-$REASON-$$"
-mkdir -m 700 -- "$BACKUP"
+STAMP="$(date -u +%Y-%m-%d_%H-%M-%S-%3N)"
+if [[ "$REASON" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  # Release backups are version-first and timestamped, allowing repeat installs.
+  BACKUP_STEM="$BACKUP_BASE/${REASON}_${STAMP}"
+else
+  # Keep reason-oriented names for other backup callers.
+  BACKUP_STEM="$BACKUP_BASE/${STAMP}-${REASON}-$"
+fi
+BACKUP="$BACKUP_STEM"
+suffix=0
+while ! mkdir -m 700 -- "$BACKUP" 2>/dev/null; do
+  [[ -e "$BACKUP" || -L "$BACKUP" ]] || { printf "ERROR: unable to create backup directory: %s\\n" "$BACKUP" >&2; exit 1; }
+  suffix=$((suffix + 1))
+  BACKUP="${BACKUP_STEM}_$(printf "%02d" "$suffix")"
+done
 cleanup_failed() { printf 'ERROR: backup was incomplete; inspect and retain %s. No install/upgrade should continue.\n' "$BACKUP" >&2; }
 trap cleanup_failed ERR
 mkdir -m 700 "$BACKUP/files"
