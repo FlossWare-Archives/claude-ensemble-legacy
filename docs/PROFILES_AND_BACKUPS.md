@@ -75,13 +75,14 @@ Backups are stored outside the deployment root at:
 Each backup contains:
 
 - A copy of the complete existing versioned deployment tree, when one exists. This includes releases and mutable shared state.
-- The legacy CE profile at `~/.FlossWare/claude-ensemble-profile`, when present.
-- Copies of the seven CE-managed user systemd unit files that existed before the operation.
+- The source-checkout CE profile at `~/.FlossWare/claude-ensemble-profile`, when present.
+- The isolated source-checkout service state at `~/.FlossWare/claude-ensemble-state`, when present.
+- Copies of the five current CE service units and any legacy Alert/Messenger unit files that existed before the operation.
 - A private manifest recording the operation and what was captured.
 
 Backups are private to the current user (directory mode 0700; manifest mode 0600) because profile and shared-state copies may contain sensitive material. Keep the backup directory outside the deployment root so a normal uninstall or purge of the deployment cannot silently erase the recovery copy. Backups are not automatically pruned; delete one only after verifying recovery and deciding the retention policy.
 
-The backup is a filesystem recovery point, not a guarantee that an external provider session remains valid forever. It does not back up remote services, remote databases, or state stored outside the CE deployment and the explicitly listed CE unit/profile paths.
+The backup is a filesystem recovery point, not a guarantee that an external provider session remains valid forever. It does not back up remote services, remote databases, or state stored outside the CE deployment and the explicitly listed CE state, unit, and profile paths.
 
 Staging-only mode deliberately does not create a host-state backup because it must not alter host state. A backup failure in a real install/upgrade is a hard stop; do not bypass it to get the deployment moving.
 
