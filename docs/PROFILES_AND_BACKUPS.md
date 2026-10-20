@@ -42,7 +42,7 @@ The aggregate installer is idempotent and preserves conflicting user-owned skill
 
 ### Direct development/runtime installer
 
-The root `install.sh` is the runtime installer used by the deployment manager and can also be run against a source checkout for development. In direct mode, its profile target is `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` when set, otherwise `~/.FlossWare/claude-ensemble-profile`. The versioned standalone deployment instead uses `~/.FlossWare/claude-ensemble/shared/claude-code/`. Neither mode modifies ordinary `~/.claude/` by default.
+The root `install.sh` is the runtime installer used by the deployment manager and can also be run against a source checkout for development. In direct mode, its profile target is `ENSEMBLE_CLAUDE_CODE_CONFIG_DIR` when set, otherwise `~/.FlossWare/claude-ensemble-profile`. The versioned standalone deployment instead uses `~/.FlossWare/claude-ensemble/shared/claude-code/`. Neither mode modifies ordinary `~/.claude/` by default. Before migrating, the installer backs up legacy service data and copies missing Memory, Learning, Thompson, and Graph state into the selected isolated state directory; the original legacy paths are left untouched, and existing destination files are never overwritten.
 
 Do not treat direct source-checkout installation and standalone deployment as interchangeable. The standalone workflow provides immutable releases, a stable active pointer, deployment manifests, health checks, and release rollback.
 
