@@ -124,6 +124,11 @@ exit 0
 
     # Regression case 1: an identical existing hook with mode 0644 must
     # retain its content while becoming executable.
+    ordinary_claude = home / ".claude"
+    ordinary_claude.mkdir(parents=True, exist_ok=True)
+    ordinary_sentinel = ordinary_claude / "sentinel"
+    ordinary_sentinel.write_text("ordinary-profile-must-remain-untouched\\n", encoding="utf-8")
+
     hook_home = ce_profile / "hooks"
     hook_home.mkdir(parents=True, exist_ok=True)
     identical_source = ROOT / "hooks/memory-rag-search.js"
@@ -169,6 +174,10 @@ exit 0
         fail("installer did not deploy an executable copy of the symlinked hook")
     if symlink_deployment.read_bytes() != symlink_source.read_bytes():
         fail("deployed copy differs from repository hook source")
+    if ordinary_sentinel.read_text(encoding="utf-8") != "ordinary-profile-must-remain-untouched\\n":
+        fail("installer modified the ordinary ~/.claude profile")
+    if (ordinary_claude / "hooks" / identical_source.name).exists():
+        fail("installer copied CE hooks into the ordinary ~/.claude profile")
 
     systemctl_log = Path(env["SYSTEMCTL_LOG"]).read_text(encoding="utf-8")
     for service_dir, service_name in SERVICES:
