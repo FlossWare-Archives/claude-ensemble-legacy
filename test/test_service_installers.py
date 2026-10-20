@@ -70,6 +70,9 @@ exit 0
 
     env = os.environ.copy()
     env["HOME"] = str(home)
+    ce_profile = home / ".FlossWare" / "claude-ensemble-profile"
+    env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"] = str(ce_profile)
+    env["CLAUDE_CONFIG_DIR"] = str(ce_profile)
     # Exercise the same unit-directory override used by versioned staging.
     # Every real service installer must honor it and leave the normal user
     # unit directory untouched.
@@ -121,7 +124,7 @@ exit 0
 
     # Regression case 1: an identical existing hook with mode 0644 must
     # retain its content while becoming executable.
-    hook_home = home / ".claude/hooks"
+    hook_home = ce_profile / "hooks"
     hook_home.mkdir(parents=True, exist_ok=True)
     identical_source = ROOT / "hooks/memory-rag-search.js"
     identical_deployment = hook_home / identical_source.name
