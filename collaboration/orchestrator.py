@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from providers import ModelProvider, ModelRequest
+from providers import ModelProvider, build_model_request
 
 from .reviewer import Reviewer, ReviewerResult
 
@@ -506,7 +506,7 @@ class CollaborationOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         response = self.arbiter.generate(
-            ModelRequest(prompt=prompt, model=self.arbiter_model_id, temperature=0, max_tokens=4000)
+            build_model_request(self.arbiter, prompt=prompt, model=self.arbiter_model_id)
         )
         adjudication = self._parse_adjudication(response.text)
         selected = adjudication["selected_candidate"]
