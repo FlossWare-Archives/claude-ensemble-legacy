@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 import threading
 from typing import Any, Callable, Protocol
 
-from providers import ModelRequest, build_model_request
+from providers import build_model_request
 
 from .context import ExecutionContext, ExecutionLimits, ExecutionResult, ExecutionStatus
 from .nodes import CompositeExecution, ExecutionNode, ModelExecution, PipelineExecution
