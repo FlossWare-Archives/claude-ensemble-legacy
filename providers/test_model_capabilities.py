@@ -42,8 +42,6 @@ def test_capability_builder_accepts_omitted_and_explicit_default_controls():
     [
         ({"temperature": 0.2}, "claude-code does not support temperature overrides"),
         ({"max_tokens": 100}, "claude-code does not support max_tokens overrides"),
-        ({"system_prompt": "system"}, "claude-code does not support system_prompt"),
-        ({"timeout": 10.0}, "claude-code does not support timeout overrides"),
         (
             {"messages": ({"role": "user", "content": "prior turn"},)},
             "claude-code does not support prior conversation messages",
@@ -89,6 +87,19 @@ def test_builder_preserves_controls_supported_by_selected_provider():
     )
 
 
+def test_restricted_provider_rejects_unsupported_system_prompt_and_timeout():
+    class RestrictedProvider:
+        name = "restricted"
+        capabilities = ModelCapabilities(provider="restricted")
+
+    for kwargs, message in (
+        ({"system_prompt": "system"}, "does not support system_prompt"),
+        ({"timeout": 10.0}, "does not support timeout overrides"),
+    ):
+        with pytest.raises(ModelCapabilityError, match=message):
+            build_model_request(RestrictedProvider(), prompt="task", **kwargs)
+
+
 def test_direct_provider_invocation_uses_same_capability_contract():
     provider = ClaudeCodeProvider(expected_provider="vertex")
 
@@ -101,6 +112,8 @@ def test_capabilities_are_provider_discoverable_and_immutable():
 
     assert isinstance(capabilities, ModelCapabilities)
     assert capabilities.provider == "claude-code"
+    assert capabilities.supports_system_prompt is True
     assert capabilities.supports_messages is False
     assert capabilities.supports_temperature_override is False
     assert capabilities.supports_max_tokens_override is False
+    assert capabilities.supports_timeout_override is True
