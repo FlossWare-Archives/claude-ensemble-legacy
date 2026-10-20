@@ -72,7 +72,7 @@ Backups are stored outside the deployment root at:
 ~/.FlossWare/claude-ensemble-backups/<MAJOR.MINOR>_<YYYY-MM-DD_HH-MM-SS-mmm>/
 ```
 
-The timestamp is UTC and includes milliseconds. If a name collision still occurs, the backup creator appends a numeric collision suffix rather than overwriting an existing snapshot. The version is taken from the explicit release version supplied by the versioned installer; other backup callers resolve the next MAJOR.MINOR version from the source checkout and deployment state. When running from an installed release without Git metadata, the backup uses the validated active release version. If neither source nor active release state can establish a version, backup creation fails closed instead of creating an ambiguously named snapshot. The manifest records both the caller's reason and the resolved version.
+The timestamp is UTC and includes milliseconds. If a name collision still occurs, the backup creator appends a numeric collision suffix rather than overwriting an existing snapshot. The version is taken from the explicit release version supplied by the versioned installer. For other callers, an existing validated `current -> releases/MAJOR.MINOR` pointer determines the version being protected; a first-install backup with no active pointer resolves the next MAJOR.MINOR version from the source checkout and deployment state. If neither source nor active release state can establish a version, backup creation fails closed instead of creating an ambiguously named snapshot. The manifest records both the caller's reason and the resolved version.
 
 Each backup contains:
 
