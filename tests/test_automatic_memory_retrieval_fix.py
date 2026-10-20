@@ -52,24 +52,36 @@ class FakeMemoryServiceForRetrieval(BaseHTTPRequestHandler):
             return
 
         if self.path == "/memory/search":
-            # Return a memory containing user preference
-            response = {
-                "ok": True,
-                "results": [
-                    {
-                        "file": "user_role.md",
-                        "section": "Role",
-                        "score": 0.95,
-                        "content": "User is a senior software engineer with deep expertise in system design and testing."
-                    },
-                    {
-                        "file": "feedback_testing.md",
-                        "section": "Feedback",
-                        "score": 0.87,
-                        "content": "Prefer integration tests over mocks; previous incident where mocks passed but prod failed."
-                    }
-                ]
-            }
+            query = str(payload.get("query", "")).lower()
+            if "accomplishment" in query:
+                response = {
+                    "ok": True,
+                    "results": [{
+                        "file": "reference_accomplishments_doc.md",
+                        "section": "Google accomplishments",
+                        "score": 0.98,
+                        "content": "Reference to the Google accomplishments document at Documents/accomplishments.md."
+                    }]
+                }
+            else:
+                # Default fixture results for unrelated historical queries.
+                response = {
+                    "ok": True,
+                    "results": [
+                        {
+                            "file": "user_role.md",
+                            "section": "Role",
+                            "score": 0.95,
+                            "content": "User is a senior software engineer with deep expertise in system design and testing."
+                        },
+                        {
+                            "file": "feedback_testing.md",
+                            "section": "Feedback",
+                            "score": 0.87,
+                            "content": "Prefer integration tests over mocks; previous incident where mocks passed but prod failed."
+                        }
+                    ]
+                }
         else:
             self.send_response(404)
             self.end_headers()
@@ -153,6 +165,23 @@ class AutomaticMemoryRetrievalTests(unittest.TestCase):
         # Find the request with our query
         our_request = [r for r in search_requests if r[1].get("query") == "Should we use unit test mocks or real database connections?"]
         self.assertGreater(len(our_request), 0, "Should have searched for our query")
+
+    def test_historical_reference_found_from_conversational_prompt(self) -> None:
+        """A conversational prompt should also search concise historical keywords."""
+        result = self.run_hook_with_prompt("what about the Google accomplishments doc?")
+
+        self.assertEqual(result.returncode, 0, f"Hook failed: {result.stderr}")
+        output = json.loads(result.stdout)
+        context = output["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("reference_accomplishments_doc.md", context)
+
+        queries = [
+            payload.get("query", "")
+            for path, payload in FakeMemoryServiceForRetrieval.requests
+            if path == "/memory/search"
+        ]
+        self.assertIn("Google accomplishments doc", queries)
+        self.assertTrue(any("accomplishment" in query.lower() for query in queries))
 
     def test_b_hook_output_contract(self) -> None:
         """Test E: Hook returns context in the exact supported output format."""
