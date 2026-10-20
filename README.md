@@ -136,7 +136,7 @@ On startup, `scripts/ensemble-init.sh` automatically:
 ✓ Autonomous learner ready
 ✓ Claude Ensemble Toolkit initialized
   Tools: compression, caching, cost_tracking, ga_tuning, thompson_router, arbitration
-  Memory: ~/.claude/projects/memory
+  Memory: ~/.FlossWare/claude-ensemble-profile/data/memory (source-checkout install)
   Arbitration: multi-phase orchestrator for critical decisions
   Autonomous learning: Thompson continuously improving from real tasks
 ```
@@ -455,18 +455,14 @@ configured with environment variables:
 |---|---|---|
 | `ENSEMBLE_ROOT` | Repository root used by shell initialization | Repository containing `scripts/ensemble-init.sh` |
 | `ENSEMBLE_CREDENTIALS_FILE` | Optional credentials file | `~/.FlossWare/secrets.env` |
-| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-profile/data/memory` for source-checkout installs
-| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-profile/logs` for source-checkout installs
+| `ENSEMBLE_MEMORY_DIR` | Persistent CE memory directory | `~/.FlossWare/claude-ensemble-profile/data/memory` for source-checkout installs |
+| `ENSEMBLE_LOG_DIR` | CE service log directory | `~/.FlossWare/claude-ensemble-profile/logs` for source-checkout installs |
 | `ENSEMBLE_RUNTIME_DIR` | Runtime directory for configurable service sockets | XDG runtime/cache location |
-| `ENSEMBLE_REPO_ROOT` | Repository/release root used by CE services | Current working directory
-| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-profile/data/learning` for source-checkout installs
-| `ENSEMBLE_ALERT_DIR` | Alert state directory | `~/.claude/alerts` |
+| `ENSEMBLE_REPO_ROOT` | Repository/release root used by CE services | Current working directory |
+| `ENSEMBLE_LEARNING_DIR` | Learning state directory | `~/.FlossWare/claude-ensemble-profile/data/learning` for source-checkout installs |
 | `ENSEMBLE_*_SOCKET` | Per-service Unix socket override | Existing service socket |
 
-For a standalone installation, services are optional. The memory client already degrades
-gracefully when its daemon is unavailable, and the Learning/Thompson services can
-be run only when their corresponding features are needed. No Red Hat GitLab host,
-credential file, or repository path is required by the core runtime.
+Both versioned and source-checkout installers manage the gateway and four core services. The memory client degrades gracefully when the daemon is unavailable. No Red Hat GitLab host, credential file, or repository path is required by the core runtime.
 
 Example:
 
@@ -484,13 +480,13 @@ than installing the optional user services.
 
 ## Configuration
 
-**Settings:** `settings.json.default` (copy to `~/.claude/settings.json` to customize)
+**Settings:** `settings.json.default` (copy to the selected CE profile's `settings.json`; do not edit ordinary `~/.claude/settings.json` for CE)
 
 **Model authentication:** The active CE runtime invokes the installed Claude Code runtime, which owns model authentication. CE does not use `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, or `CURSOR_API_KEY` to route model requests in the supported single-runtime path.
 
 **MCP credentials:** Configure credentials for each MCP server using its documented secure mechanism. Do not commit credentials or synchronize them through Git.
 
-**MCP Servers:** `~/.mcp.json` (configure as needed)
+**MCP Servers:** configure the selected CE profile's `.mcp.json` as needed
 
 ---
 
@@ -596,4 +592,4 @@ The default uninstall **preserves** immutable releases and all data under `share
 bash "$SOURCE/uninstall.sh" --purge
 ```
 
-Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the seven named CE unit files; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
+Alternatively, capture the selected release path before uninstalling and run its `uninstall.sh` twice. Do not use `--purge` if any Memory, Learning, logs, configuration, or other shared state must be retained. Uninstall refuses to proceed while an interrupted activation journal exists or if the active-release pointer is present but invalid. Resolve/recover the deployment first. The command removes only the five current CE unit files and retires the two legacy Alert/Messenger units; it does not edit ordinary `~/.claude`, shell startup files, the host crontab, or unrelated systemd units.
