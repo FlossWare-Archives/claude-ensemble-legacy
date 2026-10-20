@@ -179,11 +179,10 @@ class InstalledHookSmokeTests(unittest.TestCase):
         self.assertIn("exit 1", pipeline["detail"])
         self.assertEqual(report["correlation_id"], pipeline["correlation_id"])
 
-    def test_json_summary_counts_skipped_checks(self):
+    def test_core_service_selector_runs_thompson_probe(self):
         output = io.StringIO()
         with (
-            patch("sys.argv", ["ce-diagnose.py", "--service", "alert", "--json"]),
-            patch.object(ce_diagnose.shutil, "which", return_value=None),
+            patch("sys.argv", ["ce-diagnose.py", "--service", "thompson", "--json"]),
             patch.object(ce_diagnose, "socket_ping", return_value=("pass", "acknowledged", 1)),
             redirect_stdout(output),
         ):
@@ -191,8 +190,10 @@ class InstalledHookSmokeTests(unittest.TestCase):
 
         report = json.loads(output.getvalue())
         self.assertEqual(0, exit_code)
-        self.assertEqual(1, report["skipped"])
-        self.assertEqual("skip", report["results"][-1]["status"])
+        self.assertEqual(1, len(report["results"]))
+        self.assertEqual(0, report["skipped"])
+        self.assertEqual("thompson.ping", report["results"][0]["step"])
+        self.assertEqual("pass", report["results"][0]["status"])
 
 
 if __name__ == "__main__":
