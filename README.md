@@ -205,7 +205,7 @@ For routine tasks with learning integration:
 /code-release-notes
 ```
 
-See **[SKILL_INTEGRATION_GUIDE.md](SKILL_INTEGRATION_GUIDE.md)** for full details on how skills learn and route models via Thompson.
+See [Workflow Learning Contract](docs/WORKFLOW_LEARNING_CONTRACT.md) for the current evidence requirements and Thompson update boundary.
 
 ### Multi-Phase Arbitration
 For critical decisions (security, breaking changes, complex bugs):
@@ -536,7 +536,7 @@ See GitHub issues for the next learning experiments and capabilities. The portab
 - **`CLAUDE.ENSEMBLE.md`** — Best practices and coding standards
 - **`MEMORY_SYSTEM.md`** — Memory persistence, search, analysis (NEW)
 - **`REVIEW_SHORTHAND.md`** — Quick commands for code reviews (NEW)
-- **`SKILL_INTEGRATION_GUIDE.md`** — How workflow skills work
+- **[Workflow Learning Contract](docs/WORKFLOW_LEARNING_CONTRACT.md)** — Evidence requirements and Thompson update boundary
 - **`MODEL_REGISTRY.md`** — Available models and capabilities
 
 **Component Docs:**
