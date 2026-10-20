@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from execution import ExecutionContext, ExecutionEngine, RecoveryCandidate, RecoveryPolicy
 from execution.nodes import ModelExecution
+from providers import ModelCapabilities
 from providers.model_provider import ModelProvider, ModelRequest, ModelResponse
 
 
@@ -11,6 +12,17 @@ class SequenceProvider(ModelProvider):
     def __init__(self, failures: int) -> None:
         self.failures = failures
         self.calls = 0
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return ModelCapabilities(
+            provider="test",
+            supports_system_prompt=True,
+            supports_messages=True,
+            supports_temperature_override=True,
+            supports_max_tokens_override=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         self.calls += 1
