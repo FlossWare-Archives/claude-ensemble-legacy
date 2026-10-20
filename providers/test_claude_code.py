@@ -407,7 +407,7 @@ time.sleep(30)
 
 
 @pytest.mark.parametrize(
-    ("request", "message"),
+    ("model_request", "message"),
     [
         (
             ModelRequest(
@@ -424,11 +424,11 @@ time.sleep(30)
     ],
 )
 def test_unsupported_request_contract_fails_before_cli_invocation(
-    request: ModelRequest, message: str
+    model_request: ModelRequest, message: str
 ) -> None:
     with patch("providers.claude_code.shutil.which", return_value="/usr/bin/claude"), patch(
         "providers.claude_code.subprocess.Popen"
     ) as popen:
         with pytest.raises(ValueError, match=message):
-            ClaudeCodeProvider().generate(request)
+            ClaudeCodeProvider().generate(model_request)
     popen.assert_not_called()
