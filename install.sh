@@ -78,6 +78,35 @@ done
 # before the first configuration or service mutation. If backup fails, stop here.
 bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
 
+# Migrate existing service state by copying missing files only. The original
+# ~/.claude data remains untouched and the backup above captures it first.
+STATE_ROOT="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
+MEMORY_STATE="${ENSEMBLE_MEMORY_DIR:-$STATE_ROOT/data/memory}"
+LEARNING_STATE="${ENSEMBLE_LEARNING_DIR:-$STATE_ROOT/data/learning}"
+GRAPH_STATE="${ENSEMBLE_GRAPH_STORE:-$STATE_ROOT/data/graph.json}"
+THOMPSON_STATE="${ENSEMBLE_THOMPSON_STATE_FILE:-$LEARNING_STATE/thompson-sampling-state.json}"
+migrate_legacy_directory() {
+    local source="$1" target="$2"
+    [[ -d "$source" ]] || return 0
+    [[ "$source" != "$target" ]] || return 0
+    if [[ -e "$target" && ! -d "$target" ]]; then
+        echo "ERROR: Cannot migrate legacy directory; target is not a directory: $target" >&2
+        return 1
+    fi
+    mkdir -p -- "$target"
+    cp -a --update=none -- "$source/." "$target/"
+}
+migrate_legacy_file() {
+    local source="$1" target="$2"
+    [[ -f "$source" && ! -e "$target" ]] || return 0
+    mkdir -p -- "$(dirname -- "$target")"
+    cp -a -- "$source" "$target"
+}
+migrate_legacy_directory "$HOME/.claude/projects/memory" "$MEMORY_STATE"
+migrate_legacy_directory "$HOME/.claude/projects/learning" "$LEARNING_STATE"
+migrate_legacy_file "$HOME/.claude/projects/learning/thompson-sampling-state.json" "$THOMPSON_STATE"
+migrate_legacy_file "$HOME/.local/share/claude-ensemble/graph.json" "$GRAPH_STATE"
+
 echo "================================================"
 echo "  Claude Ensemble Toolkit Installer"
 echo "================================================"
