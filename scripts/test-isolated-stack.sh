@@ -14,17 +14,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-free_port() {
-  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
-}
-MEMORY_PORT="$(free_port)"
-GRAPH_PORT="$(free_port)"
-GATEWAY_PORT="$(free_port)"
 PYTHON="${ENSEMBLE_TEST_PYTHON:-python3}"
 if [[ -n "${ENSEMBLE_TEST_VENV:-}" ]]; then
   PYTHON="$ENSEMBLE_TEST_VENV/bin/python"
+  [[ -x "$PYTHON" ]] || { echo "FAIL: Python executable not found: $PYTHON" >&2; exit 2; }
+else
+  command -v "$PYTHON" >/dev/null 2>&1 || { echo "FAIL: Python executable not found: $PYTHON" >&2; exit 2; }
 fi
-[[ -x "$PYTHON" ]] || { echo "FAIL: Python executable not found: $PYTHON" >&2; exit 2; }
+read -r MEMORY_PORT GRAPH_PORT GATEWAY_PORT < <("$PYTHON" - <<'PYPORTS'
+import socket
+sockets = []
+try:
+    for _ in range(3):
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sockets.append(sock)
+    print(*(sock.getsockname()[1] for sock in sockets))
+finally:
+    for sock in sockets:
+        sock.close()
+PYPORTS
+)
 
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export ENSEMBLE_RUNTIME_DIR="$TMP/runtime"
