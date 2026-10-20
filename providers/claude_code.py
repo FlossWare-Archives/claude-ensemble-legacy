@@ -48,7 +48,11 @@ class ClaudeCodeProvider(ModelProvider):
     @property
     def capabilities(self) -> ModelCapabilities:
         """Expose the exact controls supported by the Claude Code CLI adapter."""
-        return ModelCapabilities(provider=self.name)
+        return ModelCapabilities(
+            provider=self.name,
+            supports_system_prompt=True,
+            supports_timeout_override=True,
+        )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         # Defense in depth: callers should use build_model_request(), but direct
