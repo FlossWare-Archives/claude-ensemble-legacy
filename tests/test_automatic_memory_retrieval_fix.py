@@ -180,7 +180,7 @@ class AutomaticMemoryRetrievalTests(unittest.TestCase):
             for path, payload in FakeMemoryServiceForRetrieval.requests
             if path == "/memory/search"
         ]
-        self.assertIn("Google accomplishments doc", queries)
+        self.assertIn("the Google accomplishments doc", queries)
         self.assertTrue(any("accomplishment" in query.lower() for query in queries))
 
     def test_b_hook_output_contract(self) -> None:
