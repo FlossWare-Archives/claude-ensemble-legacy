@@ -553,6 +553,7 @@ def test_real_claude_code_provider_composes_with_candidate_generation_and_arbite
                     "subtype": "success",
                     "result": self.result,
                     "model": "claude-sonnet-4-5",
+                    "modelUsage": {"claude-sonnet-4-5": {"provider": "vertex"}},
                     "apiProvider": "vertex",
                 }),
                 "",
