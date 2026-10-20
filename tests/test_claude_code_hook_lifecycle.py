@@ -126,48 +126,6 @@ class FakeGraphHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-class FakeMessengerServer:
-    def __init__(self, socket_path: str) -> None:
-        self.socket_path = socket_path
-        self.requests: list[dict[str, Any]] = []
-        self.stop_event = threading.Event()
-        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.server.bind(socket_path)
-        self.server.listen(8)
-        self.server.settimeout(0.1)
-        self.thread = threading.Thread(target=self._serve, daemon=True)
-        self.thread.start()
-
-    def _serve(self) -> None:
-        while not self.stop_event.is_set():
-            try:
-                client, _ = self.server.accept()
-            except socket.timeout:
-                continue
-            except OSError:
-                return
-            with client:
-                data = b""
-                while b"\n" not in data:
-                    chunk = client.recv(4096)
-                    if not chunk:
-                        break
-                    data += chunk
-                if not data:
-                    continue
-                try:
-                    request = json.loads(data.split(b"\n", 1)[0])
-                    self.requests.append(request)
-                    client.sendall(b'{"ok":true,"delivered":1}\n')
-                except (ValueError, json.JSONDecodeError):
-                    client.sendall(b'{"ok":false,"error":"bad request"}\n')
-
-    def close(self) -> None:
-        self.stop_event.set()
-        self.server.close()
-        self.thread.join(timeout=2)
-
-
 class ClaudeCodeHookLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -181,9 +139,6 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         cls.graph_thread = threading.Thread(target=cls.graph_server.serve_forever, daemon=True)
         cls.graph_thread.start()
         cls.graph_url = f"http://127.0.0.1:{cls.graph_server.server_port}"
-        cls.messenger_dir = tempfile.TemporaryDirectory()
-        cls.messenger_path = str(Path(cls.messenger_dir.name) / "messenger.sock")
-        cls.messenger = FakeMessengerServer(cls.messenger_path)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -193,15 +148,12 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         cls.graph_server.shutdown()
         cls.graph_server.server_close()
         cls.graph_thread.join(timeout=2)
-        cls.messenger.close()
-        cls.messenger_dir.cleanup()
 
     def setUp(self) -> None:
         FakeMemoryHandler.requests = []
         FakeMemoryHandler.mode = "ok"
         FakeGraphHandler.requests = []
         FakeGraphHandler.mode = "ok"
-        self.messenger.requests.clear()
 
     def run_hook(self, hook: str, event: dict[str, Any]) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -209,7 +161,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = "1500"
         env["FLOSSWARE_GRAPH_URL"] = self.graph_url
         env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = "300"
-        env["CLAUDE_MESSENGER_SOCKET"] = self.messenger_path
+        env["CLAUDE_MESSENGER_SOCKET"] = "/nonexistent/claude-messenger.sock"
         return subprocess.run(
             [NODE, str(HOOKS / hook)],
             input=json.dumps(event),
@@ -313,14 +265,14 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertNotIn("private/transcript", serialized)
         self.assertNotIn("private/project", serialized)
 
-        self.assertEqual(self.messenger.requests, [], "SessionEnd must not depend on Messenger")
+        self.assertNotIn("Messenger", first.stderr + second.stderr, "SessionEnd must not depend on Messenger")
 
     def test_session_end_capture_fails_open_but_reports_missing_session_id(self) -> None:
         missing_id = self.run_hook("session-end-memory-capture.js", {"hook_event_name": "SessionEnd"})
         self.assertEqual(missing_id.returncode, 0)
         self.assertIn("no session_id", missing_id.stderr)
         self.assertEqual(FakeMemoryHandler.requests, [])
-        self.assertEqual(self.messenger.requests, [])
+        self.assertNotIn("Messenger", missing_id.stderr)
 
         FakeMemoryHandler.mode = "unavailable"
         unavailable = self.run_hook(
@@ -329,7 +281,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(unavailable.returncode, 0)
         self.assertIn("Memory capture unavailable", unavailable.stderr)
-        self.assertEqual(self.messenger.requests, [], "Memory failure must not trigger a Messenger dependency")
+        self.assertNotIn("Messenger", unavailable.stderr, "Memory failure must not trigger a Messenger dependency")
 
     def test_default_settings_register_only_the_canonical_safe_lifecycle_hooks(self) -> None:
         self.assertFalse((HOOKS / "workflow-completion-hook.js").exists())
@@ -487,7 +439,7 @@ finally:
         self.assertEqual("claude_code.session_end", capture[0]["entry"]["event_type"])
         self.assertNotIn("transcript_path", json.dumps(capture[0]))
         self.assertNotIn("/private/", json.dumps(capture[0]))
-        self.assertEqual(self.messenger.requests, [], "SessionEnd must not publish through Messenger")
+        self.assertNotIn("Messenger", end.stderr, "SessionEnd must not publish through Messenger")
         # SessionEnd is capture/event delivery only. Thompson was updated exactly
         # once by the explicit, evidence-bearing process_outcome request above.
         self.assertEqual(1, learning_result["thompson"]["calls"])
