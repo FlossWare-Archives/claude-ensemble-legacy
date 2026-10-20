@@ -49,11 +49,11 @@ class RuntimeConfigTests(unittest.TestCase):
                     else:
                         os.environ[key] = value
 
-    def test_learning_default_is_not_user_specific(self):
+    def test_learning_default_uses_isolated_ce_state(self):
         os.environ.pop("ENSEMBLE_LEARNING_DIR", None)
         self.assertEqual(
             runtime_config.learning_dir(),
-            Path.home() / ".claude" / "projects" / "learning",
+            Path.home() / ".FlossWare" / "claude-ensemble-state" / "data" / "learning",
         )
 
     def test_thompson_state_default_follows_learning_dir(self):
@@ -61,7 +61,7 @@ class RuntimeConfigTests(unittest.TestCase):
         os.environ.pop("ENSEMBLE_LEARNING_DIR", None)
         self.assertEqual(
             runtime_config.thompson_state_file(),
-            Path.home() / ".claude" / "projects" / "learning"
+            Path.home() / ".FlossWare" / "claude-ensemble-state" / "data" / "learning"
             / "thompson-sampling-state.json",
         )
 
