@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Read-only, correlated diagnostics for the running Claude Ensemble stack.
 
-This never writes production Memory/Graph data, sends alerts/messages, or invokes a
-model. Deep mode can run a separate Learning-to-Thompson test that writes only to
+This never writes production Memory/Graph data or invokes a model. Deep mode can run a separate Learning-to-Thompson test that writes only to
 temporary test state and sockets.
 """
 from __future__ import annotations
@@ -24,8 +23,6 @@ from pathlib import Path
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
 DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
 DEFAULT_THOMPSON_SOCKET = "/tmp/claude-thompson.sock"
-DEFAULT_ALERT_SOCKET = "/tmp/claude-alert.sock"
-DEFAULT_MESSENGER_SOCKET = f"/run/user/{os.getuid()}/claude-messenger/claude-messenger.sock"
 
 
 def default_hook_dir() -> str:
@@ -138,54 +135,6 @@ def read_json_line(client: socket.socket) -> dict[str, Any]:
     return value
 
 
-def messenger_round_trip(path: str, correlation_id: str, timeout: float = 2.0) -> tuple[str, str, int]:
-    """Exercise transient pub/sub with a unique topic so no unrelated subscriber matches."""
-    start = time.monotonic()
-    topic = f"ce-diagnostic.{correlation_id}"
-    event_type = f"ce.diagnostic.{correlation_id}"
-    subscription_id = f"diag-{correlation_id}"
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as subscriber:
-            subscriber.settimeout(timeout)
-            subscriber.connect(path)
-            subscriber.sendall((json.dumps({
-                "op": "subscribe",
-                "subscription_id": subscription_id,
-                "filter": {"topics": [topic], "event_types": [event_type]},
-            }) + "\n").encode("utf-8"))
-            subscriber_reader = subscriber.makefile("r", encoding="utf-8")
-            ack = json.loads(subscriber_reader.readline())
-            if not isinstance(ack, dict) or ack.get("ok") is not True:
-                return "fail", "messenger rejected diagnostic subscription", round((time.monotonic() - start) * 1000)
-
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as publisher:
-                publisher.settimeout(timeout)
-                publisher.connect(path)
-                publisher.sendall((json.dumps({
-                    "op": "publish", "topic": topic, "event_type": event_type,
-                    "data": {"diagnostic": True, "correlation_id": correlation_id},
-                }) + "\n").encode("utf-8"))
-                publisher_reader = publisher.makefile("r", encoding="utf-8")
-                publish_ack = json.loads(publisher_reader.readline())
-                if not isinstance(publish_ack, dict) or publish_ack.get("ok") is not True or publish_ack.get("delivered") != 1:
-                    return "fail", "messenger did not acknowledge delivery to the isolated diagnostic subscriber", round((time.monotonic() - start) * 1000)
-
-            message = json.loads(subscriber_reader.readline())
-            elapsed = round((time.monotonic() - start) * 1000)
-            valid = (
-                isinstance(message, dict)
-                and message.get("topic") == topic
-                and message.get("event_type") == event_type
-                and isinstance(message.get("data"), dict)
-                and message["data"].get("correlation_id") == correlation_id
-            )
-            if not valid:
-                return "fail", "messenger delivered an invalid or mismatched diagnostic event", elapsed
-            return "pass", "isolated publish/subscribe round trip acknowledged; event was transient", elapsed
-    except (OSError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        return "fail", f"messenger round trip failed ({type(exc).__name__})", round((time.monotonic() - start) * 1000)
-
-
 def shutil_which_systemctl() -> bool:
     return shutil.which("systemctl") is not None
 
@@ -233,9 +182,6 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
     env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = str(int(timeout * 1000))
     if require_context:
         env["FLOSSWARE_CE_HOOK_DIAGNOSTICS"] = "1"
-    env.setdefault("CLAUDE_MESSENGER_SOCKET",
-                   os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") +
-                   "/claude-messenger/claude-messenger.sock")
 
     prompt_event = {
         "hook_event_name": "UserPromptSubmit",
@@ -329,17 +275,17 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
             elapsed = round((time.monotonic() - started) * 1000)
             failed = (result.returncode != 0
                       or "Memory capture unavailable:" in result.stderr
-                      or "Messenger session event unavailable:" in result.stderr)
+)
             record(results, "hooks.session_end", "fail" if failed else "pass",
-                   "SessionEnd reported a Memory/Messenger failure" if failed
-                   else "metadata-only SessionEnd capture and Messenger publish completed",
+                   "SessionEnd reported a Memory capture failure" if failed
+                   else "metadata-only SessionEnd capture completed",
                    elapsed, str(session_hook),
-                   "Check Memory append-once and Messenger service health." if failed else "")
+                   "Check Memory append-once and Memory service health." if failed else "")
         except (OSError, subprocess.TimeoutExpired) as exc:
             elapsed = round((time.monotonic() - started) * 1000)
             record(results, "hooks.session_end", "fail",
                    f"installed SessionEnd hook could not complete ({type(exc).__name__})",
-                   elapsed, str(session_hook), "Check Node.js, Memory, and Messenger service health.")
+                   elapsed, str(session_hook), "Check Node.js and Memory service health.")
     return results
 
 
@@ -352,14 +298,14 @@ def main() -> int:
     parser.add_argument("--prompt-context-smoke", action="store_true",
                         help="require the selected installed prompt hook to emit non-empty context and at least one Knowledge result; does not invoke Claude or prove model receipt")
     parser.add_argument("--session-end-smoke", action="store_true",
-                        help="also run SessionEnd; writes one metadata-only event to production Memory and publishes a transient Messenger event")
+                        help="also run SessionEnd; writes one metadata-only event to production Memory")
     parser.add_argument("--allow-memory-write", action="store_true",
                         help="explicitly authorize the metadata-only SessionEnd smoke event")
     parser.add_argument("--hook-dir", default=default_hook_dir(),
                         help="installed Claude hook directory (default: dedicated CE profile, never implicitly ~/.claude/hooks)")
     parser.add_argument("--pipeline-test", action="store_true",
                         help="run the isolated Learning-to-Thompson integration test using temporary state")
-    parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson", "messenger", "alert"),
+    parser.add_argument("--service", choices=("gateway", "memory", "graph", "decision", "learning", "thompson"),
                         help="run only the selected service/integration checks")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument("--timeout", type=float, default=2.0,
@@ -375,8 +321,6 @@ def main() -> int:
     gateway = os.environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY).rstrip("/")
     learning_socket = os.environ.get("ENSEMBLE_LEARNING_SOCKET", DEFAULT_LEARNING_SOCKET)
     thompson_socket = os.environ.get("ENSEMBLE_THOMPSON_SOCKET", DEFAULT_THOMPSON_SOCKET)
-    alert_socket = os.environ.get("ENSEMBLE_ALERT_SOCKET", DEFAULT_ALERT_SOCKET)
-    messenger_socket = os.environ.get("CLAUDE_MESSENGER_SOCKET", os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}") + "/claude-messenger/claude-messenger.sock")
     correlation_id = str(uuid.uuid4())
     results: list[dict[str, Any]] = []
 
@@ -426,23 +370,6 @@ def main() -> int:
         status, detail, elapsed = socket_ping(thompson_socket, "thompson", correlation_id, args.timeout)
         record(results, "thompson.ping", status, detail, elapsed, f"Unix socket {thompson_socket}",
                "Check claude-thompson.service and ENSEMBLE_THOMPSON_SOCKET.")
-
-    if selected("messenger"):
-        status, detail, elapsed = messenger_round_trip(messenger_socket, correlation_id, args.timeout)
-        record(results, "messenger.round_trip", status, detail, elapsed, f"Unix socket {messenger_socket}",
-               "Check claude-messenger.service and CLAUDE_MESSENGER_SOCKET.")
-
-    if selected("alert"):
-        status, detail, elapsed = socket_ping(alert_socket, "alert", correlation_id, args.timeout)
-        record(results, "alert.ping", status, detail, elapsed, f"Unix socket {alert_socket}",
-               "Check claude-alert.service and ENSEMBLE_ALERT_SOCKET. The diagnostic does not trigger alerts.")
-        if not shutil_which_systemctl():
-            record(results, "alert.unit", "skip", "systemctl unavailable; alert service state was not checked",
-                   0, "systemd user unit claude-alert.service")
-        else:
-            status, detail, elapsed = unit_status("claude-alert.service", args.timeout)
-            record(results, "alert.unit", status, detail, elapsed, "systemd user unit claude-alert.service",
-                   "Check claude-alert.service logs. Alert delivery is intentionally not triggered by diagnostics.")
 
     if args.pipeline_test or (args.deep and args.service is None):
         started = time.monotonic()
@@ -496,7 +423,7 @@ def main() -> int:
         "warnings": len(warnings),
         "skipped": sum(item["status"] == "skip" for item in results),
         "mode": "prompt-context-smoke" if args.prompt_context_smoke else ("hook-smoke" if args.hook_smoke else ("deep" if args.deep else ("pipeline-test" if args.pipeline_test else "standard"))),
-        "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory and publishes a transient Messenger event" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
+        "side_effects": ("SessionEnd smoke writes one synthetic metadata-only event to production Memory" if args.session_end_smoke else ("installed UserPromptSubmit hook is read-only; no production writes" if args.hook_smoke else ("isolated pipeline test writes only temporary Learning/Thompson state; no production writes, model calls, or notifications" if args.pipeline_test or (args.deep and args.service is None) else "read-only service probes; no production writes, model calls, or notifications"))),
         "results": results,
     }
     if args.json:
@@ -510,7 +437,7 @@ def main() -> int:
                 print(f"    Fix: {item['remediation']}")
         print(f"Summary: {summary['passed']} passed, {summary['warnings']} warnings, {summary['failed']} failed")
         if args.session_end_smoke:
-            print("SessionEnd smoke writes one metadata-only Memory event and publishes a transient Messenger event.")
+            print("SessionEnd smoke writes one metadata-only Memory event.")
         elif args.prompt_context_smoke:
             print("Prompt-context smoke is read-only and invokes the hook directly; it does not prove Claude Code delivered this context to a model.")
         elif args.hook_smoke:
