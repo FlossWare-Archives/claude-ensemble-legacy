@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 import threading
 from typing import Any, Callable, Protocol
 
-from providers.model_provider import ModelRequest
+from providers import ModelRequest, build_model_request
 
 from .context import ExecutionContext, ExecutionLimits, ExecutionResult, ExecutionStatus
 from .nodes import CompositeExecution, ExecutionNode, ModelExecution, PipelineExecution
@@ -326,7 +326,8 @@ class ExecutionEngine:
             if semaphore is None:
                 raise RuntimeError("execution budget is not initialized")
             with semaphore:
-                response = node.provider.generate(ModelRequest(
+                response = node.provider.generate(build_model_request(
+                    node.provider,
                     prompt=node.prompt_builder(context) if node.prompt_builder is not None else node.prompt,
                     model=node.model,
                     system_prompt=node.system_prompt,
