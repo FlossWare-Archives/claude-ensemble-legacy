@@ -61,6 +61,21 @@ if [[ -e "$STATE_ROOT" ]]; then
 else
   printf 'ce_state_root_snapshot=absent-before-operation\nce_state_root_path=%s\n' "$STATE_ROOT" >> "$manifest"
 fi
+# Snapshot legacy data sources before the non-destructive first-install migration.
+mkdir -p "$BACKUP/files/legacy-state"
+if [[ -d "$HOME/.claude/projects/memory" ]]; then
+  cp -a -- "$HOME/.claude/projects/memory" "$BACKUP/files/legacy-state/claude-projects-memory"
+  printf 'legacy_memory_snapshot=files/legacy-state/claude-projects-memory\n' >> "$manifest"
+fi
+if [[ -d "$HOME/.claude/projects/learning" ]]; then
+  cp -a -- "$HOME/.claude/projects/learning" "$BACKUP/files/legacy-state/claude-projects-learning"
+  printf 'legacy_learning_snapshot=files/legacy-state/claude-projects-learning\n' >> "$manifest"
+fi
+if [[ -f "$HOME/.local/share/claude-ensemble/graph.json" ]]; then
+  mkdir -p "$BACKUP/files/legacy-state/local-share"
+  cp -a -- "$HOME/.local/share/claude-ensemble/graph.json" "$BACKUP/files/legacy-state/local-share/graph.json"
+  printf 'legacy_graph_snapshot=files/legacy-state/local-share/graph.json\n' >> "$manifest"
+fi
 UNIT_DIR="${ENSEMBLE_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
 mkdir -p "$BACKUP/files/systemd-user-units"
 unit_count=0
