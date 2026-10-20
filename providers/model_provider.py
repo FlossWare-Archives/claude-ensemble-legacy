@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+_UNSET = object()
+
 
 @dataclass(frozen=True)
 class ModelRequest:
@@ -19,13 +21,30 @@ class ModelRequest:
     prompt: str
     model: str | None = None
     system_prompt: str | None = None
-    messages: tuple[Mapping[str, str], ...] = ()
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    messages: tuple[Mapping[str, str], ...] | object = _UNSET
+    temperature: float | object = _UNSET
+    max_tokens: int | object = _UNSET
     timeout: float = 300.0
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    explicit_fields: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        explicit = frozenset(
+            name
+            for name, value in (
+                ("messages", self.messages),
+                ("temperature", self.temperature),
+                ("max_tokens", self.max_tokens),
+            )
+            if value is not _UNSET
+        )
+        object.__setattr__(self, "explicit_fields", explicit)
+        if self.messages is _UNSET:
+            object.__setattr__(self, "messages", ())
+        if self.temperature is _UNSET:
+            object.__setattr__(self, "temperature", 0.7)
+        if self.max_tokens is _UNSET:
+            object.__setattr__(self, "max_tokens", 2000)
         if not isinstance(self.prompt, str) or not self.prompt:
             raise ValueError("prompt must be a non-empty string")
         if self.model is not None and not isinstance(self.model, str):
