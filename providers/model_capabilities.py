@@ -23,14 +23,21 @@ class ModelCapabilities:
     """Declared controls for one provider implementation."""
 
     provider: str
+    supports_system_prompt: bool = False
     supports_messages: bool = False
     supports_temperature_override: bool = False
     supports_max_tokens_override: bool = False
+    supports_timeout_override: bool = False
     default_temperature: float = 0.7
     default_max_tokens: int = 2000
+    default_timeout: float = 300.0
 
     def validate(self, request: ModelRequest) -> None:
         """Reject unsupported non-default controls before provider execution."""
+        if request.system_prompt is not None and not self.supports_system_prompt:
+            raise ModelCapabilityError(
+                f"{self.provider} does not support system_prompt"
+            )
         if request.messages and not self.supports_messages:
             raise ModelCapabilityError(
                 f"{self.provider} does not support prior conversation messages; "
@@ -49,6 +56,13 @@ class ModelCapabilities:
         ):
             raise ModelCapabilityError(
                 f"{self.provider} does not support max_tokens overrides"
+            )
+        if (
+            request.timeout != self.default_timeout
+            and not self.supports_timeout_override
+        ):
+            raise ModelCapabilityError(
+                f"{self.provider} does not support timeout overrides"
             )
 
 
