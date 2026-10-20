@@ -7,7 +7,7 @@ usage() {
 Claude Ensemble
   tools/ce doctor [--verbose|--json]
   tools/ce diagnose [--deep] [--service NAME] [--json]
-  tools/ce dev setup                 Create an isolated Python venv and CE state root
+  tools/ce dev setup                 Create an isolated Python venv, profile, and state root
   eval "$(tools/ce dev env)"         Export isolated development paths into this shell
   tools/ce dev run SERVICE           Run one foreground service: memory|thompson|learning|graph|gateway
 EOF
@@ -90,7 +90,7 @@ dev_run() {
   dev_paths
   [[ -x "$CE_VENV/bin/python" ]] || { echo "ERROR: run 'tools/ce dev setup' first" >&2; return 1; }
   mkdir -p "$CE_PROFILE/hooks" "$CE_STATE"/{runtime,logs,data/memory,data/learning}
-  chmod 700 "$CE_PROFILE" "$CE_PROFILE/hooks" "$CE_STATE" "$CE_STATE/runtime"
+  chmod 700 "$CE_PROFILE" "$CE_PROFILE/hooks" "$CE_STATE" "$CE_STATE/runtime" "$CE_STATE/data" "$CE_STATE/data/memory" "$CE_STATE/data/learning"
   eval "$(dev_exports)"
   case "$service" in
     memory) target="memory-service/memory_service.py" ;;
