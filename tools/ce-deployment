@@ -316,6 +316,22 @@ recover_activation() {
   printf "Recovered interrupted activation of %s; restored %s.\n" "$target" "${previous:-no prior release}"
 }
 cmd="${1:-help}"
+
+# All deployment mutations share one advisory lock. Keep it beside the install
+# root, not inside it: uninstall --purge removes ROOT, and deleting the lock
+# inode while held would let a second process lock a newly-created inode.
+case "$cmd" in
+  activate|rollback|recover|prune|uninstall)
+    if [[ "${FLOSSWARE_DEPLOYMENT_LOCK_HELD:-0}" != "1" ]]; then
+      command -v flock >/dev/null 2>&1 || die "flock is required to serialize deployment mutations"
+      LOCK_FILE="$ROOT_PARENT/.${ROOT_BASE}.deployment.lock"
+      exec 9>"$LOCK_FILE"
+      flock -x 9 || die "could not acquire deployment mutation lock"
+      export FLOSSWARE_DEPLOYMENT_LOCK_HELD=1
+    fi
+    ;;
+esac
+
 case "$cmd" in
   uninstall)
     [[ $# -le 2 ]] || die "usage: ce-deployment uninstall [--purge]"
