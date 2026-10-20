@@ -7,6 +7,9 @@ from .registry import ProviderRegistry
 
 __all__ = [
     "ClaudeCodeProvider",
+    "ModelCapabilities",
+    "ModelCapabilityError",
+    "build_model_request",
     "ModelProvider",
     "ModelRequest",
     "ModelResponse",
