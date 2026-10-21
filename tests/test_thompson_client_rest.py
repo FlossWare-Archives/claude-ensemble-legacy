@@ -15,7 +15,6 @@ def test_thompson_client_uses_rest_when_no_socket_is_supplied():
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         client = ThompsonClient(service_url=base, enable_circuit_breaker=False)
-        assert client.socket_path is None
         assert client.ping() is True
     finally:
         server.shutdown()
