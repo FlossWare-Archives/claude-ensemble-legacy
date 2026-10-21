@@ -248,6 +248,37 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_knowledge_search_loads_ingest_index_once(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            import hashlib
+
+            for index in range(4):
+                source_path = Path(temp_dir) / f"project-{index}" / "CLAUDE.md"
+                content = (
+                    f"# Durable Knowledge {index}\n\n"
+                    "Architecture decisions and project preferences are durable knowledge."
+                )
+                store.ingest_claude_markdown(
+                    str(source_path),
+                    content,
+                    hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                )
+
+            with patch.object(
+                store, "_load_ingest_index", wraps=store._load_ingest_index
+            ) as load_index:
+                results = store.search_semantic(
+                    "architecture decisions durable knowledge",
+                    source="claude-code",
+                )
+
+            self.assertTrue(results)
+            self.assertTrue(all(item["file"].startswith("claude-code-") for item in results))
+            self.assertEqual(load_index.call_count, 1)
+
     def test_identifier_prefix_does_not_match_longer_identifier(self):
         from memory_service import MemoryStore
 
