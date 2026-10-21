@@ -321,7 +321,7 @@ Services may run independently, but service integration uses REST/HTTP contracts
 
 ### Thompson Router
 - **Path:** `shared/thompson_router.py`
-- **Model labels:** Haiku, Sonnet, Opus. Legacy non-Claude labels temporarily map to Sonnet during migration.
+- **Model labels:** Haiku, Sonnet, Opus. Unsupported non-Claude labels fail closed; CE does not map them to Sonnet.
 - **Algorithm:** Bayesian inference with Beta distributions
 - **Role:** Learns task outcomes and tuning signals; it no longer selects among separate API providers.
 
