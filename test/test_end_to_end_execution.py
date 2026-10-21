@@ -13,6 +13,7 @@ import sys
 import socket
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -109,8 +110,12 @@ class DeterministicWorkflowProvider(ModelProvider):
 def _wait_for(predicate, timeout: float = 3.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if predicate():
-            return
+        try:
+            if predicate():
+                return
+        except (OSError, urllib.error.URLError, TimeoutError):
+            # Local REST listeners can briefly refuse connections while binding.
+            pass
         time.sleep(0.02)
     pytest.fail("timed out waiting for local service readiness")
 
