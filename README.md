@@ -60,10 +60,12 @@ STAGE="$HOME/.FlossWare/ce-staging-test"
 git clone https://github.com/FlossWare/claude-ensemble.git "$SOURCE"
 test ! -e "$STAGE"
 ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
-  bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
+  bash "$SOURCE/install-standalone.sh"
 ```
 
 Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
+
+For an ordinary install, the no-version form selects the numerically newest published `MAJOR.MINOR` Git tag and downloads that exact tagged commit. Explicit version selection remains available for staging, rollback, and controlled testing. A tag must be pushed through the normal release process before the default installer can see it.
 
 After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the five CE user services**:
 
