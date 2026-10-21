@@ -45,13 +45,9 @@ ROOT_BASE="$(basename -- "$ROOT")"
   exit 1
 }
 ROOT_PARENT="$(dirname -- "$ROOT")"
-# Canonicalize the existing parent without creating deployment state. The
-# parent is created only after source provenance has been validated.
-[[ -d "$ROOT_PARENT" ]] || {
-  printf 'ERROR: Install root parent must already exist before validation: %s\\n' "$ROOT_PARENT" >&2
-  exit 1
-}
-ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
+# Resolve the parent without creating it. Deployment directories are created
+# only after source provenance has been validated.
+ROOT_PARENT="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$ROOT_PARENT")"
 ROOT="$ROOT_PARENT/$ROOT_BASE"
 case "$ROOT" in
   "$HOME_REAL"/*) ;;
