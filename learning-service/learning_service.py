@@ -3,8 +3,7 @@
 Claude Ensemble Learning Service Daemon
 
 Central learning authority for autonomous task outcome recording and analysis.
-Runs as systemd user service, listens on Unix socket.
-Single-threaded (daemon owns all state, no race conditions).
+Runs as a loopback HTTP/JSON service; the daemon owns all state.
 Integrates with Thompson router for model performance tracking.
 """
 
