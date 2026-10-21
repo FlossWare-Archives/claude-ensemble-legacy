@@ -110,7 +110,8 @@ grep -q 'requires a new or empty install root' "$WORK/reuse.out" || {
 # not produce a staged manifest containing the placeholder "unknown" commit.
 BAD_SOURCE="$WORK/bad-source"
 cp -a "$SOURCE" "$BAD_SOURCE"
-printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/refs/heads/main"
+BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
+printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/${BAD_HEAD_REF#refs/}"
 BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
 if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
     bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
