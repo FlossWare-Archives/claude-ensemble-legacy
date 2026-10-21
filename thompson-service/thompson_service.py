@@ -275,7 +275,7 @@ class ThompsonService:
     def start(self):
         """Start the service"""
         logger.info("Starting RH Thompson Router Service")
-        self.http_server = start_service_http("thompson", HTTP_PORT, self._process_request, "action")
+        self.http_server = start_service_http("thompson", HTTP_PORT, lambda raw: self._process_request(raw, RequestContext(caller="thompson-rest", method="http")), "action")
 
         # Clean up old socket if it exists
         if self.socket_path.exists():
