@@ -113,20 +113,24 @@ cp -a "$SOURCE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
 printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
 BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
-if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
-    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
+set +e
+ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
+  bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1
+BAD_SOURCE_STATUS=$?
+set -e
+if [[ "$BAD_SOURCE_STATUS" -eq 0 ]]; then
   echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
   exit 1
 fi
-grep -q 'no readable HEAD commit' "$WORK/bad-source.out" || {
+if ! grep -Fq 'no readable HEAD commit' "$WORK/bad-source.out"; then
   cat "$WORK/bad-source.out" >&2
-  echo "FAIL: invalid source commit refused for an unexpected reason" >&2
+  echo "FAIL: invalid source commit refused for an unexpected reason (exit $BAD_SOURCE_STATUS)" >&2
   exit 1
-}
-[[ ! -e "$BAD_ROOT/deployment.json" && ! -e "$BAD_ROOT/releases/0.1" ]] || {
+fi
+if [[ -e "$BAD_ROOT/deployment.json" || -e "$BAD_ROOT/releases/0.1" ]]; then
   echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
   find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2
   exit 1
-}
+fi
 
 echo "PASS: staging-only deployment is isolated; no activation, systemctl, or profile migration occurred."
