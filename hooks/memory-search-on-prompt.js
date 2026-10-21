@@ -374,12 +374,11 @@ function buildMemoryQueries(query, maxQueries = 3) {
   return queries;
 }
 
-async function searchMemoryContext(query, config) {
-  const queries = buildMemoryQueries(query);
+async function executeQueries(queries, source, config) {
   const responses = [];
   for (const candidate of queries) {
     try {
-      const response = await searchContext(candidate, 'memory', config);
+      const response = await searchContext(candidate, source, config);
       if (response) responses.push(response);
     } catch (error) {
       responses.push({ error });
@@ -389,6 +388,12 @@ async function searchMemoryContext(query, config) {
   if (!successful.length && responses.some(response => response.error)) {
     throw responses.find(response => response.error).error;
   }
+  return successful;
+}
+
+async function searchMemoryContext(query, config) {
+  const queries = buildMemoryQueries(query);
+  const successful = await executeQueries(queries, 'memory', config);
 
   // Interleave results from each query so the first broad query cannot crowd
   // every useful result out of the keyword-specific searches.
@@ -411,19 +416,7 @@ async function searchKnowledgeContext(query, config) {
   const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
   if (!queries.length) return { ok: true, results: [] };
 
-  const responses = [];
-  for (const candidate of queries) {
-    try {
-      const response = await searchContext(candidate, 'claude-code', config);
-      if (response) responses.push(response);
-    } catch (error) {
-      responses.push({ error });
-    }
-  }
-  const successful = responses.filter(response => !response.error && response?.ok === true);
-  if (!successful.length && responses.some(response => response.error)) {
-    throw responses.find(response => response.error).error;
-  }
+  const successful = await executeQueries(queries, 'claude-code', config);
 
   const merged = [];
   for (const response of successful) {
