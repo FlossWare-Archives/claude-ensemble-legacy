@@ -21,8 +21,6 @@ from typing import Any
 from pathlib import Path
 
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
-DEFAULT_LEARNING_URL = "http://127.0.0.1:8768"
-DEFAULT_THOMPSON_URL = "http://127.0.0.1:8769"
 
 
 def default_hook_dir() -> str:
