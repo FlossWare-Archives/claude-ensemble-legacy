@@ -76,7 +76,8 @@ service.start()
             else:
                 raise RuntimeError("Learning REST service did not become ready")
 
-            from learning.learning_client import LearningClient
+            sys.path.insert(0, str(ROOT / "learning"))
+            from learning_client import LearningClient
 
             client = LearningClient(service_url=service_url, timeout=1.0)
             ping = client._send_request({"op": "ping"})
