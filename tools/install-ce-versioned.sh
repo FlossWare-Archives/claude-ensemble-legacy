@@ -172,7 +172,7 @@ if [[ -n "$SOURCE_DIR" ]]; then
       --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -C "$STAGED" -xf -
   SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
 else
-  SOURCE_COMMIT="$(curl -fsSL https://api.github.com/repos/FlossWare/claude-ensemble/commits/main | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
+  SOURCE_COMMIT="$(curl -fsSL https://api.github.com/repos/FlossWare/claude-ensemble/commits/$VERSION | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
   curl -fsSL "https://github.com/FlossWare/claude-ensemble/archive/$SOURCE_COMMIT.tar.gz" \
     | tar -xz -C "$STAGED" --strip-components=1
 fi

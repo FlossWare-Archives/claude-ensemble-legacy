@@ -254,6 +254,7 @@ jobs:
           bash tests/test_versioned_staging_only.sh
           bash tests/test_backup_ce_state.sh
           bash tests/test_create_ce_release_tag.sh
+          bash tests/test_select_ce_release_version.sh
 
   docs-check:
     runs-on: ubuntu-latest
