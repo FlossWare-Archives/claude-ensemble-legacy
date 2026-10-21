@@ -9,7 +9,7 @@ bash tools/resolve-ce-version.sh \
   --deployment-root "$HOME/.FlossWare/claude-ensemble"
 ```
 
-The resolver is intentionally read-only. It does not create a Git tag, GitHub release, deployment directory, or activate services.
+The resolver is intentionally read-only. It does not create a Git tag, GitHub release, deployment directory, or activate services. When the candidate has been reviewed and the main checkout is ready, tag creation is a separate explicit operation.
 
 ## Rules
 
@@ -26,4 +26,16 @@ Run the regression suite with:
 bash -n tools/resolve-ce-version.sh
 bash -n tests/test_resolve_ce_version.sh
 bash tests/test_resolve_ce_version.sh
+bash -n tools/create-ce-release-tag.sh
+bash tests/test_create_ce_release_tag.sh
 ```
+
+## Explicit local tag creation
+
+Run the separate tag command only from a clean `main` checkout:
+
+```bash
+bash tools/create-ce-release-tag.sh
+```
+
+It re-runs the resolver (optionally checking a deployment root), creates the next `MAJOR.MINOR` version as an annotated local Git tag, and verifies that the tag points to the current `HEAD`. It refuses dirty or non-`main` checkouts, a `main` branch that is not exactly synchronized with its configured upstream, and ambiguous version state. It does **not** push the tag, create a GitHub release, stage a deployment, or activate services. Review and push the tag through the repository's normal release process as a separate deliberate action.
