@@ -36,9 +36,9 @@ API_PREFIX = "/api/v1"
 DEFAULT_SERVICE_URLS = {
     "graph": "http://127.0.0.1:8766",
     "memory": "http://127.0.0.1:8767",
-    "learning": None,
+    "learning": "http://127.0.0.1:8768",
     "arbitration": None,
-    "thompson": None,
+    "thompson": "http://127.0.0.1:8769",
 }
 
 MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
@@ -278,7 +278,7 @@ def _forward(
     remote_ensemble = _ensemble_target(base)
     if remote_ensemble:
         target_path = f"{API_PREFIX}{path}"
-    elif path in {"/graph/health", "/memory/health"}:
+    elif path in {"/graph/health", "/memory/health", "/learning/health", "/thompson/health"}:
         # Public gateway health paths are service-scoped; concrete services
         # expose their health endpoint at the root.
         target_path = "/health"
