@@ -227,5 +227,36 @@ class InstalledHookSmokeTests(unittest.TestCase):
         self.assertIn("Server=example-proxy", detail)
         self.assertNotIn("secret-token", detail)
 
+    def test_oversized_response_is_not_misreported_as_malformed_json(self):
+        class FakeHeaders(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+
+        class FakeResponse:
+            status = 200
+            headers = FakeHeaders({
+                "Content-Type": "application/json",
+                "Server": "ClaudeEnsembleREST/1",
+                "Content-Length": str(150_000),
+            })
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self, limit):
+                return b"x" * limit
+
+        with patch.object(ce_diagnose.urllib.request, "urlopen", return_value=FakeResponse()):
+            status, detail, payload, _elapsed = ce_diagnose.http_request(
+                "http://127.0.0.1:8080", "/api/v1/decision/query/problems",
+                "test-correlation",
+            )
+
+        self.assertEqual("fail", status)
+        self.assertIsNone(payload)
+        self.assertIn("response exceeded diagnostic body limit", detail)
+        self.assertIn("Content-Length=150000", detail)
+        self.assertNotIn("response was not JSON", detail)
+
 if __name__ == "__main__":
     unittest.main()
