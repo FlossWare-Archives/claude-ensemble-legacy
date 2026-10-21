@@ -183,7 +183,7 @@ class InstalledHookSmokeTests(unittest.TestCase):
         output = io.StringIO()
         with (
             patch("sys.argv", ["ce-diagnose.py", "--service", "thompson", "--json"]),
-            patch.object(ce_diagnose, "socket_ping", return_value=("pass", "acknowledged", 1)),
+            patch.object(ce_diagnose, "http_request", return_value=("pass", "HTTP 200; ok=true", {"ok": True}, 1)),
             redirect_stdout(output),
         ):
             exit_code = ce_diagnose.main()
