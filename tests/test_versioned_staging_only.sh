@@ -112,31 +112,33 @@ BAD_SOURCE="$WORK/bad-source"
 cp -a "$SOURCE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
 printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
-BAD_ROOT="$HOME/bad-staging-target"
-# The installer must reject the broken HEAD. Assert the safety outcome rather
-# than matching diagnostic text, which can vary with Git versions and shells.
-if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
-    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
-  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
+BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
+BAD_SOURCE_STATUS_FILE="$WORK/bad-source.status"
+# Run the expected-failure case in its own wrapper. The wrapper always exits
+# successfully after recording the installer status, so the parent test's
+# errexit behavior cannot accidentally abort before assertions run.
+cat > "$WORK/run-bad-source.sh" <<'WRAPPER'
+#!/usr/bin/env bash
+set +e
+ENSEMBLE_INSTALL_ROOT="$1" ENSEMBLE_STAGING_ONLY=1 \
+  bash "$2/tools/install-ce-versioned.sh" 0.1 "$3" >"$4" 2>&1
+status=$?
+printf '%s\n' "$status" > "$5"
+exit 0
+WRAPPER
+bash "$WORK/run-bad-source.sh" "$BAD_ROOT" "$REPO_ROOT" "$BAD_SOURCE" "$WORK/bad-source.out" "$BAD_SOURCE_STATUS_FILE"
+[[ -s "$BAD_SOURCE_STATUS_FILE" ]] || {
+  echo "FAIL: invalid-source wrapper did not record installer status" >&2
   exit 1
-else
-  BAD_SOURCE_STATUS=$?
-fi
+}
+BAD_SOURCE_STATUS="$(cat "$BAD_SOURCE_STATUS_FILE")"
 if [[ "$BAD_SOURCE_STATUS" -eq 0 ]]; then
-  echo "FAIL: invalid source commit unexpectedly returned success" >&2
+  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
+  cat "$WORK/bad-source.out" >&2
   exit 1
 fi
 if [[ -e "$BAD_ROOT/deployment.json" || -e "$BAD_ROOT/releases/0.1" ]]; then
   echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
-  cat "$WORK/bad-source.out" >&2
-  find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2
-  exit 1
-fi
-# The rejected target itself must remain absent. The installer may validate
-# and canonicalize its parent, but it must not create deployment state before
-# source provenance has been verified.
-if [[ -e "$BAD_ROOT" ]]; then
-  echo "FAIL: staging created a target root for an unverifiable source commit" >&2
   cat "$WORK/bad-source.out" >&2
   find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2 || true
   exit 1
