@@ -20,12 +20,12 @@ if ! TAGS="$(git ls-remote --tags --refs "$REMOTE")"; then
   exit 1
 fi
 
-python3 - "$REMOTE" <<'PY' <<<"$TAGS"
+python3 - "$REMOTE" "$TAGS" <<'PY'
 import re
 import sys
 
 remote = sys.argv[1]
-lines = sys.stdin.read().splitlines()
+lines = sys.argv[2].splitlines()
 versions = []
 ambiguous = []
 for line in lines:
