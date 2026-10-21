@@ -6,6 +6,7 @@ test does not touch the user's production Memory, Learning, or Thompson state.
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,8 +21,16 @@ class LearningThompsonPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ce-pipeline-test-") as tmp:
             root = Path(tmp)
             env = os.environ.copy()
+            def free_port():
+                with socket.socket() as listener:
+                    listener.bind(("127.0.0.1", 0))
+                    return listener.getsockname()[1]
+            learning_port = free_port()
+            thompson_port = free_port()
             env.update({
                 "ENSEMBLE_LOG_DIR": str(root / "logs"),
+                "ENSEMBLE_LEARNING_HTTP_PORT": str(learning_port),
+                "ENSEMBLE_THOMPSON_HTTP_PORT": str(thompson_port),
                 "ENSEMBLE_LEARNING_DIR": str(root / "learning"),
                 "ENSEMBLE_RUNTIME_DIR": str(root / "runtime"),
                 "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
@@ -33,6 +42,7 @@ import socket
 import sys
 import time
 import threading
+import urllib.request
 from pathlib import Path
 
 repo = Path(sys.argv[1])
@@ -52,19 +62,37 @@ class IsolatedMemory:
         self.events.append(event)
         return True
 
-socket_path = tmp / "thompson.sock"
+socket_path = tmp / "unused-thompson.sock"
 state_path = tmp / "thompson-state.json"
 thompson = ThompsonService(socket_path, state_path)
-thread = threading.Thread(target=thompson.start, daemon=True)
-thread.start()
+thompson_thread = threading.Thread(target=thompson.start, daemon=True)
+thompson_thread.start()
+thompson_url = "http://127.0.0.1:" + os.environ["ENSEMBLE_THOMPSON_HTTP_PORT"]
 deadline = time.monotonic() + 3
-while not socket_path.exists() and time.monotonic() < deadline:
-    time.sleep(0.01)
-assert socket_path.exists(), "isolated Thompson socket did not start"
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(thompson_url + "/health", timeout=0.2):
+            break
+    except Exception:
+        time.sleep(0.01)
+else:
+    raise AssertionError("isolated Thompson REST endpoint did not start")
 
 memory = IsolatedMemory()
-learning = LearningService(tmp / "learning.sock", tmp / "learning", memory)
-learning.thompson_client = ThompsonClient(socket_path=socket_path, timeout=1)
+learning = LearningService(tmp / "unused-learning.sock", tmp / "learning", memory)
+learning.thompson_client = ThompsonClient(service_url=thompson_url, timeout=1)
+learning_thread = threading.Thread(target=learning.start, daemon=True)
+learning_thread.start()
+learning_url = "http://127.0.0.1:" + os.environ["ENSEMBLE_LEARNING_HTTP_PORT"]
+deadline = time.monotonic() + 3
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(learning_url + "/health", timeout=0.2):
+            break
+    except Exception:
+        time.sleep(0.01)
+else:
+    raise AssertionError("isolated Learning REST endpoint did not start")
 
 task_id = "ce-diagnostic-isolated-pipeline-test"
 request = {
@@ -77,21 +105,13 @@ request = {
     "cost": 0.0,
 }
 try:
-    client_end, service_end = socket.socketpair()
-    client_end.settimeout(5)
-    handler = threading.Thread(target=learning._handle_client, args=(service_end,), daemon=True)
-    handler.start()
-    client_end.sendall((json.dumps(request) + "\n").encode("utf-8"))
-    response_bytes = bytearray()
-    while b"\n" not in response_bytes and len(response_bytes) < 65536:
-        chunk = client_end.recv(4096)
-        if not chunk:
-            break
-        response_bytes.extend(chunk)
-    client_end.close()
-    handler.join(timeout=2)
-    assert not handler.is_alive(), "Learning request handler did not finish"
-    result = json.loads(bytes(response_bytes).split(b"\n", 1)[0].decode("utf-8"))
+    body = json.dumps(request).encode("utf-8")
+    http_request = urllib.request.Request(
+        learning_url + "/learning", data=body, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(http_request, timeout=5) as response:
+        result = json.loads(response.read().decode("utf-8"))
     assert result.get("ok") is True, result
     assert result.get("thompson") is True, result
     assert result.get("checkpoint_advanced") is True, result
@@ -103,8 +123,10 @@ try:
     assert model["successes"] == 1, model
     assert learning.system.is_processed(task_id)
 finally:
+    learning.stop()
     thompson.stop()
-    thread.join(timeout=2)
+    learning_thread.join(timeout=2)
+    thompson_thread.join(timeout=2)
 '''
             result = subprocess.run(
                 [sys.executable, "-c", script, str(REPO_ROOT), str(root)],
