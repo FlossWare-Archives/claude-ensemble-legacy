@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.request_context import RequestContext
 from shared.validators import Validators
 from shared.runtime_config import log_dir, socket_path, thompson_state_file
+from shared.service_http import start_service_http
 
 LOG_DIR = log_dir()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,6 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = socket_path('ENSEMBLE_THOMPSON_SOCKET', '/tmp/claude-thompson.sock')
+HTTP_PORT = int(os.environ.get('ENSEMBLE_THOMPSON_HTTP_PORT', '8769'))
 STATE_FILE = thompson_state_file()
 
 
@@ -273,6 +275,7 @@ class ThompsonService:
     def start(self):
         """Start the service"""
         logger.info("Starting RH Thompson Router Service")
+        self.http_server = start_service_http("thompson", HTTP_PORT, self._process_request, "action")
 
         # Clean up old socket if it exists
         if self.socket_path.exists():
