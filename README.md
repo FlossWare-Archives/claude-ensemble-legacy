@@ -60,7 +60,7 @@ STAGE="$HOME/.FlossWare/ce-staging-test"
 git clone https://github.com/FlossWare/claude-ensemble.git "$SOURCE"
 test ! -e "$STAGE"
 ENSEMBLE_INSTALL_ROOT="$STAGE" ENSEMBLE_STAGING_ONLY=1 \
-  bash "$SOURCE/install-standalone.sh"
+  bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
 ```
 
 Staging-only mode checks release structure and writes `deployment.json`. It does **not** activate the release, create `current`, migrate Claude profiles, invoke systemd, or alter running services. Pick a fresh `SOURCE` and `STAGE` if either path already exists.
@@ -70,7 +70,7 @@ For an ordinary install, the no-version form selects the numerically newest publ
 After reviewing the staged tree and manifest, a **separate non-staging install activates the selected release and controls the five CE user services**:
 
 ```bash
-bash "$SOURCE/install-standalone.sh" 0.1 "$SOURCE"
+bash "$SOURCE/install-standalone.sh"
 ```
 
 The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapshots the existing service units and active-service state, validates the release, switches `current` atomically, starts services in dependency order, and checks both service activity and gateway readiness. A failed activation attempts to restore the previous release. Do not run the activation command against a disposable staging root as a substitute for testing on an isolated system: activation controls the current user's systemd units and checks the configured gateway endpoint.
