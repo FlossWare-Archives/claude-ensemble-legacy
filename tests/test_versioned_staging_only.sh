@@ -112,7 +112,7 @@ BAD_SOURCE="$WORK/bad-source"
 cp -a "$SOURCE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
 printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
-BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
+BAD_ROOT="$HOME/bad-staging-target"
 # The installer must reject the broken HEAD. Assert the safety outcome rather
 # than matching diagnostic text, which can vary with Git versions and shells.
 if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
@@ -130,6 +130,15 @@ if [[ -e "$BAD_ROOT/deployment.json" || -e "$BAD_ROOT/releases/0.1" ]]; then
   echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
   cat "$WORK/bad-source.out" >&2
   find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2
+  exit 1
+fi
+# The rejected target itself must remain absent. The installer may validate
+# and canonicalize its parent, but it must not create deployment state before
+# source provenance has been verified.
+if [[ -e "$BAD_ROOT" ]]; then
+  echo "FAIL: staging created a target root for an unverifiable source commit" >&2
+  cat "$WORK/bad-source.out" >&2
+  find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2 || true
   exit 1
 fi
 
