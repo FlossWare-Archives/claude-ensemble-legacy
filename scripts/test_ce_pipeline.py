@@ -1,7 +1,7 @@
 """Isolated integration proof for the real Learning-to-Thompson outcome path.
 
-All persistent state and Unix sockets live under a temporary directory. The
-test does not touch the user's production Memory, Learning, or Thompson state.
+All persistent state lives under a temporary directory. The test uses loopback
+HTTP/JSON and does not touch production Memory, Learning, or Thompson state.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ class LearningThompsonPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ce-pipeline-test-") as tmp:
             root = Path(tmp)
             env = os.environ.copy()
+
             def free_port():
                 with socket.socket() as listener:
                     listener.bind(("127.0.0.1", 0))
@@ -33,12 +34,11 @@ class LearningThompsonPipelineTests(unittest.TestCase):
                 "ENSEMBLE_THOMPSON_HTTP_PORT": str(thompson_port),
                 "ENSEMBLE_LEARNING_DIR": str(root / "learning"),
                 "ENSEMBLE_RUNTIME_DIR": str(root / "runtime"),
-                "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
                 "ENSEMBLE_THOMPSON_STATE_FILE": str(root / "thompson-state.json"),
             })
             script = r'''
 import json
-import socket
+import os
 import sys
 import time
 import threading
