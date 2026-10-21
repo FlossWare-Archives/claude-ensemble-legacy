@@ -117,6 +117,10 @@ jobs:
       - name: Run isolated top-level installer end-to-end test
         run: python test/test_top_level_install.py
 
+      - name: Run isolated full-stack acceptance test
+        shell: bash
+        run: bash scripts/test-isolated-stack.sh
+
       - name: Check tracked runtime artifacts
         shell: bash
         run: |
