@@ -21,8 +21,8 @@ from typing import Any
 from pathlib import Path
 
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
-DEFAULT_LEARNING_SOCKET = "/tmp/claude-learning.sock"
-DEFAULT_THOMPSON_SOCKET = "/tmp/claude-thompson.sock"
+DEFAULT_LEARNING_URL = "http://127.0.0.1:8768"
+DEFAULT_THOMPSON_URL = "http://127.0.0.1:8769"
 
 
 def default_hook_dir() -> str:
@@ -315,8 +315,8 @@ def main() -> int:
         parser.error("--timeout must be between 0.1 and 10 seconds")
 
     gateway = os.environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY).rstrip("/")
-    learning_socket = os.environ.get("ENSEMBLE_LEARNING_SOCKET", DEFAULT_LEARNING_SOCKET)
-    thompson_socket = os.environ.get("ENSEMBLE_THOMPSON_SOCKET", DEFAULT_THOMPSON_SOCKET)
+    learning_url = os.environ.get("ENSEMBLE_LEARNING_URL", DEFAULT_LEARNING_URL).rstrip("/")
+    thompson_url = os.environ.get("ENSEMBLE_THOMPSON_URL", DEFAULT_THOMPSON_URL).rstrip("/")
     correlation_id = str(uuid.uuid4())
     results: list[dict[str, Any]] = []
 
@@ -358,14 +358,16 @@ def main() -> int:
                   accept_no_data=True)
 
     if selected("learning"):
-        status, detail, elapsed = socket_ping(learning_socket, "learning", correlation_id, args.timeout)
-        record(results, "learning.ping", status, detail, elapsed, f"Unix socket {learning_socket}",
-               "Check claude-learning.service and ENSEMBLE_LEARNING_SOCKET.")
+        http_step("learning.health", "/api/v1/learning/health",
+                  remediation="Check claude-learning.service, ENSEMBLE_LEARNING_URL, and the service HTTP port.")
+        http_step("learning.ping", "/api/v1/learning/ping",
+                  remediation="Check the Learning REST adapter and its configured gateway URL.")
 
     if selected("thompson"):
-        status, detail, elapsed = socket_ping(thompson_socket, "thompson", correlation_id, args.timeout)
-        record(results, "thompson.ping", status, detail, elapsed, f"Unix socket {thompson_socket}",
-               "Check claude-thompson.service and ENSEMBLE_THOMPSON_SOCKET.")
+        http_step("thompson.health", "/api/v1/thompson/health",
+                  remediation="Check claude-thompson.service, ENSEMBLE_THOMPSON_URL, and the service HTTP port.")
+        http_step("thompson.ping", "/api/v1/thompson/ping",
+                  remediation="Check the Thompson REST adapter and its configured gateway URL.")
 
     if args.pipeline_test or (args.deep and args.service is None):
         started = time.monotonic()
