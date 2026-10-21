@@ -45,7 +45,12 @@ ROOT_BASE="$(basename -- "$ROOT")"
   exit 1
 }
 ROOT_PARENT="$(dirname -- "$ROOT")"
-mkdir -p -- "$ROOT_PARENT"
+# Canonicalize the existing parent without creating deployment state. The
+# parent is created only after source provenance has been validated.
+[[ -d "$ROOT_PARENT" ]] || {
+  printf 'ERROR: Install root parent must already exist before validation: %s\\n' "$ROOT_PARENT" >&2
+  exit 1
+}
 ROOT_PARENT="$(cd -- "$ROOT_PARENT" && pwd -P)"
 ROOT="$ROOT_PARENT/$ROOT_BASE"
 case "$ROOT" in
@@ -157,6 +162,7 @@ fi
   exit 1
 }
 
+mkdir -p -- "$ROOT_PARENT"
 mkdir -p "$RELEASES" "$SHARED/claude-code" "$SHARED/config" "$SHARED/data" "$SHARED/logs"
 assert_managed_layout
 if [[ "$LEGACY_MIGRATION" == "1" ]]; then
