@@ -21,11 +21,11 @@ if [[ -n "${ENSEMBLE_TEST_VENV:-}" ]]; then
 else
   command -v "$PYTHON" >/dev/null 2>&1 || { echo "FAIL: Python executable not found: $PYTHON" >&2; exit 2; }
 fi
-read -r MEMORY_PORT GRAPH_PORT GATEWAY_PORT < <("$PYTHON" - <<'PYPORTS'
+read -r MEMORY_PORT GRAPH_PORT LEARNING_PORT THOMPSON_PORT GATEWAY_PORT < <("$PYTHON" - <<'PYPORTS'
 import socket
 sockets = []
 try:
-    for _ in range(3):
+    for _ in range(5):
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         sockets.append(sock)
@@ -53,12 +53,16 @@ export ENSEMBLE_MEMORY_HTTP_HOST=127.0.0.1
 export ENSEMBLE_MEMORY_HTTP_PORT="$MEMORY_PORT"
 export ENSEMBLE_GRAPH_HOST=127.0.0.1
 export ENSEMBLE_GRAPH_PORT="$GRAPH_PORT"
+export ENSEMBLE_LEARNING_HTTP_PORT="$LEARNING_PORT"
+export ENSEMBLE_THOMPSON_HTTP_PORT="$THOMPSON_PORT"
 export ENSEMBLE_HTTP_HOST=127.0.0.1
 export ENSEMBLE_HTTP_PORT="$GATEWAY_PORT"
 export ENSEMBLE_MEMORY_URL="http://127.0.0.1:$MEMORY_PORT"
 export FLOSSWARE_MEMORY_URL="$ENSEMBLE_MEMORY_URL"
 export ENSEMBLE_GRAPH_URL="http://127.0.0.1:$GRAPH_PORT"
 export FLOSSWARE_GRAPH_URL="$ENSEMBLE_GRAPH_URL"
+export ENSEMBLE_LEARNING_URL="http://127.0.0.1:$LEARNING_PORT"
+export ENSEMBLE_THOMPSON_URL="http://127.0.0.1:$THOMPSON_PORT"
 
 mkdir -p "$TMP/runtime" "$TMP/logs" "$TMP/data/memory" "$TMP/data/learning"
 chmod 700 "$TMP" "$TMP/runtime" "$TMP/data"
@@ -101,11 +105,13 @@ wait_http() {
 }
 wait_http "$ENSEMBLE_MEMORY_URL/health" || fail_with_logs "Memory service did not become healthy"
 wait_http "$ENSEMBLE_GRAPH_URL/health" || fail_with_logs "Graph service did not become healthy"
+wait_http "$ENSEMBLE_LEARNING_URL/health" || fail_with_logs "Learning service did not become healthy"
+wait_http "$ENSEMBLE_THOMPSON_URL/health" || fail_with_logs "Thompson service did not become healthy"
 wait_http "http://127.0.0.1:$GATEWAY_PORT/api/v1/ready" || fail_with_logs "gateway readiness failed"
 
 READY="$TMP/ready.json"
 curl --silent --show-error --fail --max-time 3 "http://127.0.0.1:$GATEWAY_PORT/api/v1/ready" -o "$READY" || fail_with_logs "readiness request failed"
-python3 - "$READY" <<'PY' || fail_with_logs "readiness JSON contract failed"
+"$PYTHON" - "$READY" <<'PY' || fail_with_logs "readiness JSON contract failed"
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     data = json.load(f)
@@ -116,7 +122,7 @@ PY
 
 PROBLEMS="$TMP/problems.json"
 STATUS="$(curl --silent --show-error --max-time 5 -o "$PROBLEMS" -w '%{http_code}' "http://127.0.0.1:$GATEWAY_PORT/api/v1/decision/query/problems")" || fail_with_logs "decision endpoint request failed"
-python3 - "$PROBLEMS" "$STATUS" <<'PY' || fail_with_logs "decision endpoint JSON contract failed"
+"$PYTHON" - "$PROBLEMS" "$STATUS" <<'PY' || fail_with_logs "decision endpoint JSON contract failed"
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     data = json.load(f)
@@ -129,4 +135,4 @@ print(f"PASS: decision endpoint returned JSON (HTTP {status})")
 PY
 
 echo "PASS: isolated CE stack acceptance"
-echo "Ports used: gateway=$GATEWAY_PORT memory=$MEMORY_PORT graph=$GRAPH_PORT"
+echo "Ports used: gateway=$GATEWAY_PORT memory=$MEMORY_PORT graph=$GRAPH_PORT learning=$LEARNING_PORT thompson=$THOMPSON_PORT"
