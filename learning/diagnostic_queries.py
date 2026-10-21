@@ -28,8 +28,12 @@ class DiagnosticQueries:
             node=item.get("node",{})
             if node.get("type")=="task_type": stats.setdefault(node.get("id",""),{"attempts":0})
         return {"ok":True,"error":None,"data":{"model":model,"tasks_attempted":len(stats),"task_stats":stats},"sample_count":len(stats)}
-    def find_problematic_tasks(self):
-        result=self.semantic_search("failed inconclusive low confidence",50)
+    def find_problematic_tasks(self, limit=10):
+        # Keep this diagnostic summary bounded. Memory records may contain long
+        # conversation excerpts, and returning 50 full records made the GET
+        # response hundreds of kilobytes for a health-oriented diagnostic.
+        limit = max(1, min(int(limit), 50))
+        result=self.semantic_search("failed inconclusive low confidence",limit)
         return {"ok":True,"error":None,"data":{"problem_tasks":[],"records":result["data"]["results"]},"sample_count":result.get("sample_count",0)}
     def cost_outliers(self,percentile=0.9):
         result=self.semantic_search("arbitration cost expensive",100)
