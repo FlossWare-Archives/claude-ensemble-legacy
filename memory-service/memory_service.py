@@ -96,6 +96,10 @@ class MemoryStore:
         # file's (mtime_ns, size) on every search, so external edits are seen.
         self._search_index: Dict[str, Tuple[Tuple[int, int], List[Dict[str, Any]]]] = {}
         self._search_index_lock = threading.Lock()
+        # Per-file locks make cache population single-flight without serializing
+        # independent files. Locks are retained for deleted names to avoid a
+        # second lock being created while an older builder is still active.
+        self._file_index_locks: Dict[str, threading.Lock] = {}
 
     def _memory_path(self, name: str, suffix: str) -> Path:
         """Build a validated memory path."""
@@ -540,33 +544,49 @@ class MemoryStore:
         under the GIL, so latency grew linearly with concurrency and callers
         timed out. The per-file work now happens once per file revision.
         """
+        file_name = md_file.stem
         stat = md_file.stat()
         signature = (stat.st_mtime_ns, stat.st_size)
-        file_name = md_file.stem
         with self._search_index_lock:
             cached = self._search_index.get(file_name)
-        if cached is not None and cached[0] == signature:
-            return cached[1]
-        chunks = self.chunk_document(file_name)
-        if not chunks:
-            with open(md_file, "r", encoding="utf-8") as handle:
-                chunks = [{"content": handle.read(), "header": "full"}]
-        indexed = []
-        for chunk in chunks:
-            content = chunk.get("content", "")
-            vector = self.vectorize_text(content)
-            indexed.append(
-                {
-                    "header": chunk.get("header", ""),
-                    "size_bytes": len(content),
-                    "folded": content.casefold(),
-                    "vector": vector,
-                    "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
-                }
-            )
-        with self._search_index_lock:
-            self._search_index[file_name] = (signature, indexed)
-        return indexed
+            if cached is not None and cached[0] == signature:
+                return cached[1]
+            file_lock = self._file_index_locks.setdefault(file_name, threading.Lock())
+
+        # Recheck after acquiring the per-file lock: another search or the
+        # background warm-up may have populated this revision while we waited.
+        with file_lock:
+            try:
+                stat = md_file.stat()
+            except FileNotFoundError:
+                with self._search_index_lock:
+                    self._search_index.pop(file_name, None)
+                return []
+            signature = (stat.st_mtime_ns, stat.st_size)
+            with self._search_index_lock:
+                cached = self._search_index.get(file_name)
+                if cached is not None and cached[0] == signature:
+                    return cached[1]
+            chunks = self.chunk_document(file_name)
+            if not chunks:
+                with open(md_file, "r", encoding="utf-8") as handle:
+                    chunks = [{"content": handle.read(), "header": "full"}]
+            indexed = []
+            for chunk in chunks:
+                content = chunk.get("content", "")
+                vector = self.vectorize_text(content)
+                indexed.append(
+                    {
+                        "header": chunk.get("header", ""),
+                        "size_bytes": len(content),
+                        "folded": content.casefold(),
+                        "vector": vector,
+                        "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
+                    }
+                )
+            with self._search_index_lock:
+                self._search_index[file_name] = (signature, indexed)
+            return indexed
 
     def _prune_search_index(self, present: set) -> None:
         with self._search_index_lock:
