@@ -265,6 +265,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                     str(source_path),
                     content,
                     hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    {"scope": str(source_path.parent)},
                 )
 
             with patch.object(
