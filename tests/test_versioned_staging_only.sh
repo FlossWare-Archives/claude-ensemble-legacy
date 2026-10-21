@@ -111,7 +111,7 @@ grep -q 'requires a new or empty install root' "$WORK/reuse.out" || {
 BAD_SOURCE="$WORK/bad-source"
 cp -a "$SOURCE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
-printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/${BAD_HEAD_REF#refs/}"
+printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
 BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
 if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
     bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
@@ -123,8 +123,9 @@ grep -q 'no readable HEAD commit' "$WORK/bad-source.out" || {
   echo "FAIL: invalid source commit refused for an unexpected reason" >&2
   exit 1
 }
-[[ ! -e "$BAD_ROOT/deployment.json" ]] || {
-  echo "FAIL: staging wrote a manifest for an unverifiable source commit" >&2
+[[ ! -e "$BAD_ROOT" ]] || {
+  echo "FAIL: staging modified the install root for an unverifiable source commit" >&2
+  find "$BAD_ROOT" -mindepth 1 -maxdepth 2 -print >&2
   exit 1
 }
 
