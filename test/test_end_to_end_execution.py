@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import socket
 import threading
 import time
 import urllib.request
@@ -131,13 +132,21 @@ def _json_request(url: str, payload: dict | None = None) -> dict:
 def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_path: Path, monkeypatch) -> None:
     """Exercise request -> execution -> arbitration -> learning -> Memory/Graph."""
 
-    thompson_socket = tmp_path / "thompson.sock"
+    thompson_socket = tmp_path / "unused-thompson.sock"
     thompson_state = tmp_path / "thompson-state.json"
     memory_socket = tmp_path / "memory.sock"
     memory_dir = tmp_path / "memory"
-    learning_socket = tmp_path / "learning.sock"
+    learning_socket = tmp_path / "unused-learning.sock"
     learning_dir = tmp_path / "learning"
     graph_store = tmp_path / "graph.json"
+
+    def free_port() -> int:
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            return int(listener.getsockname()[1])
+
+    thompson_port = free_port()
+    learning_port = free_port()
 
     thompson_service = None
     thompson_thread = None
@@ -150,30 +159,32 @@ def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_pa
 
     try:
         thompson_module = _load_thompson_service()
-        original_thompson_client = thompson_client_module.ThompsonClient
-
-        class TemporaryThompsonClient(original_thompson_client):
-            def __init__(self, *args, **kwargs):
-                kwargs["socket_path"] = thompson_socket
-                super().__init__(*args, **kwargs)
-
-        monkeypatch.setattr(thompson_client_module, "ThompsonClient", TemporaryThompsonClient)
+        thompson_module.HTTP_PORT = thompson_port
+        monkeypatch.setattr(
+            thompson_client_module,
+            "DEFAULT_SERVICE_URL",
+            f"http://127.0.0.1:{thompson_port}",
+        )
         thompson_service = thompson_module.ThompsonService(thompson_socket, thompson_state)
         thompson_thread = threading.Thread(target=thompson_service.start, daemon=True)
         thompson_thread.start()
-        thompson_client = TemporaryThompsonClient(
-            socket_path=thompson_socket, enable_circuit_breaker=False
+        thompson_url = f"http://127.0.0.1:{thompson_port}"
+        thompson_client = thompson_client_module.ThompsonClient(
+            enable_circuit_breaker=False, service_url=thompson_url
         )
-        _wait_for(lambda: thompson_socket.exists())
+        _wait_for(lambda: _json_request(thompson_url + "/health").get("ok") is True)
         _wait_for(lambda: thompson_client.get_state() is not None)
 
         memory_service = MemoryService(memory_socket, memory_dir)
         memory_thread = threading.Thread(target=memory_service.start, daemon=True)
         memory_thread.start()
 
+        learning_module = sys.modules[LearningService.__module__]
+        learning_module.HTTP_PORT = learning_port
         learning_service = LearningService(learning_socket, learning_dir)
         learning_thread = threading.Thread(target=learning_service.start, daemon=True)
         learning_thread.start()
+        learning_url = f"http://127.0.0.1:{learning_port}"
 
         graph_module = _load_graph_service()
         graph_server = graph_module.create_server("127.0.0.1", 0, graph_store)
@@ -181,10 +192,10 @@ def test_end_to_end_execution_workflow_persists_across_service_boundaries(tmp_pa
         graph_thread.start()
 
         memory_client = MemoryClient(memory_socket)
-        learning_client = LearningClient(learning_socket)
+        learning_client = LearningClient(service_url=learning_url)
 
         _wait_for(lambda: memory_client.connect())
-        _wait_for(lambda: learning_socket.exists())
+        _wait_for(lambda: _json_request(learning_url + "/health").get("ok") is True)
         graph_url = f"http://127.0.0.1:{graph_server.server_port}"
         _wait_for(lambda: _json_request(f"{graph_url}/health").get("ok") is True)
 
