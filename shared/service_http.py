@@ -1,7 +1,7 @@
 """Small HTTP/JSON adapter shared by independently deployed CE services.
 
-The legacy private Unix sockets remain available during migration, but the
-canonical gateway integrates with Learning and Thompson over loopback HTTP.
+Learning and Thompson expose only loopback HTTP/JSON. This adapter does not
+provide Unix-domain socket compatibility or any additional transport.
 """
 from __future__ import annotations
 
