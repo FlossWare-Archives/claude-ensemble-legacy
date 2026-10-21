@@ -101,6 +101,23 @@ trap cleanup EXIT
 for command in tar curl python3 git; do
   command -v "$command" >/dev/null 2>&1 || { printf 'ERROR: Required command not found: %s\n' "$command" >&2; exit 1; }
 done
+
+# Resolve and validate provenance before creating backups, migrating legacy
+# deployments, or making any changes beneath the install root.
+if [[ -n "$SOURCE_DIR" ]]; then
+  [[ -f "$SOURCE_DIR/install.sh" ]] || { printf 'ERROR: Source checkout lacks install.sh: %s\n' "$SOURCE_DIR" >&2; exit 1; }
+  SOURCE_DIR="$(cd -- "$SOURCE_DIR" && pwd -P)"
+  if ! SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'ERROR: Source checkout has no readable HEAD commit; refusing to stage a release with unverifiable provenance.\n' >&2
+    exit 1
+  fi
+else
+  SOURCE_COMMIT="$(curl -fsSL "https://api.github.com/repos/FlossWare/claude-ensemble/commits/$VERSION" | python3 -c 'import json,sys; value=json.load(sys.stdin).get("sha", ""); assert len(value) == 40 and all(c in "0123456789abcdef" for c in value), "GitHub response did not contain a valid commit SHA"; print(value)')" || {
+    printf 'ERROR: Could not resolve a valid source commit for release %s; refusing to modify the deployment.\n' "$VERSION" >&2
+    exit 1
+  }
+fi
+
 if [[ "$STAGING_ONLY" != "1" ]]; then
   command -v systemctl >/dev/null 2>&1 || { printf 'ERROR: Required command not found: systemctl\n' >&2; exit 1; }
   systemctl --user show-environment >/dev/null 2>&1 || {
@@ -166,16 +183,9 @@ if [[ "$STAGING_ONLY" != "1" ]]; then
 fi
 mkdir -p "$STAGED"
 if [[ -n "$SOURCE_DIR" ]]; then
-  [[ -f "$SOURCE_DIR/install.sh" ]] || { printf 'ERROR: Source checkout lacks install.sh: %s\n' "$SOURCE_DIR" >&2; exit 1; }
-  SOURCE_DIR="$(cd -- "$SOURCE_DIR" && pwd -P)"
   tar -C "$SOURCE_DIR" --exclude='./.git' --exclude='./.git/*' --exclude='*/.git' \
       --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -C "$STAGED" -xf -
-  if ! SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-    printf 'ERROR: Source checkout has no readable HEAD commit; refusing to stage a release with unverifiable provenance.\n' >&2
-    exit 1
-  fi
 else
-  SOURCE_COMMIT="$(curl -fsSL https://api.github.com/repos/FlossWare/claude-ensemble/commits/$VERSION | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
   curl -fsSL "https://github.com/FlossWare/claude-ensemble/archive/$SOURCE_COMMIT.tar.gz" \
     | tar -xz -C "$STAGED" --strip-components=1
 fi
