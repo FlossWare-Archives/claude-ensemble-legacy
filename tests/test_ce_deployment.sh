@@ -309,6 +309,12 @@ done
 FIXTURE_INSTALL
 cp "$SCRIPT" "$SOURCE_FIXTURE/tools/ce-deployment"
 
+git -C "$SOURCE_FIXTURE" init -q
+git -C "$SOURCE_FIXTURE" config user.name "Test"
+git -C "$SOURCE_FIXTURE" config user.email "test@example.com"
+git -C "$SOURCE_FIXTURE" add .
+git -C "$SOURCE_FIXTURE" commit -qm "fixture"
+
 # Let the real Python interpreter handle JSON manifest operations while
 # short-circuiting only the gateway HTTP readiness probe.
 cat > "$TMP/bin/python3" <<'MOCK_PYTHON'

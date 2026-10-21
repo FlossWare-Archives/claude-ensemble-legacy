@@ -22,7 +22,7 @@ grep -Fxq "reason=0.2" "$backup_path/manifest.txt"
 output="$(bash "$BACKUP_SCRIPT" "pre-install-0.2" "$ENSEMBLE_INSTALL_ROOT")"
 backup_path="$(printf '%s\n' "$output" | sed -n '1s/^Pre-operation backup created: //p')"
 name="$(basename -- "$backup_path")"
-[[ "$name" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}-pre-install-0\.2-[0-9]+$ ]] || {
+[[ "$name" =~ ^0\.1_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}(_[0-9]{2})?$ ]] || {
   printf 'Unexpected reason-oriented backup name: %s\n' "$name" >&2
   exit 1
 }
