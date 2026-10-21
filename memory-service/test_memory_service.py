@@ -355,6 +355,102 @@ class MemorySearchRegressionTest(unittest.TestCase):
             run_id = "integration-test-a51b9cf7-a58f-45bf-ad81-56999e1730e5"
             self.assertIn(run_id, store.vectorize_text(run_id))
 
+    def test_repeated_searches_do_not_revectorize_unchanged_files(self):
+        """Regression: prompt-time fan-out re-scanned the whole corpus per query.
+
+        Every search re-read, re-chunked and re-vectorized every file, so N
+        concurrent hook searches took ~N times as long and exceeded the hook's
+        timeout ("This operation was aborted") on large stores.
+        """
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            for index in range(20):
+                store.write_file(f"event-{index}", f"# Event {index}\n\nretrieval contract note {index}\n")
+            store.search_semantic("retrieval contract note")  # builds the index
+            with patch.object(store, "vectorize_text", wraps=store.vectorize_text) as vectorize, \
+                    patch.object(store, "chunk_document", wraps=store.chunk_document) as chunk:
+                results = store.search_semantic("retrieval contract note")
+            self.assertEqual(len(results), 10)
+            # Only the query is vectorized; stored chunks come from the index.
+            self.assertEqual(vectorize.call_count, 1)
+            chunk.assert_not_called()
+
+    def test_search_index_sees_edits_additions_and_deletions(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("alpha", "# Alpha\n\nzebrafish migration pattern\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["alpha"])
+            # Edit in place (different size) is picked up.
+            store.write_file("alpha", "# Alpha\n\nunrelated content now, much longer than before\n")
+            self.assertEqual(store.search_semantic("zebrafish migration"), [])
+            # New file appears; deleted file disappears and is pruned.
+            store.write_file("beta", "# Beta\n\nzebrafish migration pattern\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["beta"])
+            (Path(temp_dir) / "beta.md").unlink()
+            self.assertEqual(store.search_semantic("zebrafish migration"), [])
+            self.assertNotIn("beta", store._search_index)
+
+    def test_concurrent_searches_stay_within_prompt_hook_budget(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            for index in range(200):
+                body = "\n".join(f"## Section {part}\n" + "memory retrieval hook contract timeout " * 60 for part in range(4))
+                store.write_file(f"event-{index:04d}", f"# Event {index}\n\n{body}")
+            store.warm_search_index()
+            durations = []
+
+            def run():
+                started = time.monotonic()
+                store.search_semantic("what is the memory retrieval hook contract", 10, "memory")
+                durations.append(time.monotonic() - started)
+
+            threads = [threading.Thread(target=run) for _ in range(6)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(len(durations), 6)
+            # The hook allows 1500ms per request; require a wide safety margin.
+            self.assertLess(max(durations), 0.75)
+
+    def test_rest_search_accepts_limit_and_top_k_alias(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            for index in range(5):
+                service.store.write_file(f"note-{index}", f"# Note {index}\n\nretrieval contract detail {index}\n")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                def search(path, payload):
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{server.server_address[1]}{path}",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=3) as response:
+                        return json.loads(response.read().decode("utf-8"))
+
+                for path in ("/memory/search", "/memory/search-semantic"):
+                    self.assertEqual(len(search(path, {"query": "retrieval contract", "limit": 2})["results"]), 2)
+                    # top_k was previously overwritten by the default limit of 10.
+                    self.assertEqual(len(search(path, {"query": "retrieval contract", "top_k": 3})["results"]), 3)
+                    self.assertEqual(len(search(path, {"query": "retrieval contract", "limit": 1, "top_k": 4})["results"]), 1)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
 
 class MemoryServiceIdempotencyTest(unittest.TestCase):
     def test_append_once_deduplicates_retries_and_rejects_key_reuse(self):

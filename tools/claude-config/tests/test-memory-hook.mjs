@@ -337,4 +337,29 @@ try {
   await close(graphServer);
 }
 
+// A service slower than the hook's budget must be reported as a timeout, not as
+// the opaque fetch message "This operation was aborted".
+{
+  const slowSockets = new Set();
+  const slowServer = http.createServer(() => {});
+  slowServer.on('connection', socket => { slowSockets.add(socket); socket.on('close', () => slowSockets.delete(socket)); });
+  const slowPort = await listen(slowServer);
+  try {
+    const slow = await runHook({
+      url: 'http://127.0.0.1:' + slowPort + '/',
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'slow memory service' },
+      env: { FLOSSWARE_MEMORY_TIMEOUT_MS: '150' },
+    });
+    assert.equal(slow.code, 0);
+    assert.equal(slow.stdout, '');
+    assert.match(slow.stderr, /Memory search request timed out after 150ms/);
+    assert.match(slow.stderr, /Knowledge search request timed out after 150ms/);
+    assert.doesNotMatch(slow.stderr, /operation was aborted/);
+  } finally {
+    for (const socket of slowSockets) socket.destroy();
+    await close(slowServer);
+  }
+}
+
 console.log('memory hook REST tests passed');
