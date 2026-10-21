@@ -6,6 +6,7 @@ daemons or call external APIs.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -153,7 +154,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
     def _free_ports(count: int) -> list[int]:
         # Keep all sockets bound until every distinct port has been allocated.
         # Calling a single-port helper repeatedly can hand back the same port.
-        with tempfile.ExitStack() as stack:
+        with contextlib.ExitStack() as stack:
             listeners = [stack.enter_context(socket.socket()) for _ in range(count)]
             for listener in listeners:
                 listener.bind(("127.0.0.1", 0))
