@@ -376,9 +376,15 @@ function buildMemoryQueries(query, maxQueries = 3) {
 
 async function searchMemoryContext(query, config) {
   const queries = buildMemoryQueries(query);
-  const responses = await Promise.all(queries.map(candidate =>
-    searchContext(candidate, 'memory', config).catch(error => ({ error }))
-  ));
+  const responses = [];
+  for (const candidate of queries) {
+    try {
+      const response = await searchContext(candidate, 'memory', config);
+      if (response) responses.push(response);
+    } catch (error) {
+      responses.push({ error });
+    }
+  }
   const successful = responses.filter(response => !response.error && response?.ok === true);
   if (!successful.length && responses.some(response => response.error)) {
     throw responses.find(response => response.error).error;
@@ -405,9 +411,15 @@ async function searchKnowledgeContext(query, config) {
   const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
   if (!queries.length) return { ok: true, results: [] };
 
-  const responses = await Promise.all(queries.map(candidate =>
-    searchContext(candidate, 'claude-code', config).catch(error => ({ error }))
-  ));
+  const responses = [];
+  for (const candidate of queries) {
+    try {
+      const response = await searchContext(candidate, 'claude-code', config);
+      if (response) responses.push(response);
+    } catch (error) {
+      responses.push({ error });
+    }
+  }
   const successful = responses.filter(response => !response.error && response?.ok === true);
   if (!successful.length && responses.some(response => response.error)) {
     throw responses.find(response => response.error).error;

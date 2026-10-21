@@ -137,10 +137,10 @@ try {
   assert.equal(result.code, 0);
   assert.ok(requests.length >= 2, 'retrieval should query Memory and Knowledge');
   assert.equal(statusRequests.length, 1);
-  assert.ok(requests.every(request => request.method === 'POST' && (request.url === '/memory/search-semantic' || request.url === '/memory/search')));
+  assert.ok(requests.every(request => request.method === 'POST' && request.url === '/memory/search-semantic'));
   const parsedRequests = requests.map(request => JSON.parse(request.body));
   assert.deepEqual([...new Set(parsedRequests.map(request => request.source))].sort(), ['claude-code', 'memory']);
-  assert.ok(parsedRequests.every(request => request.top_k === 10 || request.limit === 10));
+  assert.ok(parsedRequests.every(request => request.top_k === 10));
   assert.ok(parsedRequests.some(request =>
     request.source === 'memory' &&
     request.query === 'What did we decide about Claude Ensemble relative to Claude Code?'
@@ -238,7 +238,7 @@ try {
     input: { hook_event_name: 'UserPromptSubmit', prompt: 'Fix the failing test' },
   });
   assert.equal(ordinaryPrompt.code, 0);
-  assert.equal(JSON.parse(requests.at(-1).body).query, 'Fix the failing test');
+  assert.ok(requests.some(req => JSON.parse(req.body).query === 'Fix the failing test'));
   assert.match(JSON.parse(ordinaryPrompt.stdout).hookSpecificOutput.additionalContext, /Relevant Claude Ensemble Context/);
 
   // Empty retrieval is different from a hook that was never invoked. Opt-in
