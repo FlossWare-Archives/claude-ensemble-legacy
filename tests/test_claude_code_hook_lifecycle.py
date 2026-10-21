@@ -150,10 +150,14 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         cls.graph_thread.join(timeout=2)
 
     @staticmethod
-    def _free_port() -> int:
-        with socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0))
-            return int(listener.getsockname()[1])
+    def _free_ports(count: int) -> list[int]:
+        # Keep all sockets bound until every distinct port has been allocated.
+        # Calling a single-port helper repeatedly can hand back the same port.
+        with tempfile.ExitStack() as stack:
+            listeners = [stack.enter_context(socket.socket()) for _ in range(count)]
+            for listener in listeners:
+                listener.bind(("127.0.0.1", 0))
+            return [int(listener.getsockname()[1]) for listener in listeners]
 
     def setUp(self) -> None:
         FakeMemoryHandler.requests = []
@@ -438,14 +442,15 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ce-workflow-e2e-") as temp_dir:
             root = Path(temp_dir)
             env = os.environ.copy()
+            thompson_port, learning_port = self._free_ports(2)
             env.update({
                 "HOME": str(root / "home"),
                 "ENSEMBLE_LOG_DIR": str(root / "logs"),
                 "ENSEMBLE_LEARNING_DIR": str(root / "learning"),
                 "ENSEMBLE_RUNTIME_DIR": str(root / "runtime"),
                 "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
-                "ENSEMBLE_THOMPSON_HTTP_PORT": str(self._free_port()),
-                "ENSEMBLE_LEARNING_HTTP_PORT": str(self._free_port()),
+                "ENSEMBLE_THOMPSON_HTTP_PORT": str(thompson_port),
+                "ENSEMBLE_LEARNING_HTTP_PORT": str(learning_port),
                 "ENSEMBLE_THOMPSON_STATE_FILE": str(root / "thompson-state.json"),
             })
             script = r'''
