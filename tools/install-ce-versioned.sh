@@ -170,7 +170,10 @@ if [[ -n "$SOURCE_DIR" ]]; then
   SOURCE_DIR="$(cd -- "$SOURCE_DIR" && pwd -P)"
   tar -C "$SOURCE_DIR" --exclude='./.git' --exclude='./.git/*' --exclude='*/.git' \
       --exclude='__pycache__' --exclude='*.pyc' -cf - . | tar -C "$STAGED" -xf -
-  SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+  if ! SOURCE_COMMIT="$(git -C "$SOURCE_DIR" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    printf 'ERROR: Source checkout has no readable HEAD commit; refusing to stage a release with unverifiable provenance.\n' >&2
+    exit 1
+  fi
 else
   SOURCE_COMMIT="$(curl -fsSL https://api.github.com/repos/FlossWare/claude-ensemble/commits/$VERSION | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
   curl -fsSL "https://github.com/FlossWare/claude-ensemble/archive/$SOURCE_COMMIT.tar.gz" \
