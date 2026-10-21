@@ -3,9 +3,7 @@
 Claude Ensemble Thompson Router Service Daemon
 
 Central Thompson Sampling authority for model selection across Claude Code sessions.
-Runs as systemd user service, listens on Unix socket.
-Maintains Beta priors for each model, samples from posterior to select best model.
-Single-threaded: processes requests sequentially, daemon owns state.
+Runs as a loopback HTTP/JSON service and owns its persisted sampling state.
 """
 
 import json
