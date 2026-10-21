@@ -113,7 +113,32 @@ if [[ -n "$SOURCE_DIR" ]]; then
     exit 1
   fi
 else
-  SOURCE_COMMIT="$(curl -fsSL "https://api.github.com/repos/FlossWare/claude-ensemble/commits/$VERSION" | python3 -c 'import json,sys; value=json.load(sys.stdin).get("sha", ""); assert len(value) == 40 and all(c in "0123456789abcdef" for c in value), "GitHub response did not contain a valid commit SHA"; print(value)')" || {
+  SOURCE_COMMIT="$(python3 - "$VERSION" <<'PY'
+import json
+import sys
+import urllib.request
+
+version = sys.argv[1]
+url = f"https://api.github.com/repos/FlossWare/claude-ensemble/commits/{version}"
+req = urllib.request.Request(
+    url,
+    headers={
+        "User-Agent": "Claude-Ensemble-Installer",
+        "Accept": "application/vnd.github+json",
+    },
+)
+try:
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        sha = data.get("sha", "")
+        if len(sha) == 40 and all(c in "0123456789abcdef" for c in sha):
+            print(sha)
+            sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+)" || {
     printf 'ERROR: Could not resolve a valid source commit for release %s; refusing to modify the deployment.\n' "$VERSION" >&2
     exit 1
   }
