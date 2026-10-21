@@ -577,6 +577,20 @@ class MemoryStore:
             re.UNICODE,
         )
 
+        # Load the ingestion index once per search, not once per Knowledge file.
+        # _active_ingest_entry() reads and parses the entire JSON index on every
+        # call; invoking it inside this loop turns a search into repeated disk I/O
+        # and makes concurrent prompt-time searches miss their hook timeout.
+        ingest_index = self._load_ingest_index() if source != "memory" else {}
+        active_knowledge_documents = {
+            entry.get("document")
+            for entry in ingest_index.values()
+            if isinstance(entry, dict)
+            and not entry.get("stale", False)
+            and isinstance(entry.get("document"), str)
+            and entry.get("document", "").startswith("claude-code-")
+        }
+
         results = []
         for md_file in self.memory_dir.glob("*.md"):
             try:
@@ -586,7 +600,7 @@ class MemoryStore:
                     continue
                 if source == "memory" and is_knowledge:
                     continue
-                if is_knowledge and self._active_ingest_entry(file_name) is None:
+                if is_knowledge and file_name not in active_knowledge_documents:
                     continue
                 chunks = self.chunk_document(file_name)
                 if not chunks:
