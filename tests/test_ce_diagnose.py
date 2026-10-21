@@ -190,10 +190,10 @@ class InstalledHookSmokeTests(unittest.TestCase):
 
         report = json.loads(output.getvalue())
         self.assertEqual(0, exit_code)
-        self.assertEqual(1, len(report["results"]))
+        self.assertEqual(2, len(report["results"]))
         self.assertEqual(0, report["skipped"])
-        self.assertEqual("thompson.ping", report["results"][0]["step"])
-        self.assertEqual("pass", report["results"][0]["status"])
+        self.assertEqual(["thompson.health", "thompson.ping"], [item["step"] for item in report["results"]])
+        self.assertTrue(all(item["status"] == "pass" for item in report["results"]))
 
 
     def test_non_json_http_response_reports_headers_without_leaking_body(self):
