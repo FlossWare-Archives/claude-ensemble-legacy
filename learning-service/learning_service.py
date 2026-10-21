@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.request_context import RequestContext
 from shared.validators import Validators
 from shared.runtime_config import learning_dir, log_dir, socket_path
+from shared.service_http import start_service_http
 from shared.operational_memory import OperationalMemoryWriter
 from learning.portable_artifacts import LearningArtifact, LearningArtifactStore
 
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 LEARNING_DIR = learning_dir()
 SOCKET_PATH = socket_path('ENSEMBLE_LEARNING_SOCKET', '/tmp/claude-learning.sock')
+HTTP_PORT = int(os.environ.get('ENSEMBLE_LEARNING_HTTP_PORT', '8768'))
 
 
 
@@ -303,6 +305,7 @@ class LearningService:
     def start(self):
         """Start the service - single-threaded event loop"""
         logger.info("Starting RH Learning Service")
+        self.http_server = start_service_http("learning", HTTP_PORT, self._process_request, "op")
 
         # Clean up old socket if it exists
         if self.socket_path.exists():
