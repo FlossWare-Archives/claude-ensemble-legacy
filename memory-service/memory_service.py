@@ -809,7 +809,7 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, **result})
                 return
             requested_source = None
-            requested_limit = body.get("limit", 10)
+            requested_limit = body.get("limit") if body.get("limit") is not None else body.get("top_k", 10)
             if operation=="search_semantic":
                 requested_source = body.get("source")
                 if requested_source not in (None, "memory", "claude-code"):

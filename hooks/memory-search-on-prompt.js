@@ -22,7 +22,7 @@ const fs = process.getBuiltinModule('fs');
 const path = process.getBuiltinModule('path');
 
 const MEMORY_URL = process.env.FLOSSWARE_MEMORY_URL || 'http://127.0.0.1:8767';
-const MEMORY_SEARCH_PATH = '/memory/search';
+const MEMORY_SEARCH_PATH = '/memory/search-semantic';
 const MAX_CONTEXT_CHARS = 12000;
 const MAX_RESULTS = 10;
 const GRAPH_URL = process.env.FLOSSWARE_GRAPH_URL || 'http://127.0.0.1:8766';
@@ -311,7 +311,7 @@ async function searchContext(query, source, config) {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({ query, limit: section.max_results, source }),
+      body: JSON.stringify({ query, top_k: section.max_results, limit: section.max_results, source }),
       signal: controller.signal,
     });
 

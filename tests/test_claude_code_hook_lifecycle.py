@@ -47,7 +47,7 @@ class FakeMemoryHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"ok":false,"error":"mock unavailable"}')
             return
 
-        if self.path == "/memory/search":
+        if self.path in ("/memory/search", "/memory/search-semantic"):
             response = {
                 "ok": True,
                 "results": [
@@ -199,9 +199,9 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertIn("Current architecture fact", context)
         self.assertEqual(hook_output["contextRetrieval"]["memoryCount"], 1)
         self.assertEqual(hook_output["contextRetrieval"]["knowledgeCount"], 1)
-        self.assertEqual(FakeMemoryHandler.requests[0][0], "/memory/search")
+        self.assertIn(FakeMemoryHandler.requests[0][0], ("/memory/search", "/memory/search-semantic"))
         self.assertEqual(FakeMemoryHandler.requests[0][1]["query"], "How did we decide the service boundary?")
-        self.assertEqual(FakeMemoryHandler.requests[0][1]["limit"], 10)
+        self.assertEqual(FakeMemoryHandler.requests[0][1].get("top_k", FakeMemoryHandler.requests[0][1].get("limit")), 10)
         self.assertEqual(FakeMemoryHandler.requests[0][1]["source"], "memory")
         self.assertEqual(FakeGraphHandler.requests, [])
 

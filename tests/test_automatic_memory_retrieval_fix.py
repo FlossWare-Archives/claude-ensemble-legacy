@@ -51,7 +51,7 @@ class FakeMemoryServiceForRetrieval(BaseHTTPRequestHandler):
             # Simulate timeout by not responding
             return
 
-        if self.path == "/memory/search":
+        if self.path in ("/memory/search", "/memory/search-semantic"):
             query = str(payload.get("query", "")).lower()
             if "accomplishment" in query:
                 response = {
@@ -160,7 +160,7 @@ class AutomaticMemoryRetrievalTests(unittest.TestCase):
 
         # Verify memory search was called (may be called multiple times, but should include our query)
         self.assertGreater(len(FakeMemoryServiceForRetrieval.requests), 0)
-        search_requests = [r for r in FakeMemoryServiceForRetrieval.requests if r[0] == "/memory/search"]
+        search_requests = [r for r in FakeMemoryServiceForRetrieval.requests if r[0] in ("/memory/search", "/memory/search-semantic")]
         self.assertGreater(len(search_requests), 0, "Should have made at least one search request")
         # Find the request with our query
         our_request = [r for r in search_requests if r[1].get("query") == "Should we use unit test mocks or real database connections?"]
@@ -178,7 +178,7 @@ class AutomaticMemoryRetrievalTests(unittest.TestCase):
         queries = [
             payload.get("query", "")
             for path, payload in FakeMemoryServiceForRetrieval.requests
-            if path == "/memory/search"
+            if path in ("/memory/search", "/memory/search-semantic")
         ]
         self.assertIn("the Google accomplishments doc", queries)
         self.assertTrue(any("accomplishment" in query.lower() for query in queries))
