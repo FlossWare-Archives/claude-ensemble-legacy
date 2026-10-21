@@ -21,6 +21,7 @@ from typing import Any
 from pathlib import Path
 
 DEFAULT_GATEWAY = "http://127.0.0.1:8080"
+MAX_DIAGNOSTIC_RESPONSE_BYTES = 128 * 1024
 
 
 def default_hook_dir() -> str:
@@ -66,12 +67,12 @@ def http_request(base: str, path: str, correlation_id: str, method: str = "GET",
         with urllib.request.urlopen(request, timeout=timeout) as response:
             status_code = response.status
             headers = response.headers
-            raw = response.read(128 * 1024)
+            raw = response.read(MAX_DIAGNOSTIC_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         status_code = exc.code
         headers = exc.headers
         try:
-            raw = exc.read(128 * 1024)
+            raw = exc.read(MAX_DIAGNOSTIC_RESPONSE_BYTES + 1)
         except OSError:
             raw = b""
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -80,6 +81,23 @@ def http_request(base: str, path: str, correlation_id: str, method: str = "GET",
         return "fail", f"request failed ({type(reason).__name__})", None, elapsed
 
     elapsed = round((time.monotonic() - start) * 1000)
+    if len(raw) > MAX_DIAGNOSTIC_RESPONSE_BYTES:
+        content_type = headers.get("Content-Type", "unknown") if headers else "unknown"
+        server = headers.get("Server", "") if headers else ""
+        content_length = headers.get("Content-Length", "") if headers else ""
+        hint = f" (Content-Type={content_type}"
+        if content_length:
+            hint += f"; Content-Length={content_length}"
+        if server:
+            hint += f"; Server={server}"
+        hint += ")"
+        return (
+            "fail",
+            f"HTTP {status_code}; response exceeded diagnostic body limit "
+            f"({MAX_DIAGNOSTIC_RESPONSE_BYTES} bytes; body is larger than the limit){hint}",
+            None,
+            elapsed,
+        )
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
