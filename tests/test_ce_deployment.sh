@@ -315,6 +315,38 @@ git -C "$SOURCE_FIXTURE" config user.email "test@example.com"
 git -C "$SOURCE_FIXTURE" add .
 git -C "$SOURCE_FIXTURE" commit -qm "fixture"
 
+# Invalid source provenance must fail closed before creating a release or manifest.
+BAD_SOURCE="$TMP/bad-source"
+cp -a "$SOURCE_FIXTURE" "$BAD_SOURCE"
+BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
+printf '%s\\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
+BAD_ROOT="$INSTALL_HOME/.FlossWare/bad-staging-target"
+BAD_STATUS_FILE="$TMP/bad-source.status"
+cat > "$TMP/run-bad-source.sh" <<'BAD_SOURCE_WRAPPER'
+#!/usr/bin/env bash
+set +e
+ENSEMBLE_INSTALL_ROOT="$1" ENSEMBLE_STAGING_ONLY=1 \\
+  bash "$2/tools/install-ce-versioned.sh" 0.3 "$3" >"$4" 2>&1
+status=$?
+printf '%s\\n' "$status" > "$5"
+exit 0
+BAD_SOURCE_WRAPPER
+bash "$TMP/run-bad-source.sh" "$BAD_ROOT" "$SCRIPT_DIR/.." "$BAD_SOURCE" "$TMP/bad-source.out" "$BAD_STATUS_FILE"
+[[ -s "$BAD_STATUS_FILE" ]] || { echo "FAIL: invalid-source wrapper did not record installer status" >&2; exit 1; }
+BAD_STATUS="$(cat "$BAD_STATUS_FILE")"
+if [[ "$BAD_STATUS" -eq 0 ]]; then
+  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
+  cat "$TMP/bad-source.out" >&2
+  exit 1
+fi
+if [[ -e "$BAD_ROOT/deployment.json" || -e "$BAD_ROOT/releases/0.3" ]]; then
+  echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
+  cat "$TMP/bad-source.out" >&2
+  find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2 || true
+  exit 1
+fi
+echo "PASS: invalid source provenance creates no release or deployment manifest"
+
 # Let the real Python interpreter handle JSON manifest operations while
 # short-circuiting only the gateway HTTP readiness probe.
 cat > "$TMP/bin/python3" <<'MOCK_PYTHON'
