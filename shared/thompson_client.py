@@ -16,7 +16,6 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
 from typing import Dict, Optional, Any
 
 
@@ -177,7 +176,7 @@ class ThompsonClient:
             if self.circuit_breaker:
                 self.circuit_breaker.record_success()
             return payload
-        except (socket.timeout, TimeoutError):
+        except TimeoutError:
             logger.warning("Thompson service timeout")
             if self.circuit_breaker:
                 self.circuit_breaker.record_failure()
