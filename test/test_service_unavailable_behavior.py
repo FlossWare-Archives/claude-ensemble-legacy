@@ -31,7 +31,7 @@ class ServiceUnavailableBehaviorTests(unittest.TestCase):
     def test_thompson_uses_documented_model_fallback_but_reports_write_failure(self):
         with tempfile.TemporaryDirectory() as root:
             client = ThompsonClient(
-                socket_path=self.missing_socket(root, "thompson.sock"),
+                service_url="http://127.0.0.1:1",
                 enable_circuit_breaker=False,
             )
             with self.assertLogs("shared.thompson_client", level="WARNING") as logs:
@@ -42,7 +42,7 @@ class ServiceUnavailableBehaviorTests(unittest.TestCase):
 
     def test_learning_returns_failure_for_writes_and_report_reads(self):
         with tempfile.TemporaryDirectory() as root:
-            client = LearningClient(self.missing_socket(root, "learning.sock"))
+            client = LearningClient("http://127.0.0.1:1")
             with self.assertLogs("learning.learning_client", level="WARNING"):
                 self.assertFalse(
                     client.process_outcome("task-1", "test", "haiku", 4, 10, 0.0)
