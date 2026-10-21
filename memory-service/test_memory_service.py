@@ -419,6 +419,48 @@ class MemorySearchRegressionTest(unittest.TestCase):
             # The hook allows 1500ms per request; require a wide safety margin.
             self.assertLess(max(durations), 0.75)
 
+    def test_concurrent_cold_searches_build_each_file_index_once(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            file_count = 24
+            worker_count = 6
+            for index in range(file_count):
+                store.write_file(
+                    f"cold-event-{index:03d}",
+                    f"# Event {index}\n\ncold cache single flight retrieval marker {index}\n",
+                )
+
+            barrier = threading.Barrier(worker_count)
+            failures = []
+
+            def run():
+                try:
+                    barrier.wait(timeout=3)
+                    store.search_semantic("cold cache single flight retrieval marker", 10, "memory")
+                except Exception as exc:
+                    failures.append(exc)
+
+            # Count both per-query vectorization and stored-chunk vectorization.
+            with patch.object(store, "vectorize_text", wraps=store.vectorize_text) as vectorize:
+                threads = [threading.Thread(target=run) for _ in range(worker_count)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=5)
+
+            self.assertTrue(all(not thread.is_alive() for thread in threads), "search thread did not finish")
+            self.assertEqual(failures, [])
+            expected_chunk_vectors = sum(
+                max(1, len(store.chunk_document(f"cold-event-{index:03d}")))
+                for index in range(file_count)
+            )
+            # Every search vectorizes its own query, but each stored file revision
+            # must be vectorized only once despite all six searches starting cold.
+            self.assertEqual(vectorize.call_count, worker_count + expected_chunk_vectors)
+            self.assertEqual(len(store._search_index), file_count)
+
     def test_rest_search_accepts_limit_and_top_k_alias(self):
         from memory_service import MemoryService, create_http_server
 
