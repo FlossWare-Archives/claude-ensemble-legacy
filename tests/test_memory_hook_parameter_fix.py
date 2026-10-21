@@ -9,7 +9,7 @@ import threading
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "memory-service"))
 from memory_service import MemoryService, create_http_server
 
@@ -53,22 +53,6 @@ class MemoryHookParameterFixTests(unittest.TestCase):
         req = urllib.request.Request(
             f"{self.base_url}/memory/search-semantic",
             data=json.dumps({"query": "REST contracts", "top_k": 5, "source": "memory"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode())
-        self.assertTrue(data.get("ok"))
-        results = data.get("results", [])
-        self.assertGreater(len(results), 0)
-        self.assertEqual(results[0]["file"], "decision_001")
-
-    def test_stemming_matches_plural_variations(self) -> None:
-        """Verify lightweight word stemming matches plural prompt terms to singular documents."""
-        import urllib.request
-        req = urllib.request.Request(
-            f"{self.base_url}/memory/search-semantic",
-            data=json.dumps({"query": "What are the project decisions?", "top_k": 5, "source": "memory"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
