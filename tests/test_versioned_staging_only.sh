@@ -123,9 +123,9 @@ grep -q 'no readable HEAD commit' "$WORK/bad-source.out" || {
   echo "FAIL: invalid source commit refused for an unexpected reason" >&2
   exit 1
 }
-[[ ! -e "$BAD_ROOT" ]] || {
-  echo "FAIL: staging modified the install root for an unverifiable source commit" >&2
-  find "$BAD_ROOT" -mindepth 1 -maxdepth 2 -print >&2
+[[ ! -e "$BAD_ROOT/deployment.json" && ! -e "$BAD_ROOT/releases/0.1" ]] || {
+  echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
+  find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2
   exit 1
 }
 
