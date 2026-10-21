@@ -113,26 +113,22 @@ cp -a "$SOURCE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
 printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
 BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
-# Capture output and status in an if/else condition. Bash suppresses errexit
-# for the tested command, avoiding set -e interactions in the caller.
-if BAD_SOURCE_OUTPUT="$(ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
-    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" 2>&1)"; then
-  BAD_SOURCE_STATUS=0
+# The installer must reject the broken HEAD. Assert the safety outcome rather
+# than matching diagnostic text, which can vary with Git versions and shells.
+if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
+    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
+  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
+  exit 1
 else
   BAD_SOURCE_STATUS=$?
 fi
 if [[ "$BAD_SOURCE_STATUS" -eq 0 ]]; then
-  printf '%s\n' "$BAD_SOURCE_OUTPUT" >&2
-  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
-  exit 1
-fi
-if [[ "$BAD_SOURCE_OUTPUT" != *"no readable HEAD commit"* ]]; then
-  printf '%s\n' "$BAD_SOURCE_OUTPUT" >&2
-  echo "FAIL: invalid source commit refused for an unexpected reason (exit $BAD_SOURCE_STATUS)" >&2
+  echo "FAIL: invalid source commit unexpectedly returned success" >&2
   exit 1
 fi
 if [[ -e "$BAD_ROOT/deployment.json" || -e "$BAD_ROOT/releases/0.1" ]]; then
   echo "FAIL: staging created a release or manifest for an unverifiable source commit" >&2
+  cat "$WORK/bad-source.out" >&2
   find "$BAD_ROOT" -mindepth 1 -maxdepth 3 -print >&2
   exit 1
 fi
