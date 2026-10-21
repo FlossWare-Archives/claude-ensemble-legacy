@@ -172,7 +172,9 @@ def installed_hook_smoke(hook_dir: Path, correlation_id: str, timeout: float,
     env.setdefault("FLOSSWARE_MEMORY_URL", "http://127.0.0.1:8767")
     env.setdefault("FLOSSWARE_GRAPH_URL", "http://127.0.0.1:8766")
     env["FLOSSWARE_MEMORY_TIMEOUT_MS"] = str(int(timeout * 1000))
-    env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = str(int(timeout * 1000))
+    # The hook has different supported limits: Memory allows 10s, Graph 5s.
+    # Keep the diagnostic request timeout independent from Graph's config cap.
+    env["FLOSSWARE_GRAPH_TIMEOUT_MS"] = str(min(int(timeout * 1000), 5000))
     if require_context:
         env["FLOSSWARE_CE_HOOK_DIAGNOSTICS"] = "1"
 

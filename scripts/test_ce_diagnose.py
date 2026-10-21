@@ -159,5 +159,36 @@ class DiagnoseTests(unittest.TestCase):
 
 
 
+    def test_installed_hook_smoke_caps_graph_timeout_to_hook_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp)
+            (hook_dir / "memory-search-on-prompt.js").write_text("// mocked by subprocess", encoding="utf-8")
+            captured = {}
+            completed = __import__("subprocess").CompletedProcess(
+                args=["node", "memory-search-on-prompt.js"],
+                returncode=0,
+                stdout=json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": "mock context",
+                }}),
+                stderr="",
+            )
+
+            def fake_run(*_args, **kwargs):
+                captured.update(kwargs["env"])
+                return completed
+
+            with patch.object(diagnose.shutil, "which", return_value="/usr/bin/node"), \
+                 patch.object(diagnose.subprocess, "run", side_effect=fake_run):
+                results = diagnose.installed_hook_smoke(
+                    hook_dir, "timeout-cap-test", timeout=10.0,
+                )
+
+        self.assertEqual("10000", captured["FLOSSWARE_MEMORY_TIMEOUT_MS"])
+        self.assertEqual("5000", captured["FLOSSWARE_GRAPH_TIMEOUT_MS"])
+        self.assertEqual("pass", results[0]["status"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
