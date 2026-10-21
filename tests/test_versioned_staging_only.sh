@@ -106,4 +106,25 @@ grep -q 'requires a new or empty install root' "$WORK/reuse.out" || {
   exit 1
 }
 
+# A checkout whose HEAD references a missing Git object must fail closed. It must
+# not produce a staged manifest containing the placeholder "unknown" commit.
+BAD_SOURCE="$WORK/bad-source"
+cp -a "$SOURCE" "$BAD_SOURCE"
+git -C "$BAD_SOURCE" update-ref refs/heads/main 1111111111111111111111111111111111111111
+BAD_ROOT="$HOME/.FlossWare/bad-staging-target"
+if ENSEMBLE_INSTALL_ROOT="$BAD_ROOT" ENSEMBLE_STAGING_ONLY=1 \
+    bash "$REPO_ROOT/tools/install-ce-versioned.sh" 0.1 "$BAD_SOURCE" >"$WORK/bad-source.out" 2>&1; then
+  echo "FAIL: staging accepted a source checkout with an unreadable HEAD commit" >&2
+  exit 1
+fi
+grep -q 'no readable HEAD commit' "$WORK/bad-source.out" || {
+  cat "$WORK/bad-source.out" >&2
+  echo "FAIL: invalid source commit refused for an unexpected reason" >&2
+  exit 1
+}
+[[ ! -e "$BAD_ROOT/deployment.json" ]] || {
+  echo "FAIL: staging wrote a manifest for an unverifiable source commit" >&2
+  exit 1
+}
+
 echo "PASS: staging-only deployment is isolated; no activation, systemctl, or profile migration occurred."
