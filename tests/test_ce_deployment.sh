@@ -331,7 +331,7 @@ status=$?
 printf '%s\n' "$status" > "$5"
 exit 0
 BAD_SOURCE_WRAPPER
-bash "$TMP/run-bad-source.sh" "$BAD_ROOT" "$SCRIPT_DIR/.." "$BAD_SOURCE" "$TMP/bad-source.out" "$BAD_STATUS_FILE"
+HOME="$INSTALL_HOME" bash "$TMP/run-bad-source.sh" "$BAD_ROOT" "$SCRIPT_DIR/.." "$BAD_SOURCE" "$TMP/bad-source.out" "$BAD_STATUS_FILE"
 [[ -s "$BAD_STATUS_FILE" ]] || { echo "FAIL: invalid-source wrapper did not record installer status" >&2; exit 1; }
 BAD_STATUS="$(cat "$BAD_STATUS_FILE")"
 if [[ "$BAD_STATUS" -eq 0 ]]; then
