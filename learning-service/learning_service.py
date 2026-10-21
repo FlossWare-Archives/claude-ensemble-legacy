@@ -3,8 +3,7 @@
 Claude Ensemble Learning Service Daemon
 
 Central learning authority for autonomous task outcome recording and analysis.
-Runs as systemd user service, listens on Unix socket.
-Single-threaded (daemon owns all state, no race conditions).
+Runs as a loopback HTTP/JSON service; the daemon owns all state.
 Integrates with Thompson router for model performance tracking.
 """
 
@@ -28,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.request_context import RequestContext
 from shared.validators import Validators
 from shared.runtime_config import learning_dir, log_dir, socket_path
+from shared.service_http import start_service_http
 from shared.operational_memory import OperationalMemoryWriter
 from learning.portable_artifacts import LearningArtifact, LearningArtifactStore
 
@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 LEARNING_DIR = learning_dir()
 SOCKET_PATH = socket_path('ENSEMBLE_LEARNING_SOCKET', '/tmp/claude-learning.sock')
+HTTP_PORT = int(os.environ.get('ENSEMBLE_LEARNING_HTTP_PORT', '8768'))
 
 
 
@@ -301,46 +302,27 @@ class LearningService:
             logger.warning(f"Thompson client not available (optional): {e}")
 
     def start(self):
-        """Start the service - single-threaded event loop"""
+        """Run the Learning service over loopback HTTP/JSON only."""
         logger.info("Starting RH Learning Service")
-
-        # Clean up old socket if it exists
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-
-        # Create Unix domain socket
-        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.socket.bind(str(self.socket_path))
-        self.socket.listen(5)
-        self.socket.settimeout(None)
-
-        logger.info(f"Listening on {self.socket_path}")
-
+        self.http_server = start_service_http(
+            "learning", HTTP_PORT, self._process_request, "op"
+        )
         try:
-            # Single-threaded: handle requests one at a time
+            # The HTTP adapter owns its serving thread. Keep this process alive
+            # until shutdown; do not create or accept Unix-domain socket clients.
             while True:
-                try:
-                    conn, _ = self.socket.accept()
-                    self._handle_client(conn)
-                except KeyboardInterrupt:
-                    break
-                except Exception as e:
-                    logger.error(f"Connection error: {e}")
-                    continue
+                time.sleep(3600)
         except KeyboardInterrupt:
             logger.info("Shutting down")
         finally:
             self.stop()
 
     def stop(self):
-        """Stop the service"""
-        if self.socket:
-            try:
-                self.socket.close()
-            except:
-                pass
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+        """Stop the REST service cleanly."""
+        server = getattr(self, "http_server", None)
+        if server is not None:
+            server.shutdown()
+            server.server_close()
         logger.info("Learning service stopped")
 
     def _task_ingestion_lock(self, task_id: str) -> threading.Lock:

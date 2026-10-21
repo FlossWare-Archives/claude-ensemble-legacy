@@ -183,17 +183,17 @@ class InstalledHookSmokeTests(unittest.TestCase):
         output = io.StringIO()
         with (
             patch("sys.argv", ["ce-diagnose.py", "--service", "thompson", "--json"]),
-            patch.object(ce_diagnose, "socket_ping", return_value=("pass", "acknowledged", 1)),
+            patch.object(ce_diagnose, "http_request", return_value=("pass", "HTTP 200; ok=true", {"ok": True}, 1)),
             redirect_stdout(output),
         ):
             exit_code = ce_diagnose.main()
 
         report = json.loads(output.getvalue())
         self.assertEqual(0, exit_code)
-        self.assertEqual(1, len(report["results"]))
+        self.assertEqual(2, len(report["results"]))
         self.assertEqual(0, report["skipped"])
-        self.assertEqual("thompson.ping", report["results"][0]["step"])
-        self.assertEqual("pass", report["results"][0]["status"])
+        self.assertEqual(["thompson.health", "thompson.ping"], [item["step"] for item in report["results"]])
+        self.assertTrue(all(item["status"] == "pass" for item in report["results"]))
 
 
     def test_non_json_http_response_reports_headers_without_leaking_body(self):

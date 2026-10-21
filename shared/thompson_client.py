@@ -8,20 +8,20 @@ Gracefully degrades if daemon is down.
 """
 
 import json
-import socket
 import logging
+import os
+import urllib.error
+import urllib.request
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
 from typing import Dict, Optional, Any
 
-from shared.runtime_config import socket_path
 
 logger = logging.getLogger(__name__)
 
-SOCKET_PATH = socket_path('ENSEMBLE_THOMPSON_SOCKET', '/tmp/claude-thompson.sock')
+DEFAULT_SERVICE_URL = os.environ.get('ENSEMBLE_THOMPSON_URL', 'http://127.0.0.1:8769').rstrip('/')
 
 
 class CircuitState(Enum):
@@ -140,9 +140,9 @@ class CircuitBreaker:
 class ThompsonClient:
     """Client for the Claude Ensemble Thompson router service."""
 
-    def __init__(self, socket_path: Path = SOCKET_PATH, timeout: float = 2.0,
-                 enable_circuit_breaker: bool = True):
-        self.socket_path = Path(socket_path)
+    def __init__(self, timeout: float = 2.0, enable_circuit_breaker: bool = True,
+                 service_url: str | None = None):
+        self.service_url = (service_url or DEFAULT_SERVICE_URL).rstrip('/')
         self.timeout = timeout
         self.connected = False
         self.circuit_breaker = None
@@ -158,39 +158,26 @@ class ThompsonClient:
             return {'ok': False, 'error': 'circuit_breaker_open'}
 
         try:
-            if not self.socket_path.exists():
-                logger.warning(f"Thompson service not running (socket not found: {self.socket_path})")
+            data = json.dumps(request).encode('utf-8')
+            http_request = urllib.request.Request(
+                self.service_url + '/thompson', data=data, method='POST',
+                headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            )
+            try:
+                with urllib.request.urlopen(http_request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode('utf-8'))
+            except urllib.error.HTTPError as exc:
+                payload = json.loads(exc.read().decode('utf-8'))
+
+            if not isinstance(payload, dict) or payload.get('ok') is not True:
                 if self.circuit_breaker:
                     self.circuit_breaker.record_failure()
-                return {'ok': False, 'error': 'service_unavailable'}
-
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(self.timeout)
-            sock.connect(str(self.socket_path))
-
-            # Send request as JSON
-            request_str = json.dumps(request) + '\n'
-            sock.sendall(request_str.encode('utf-8'))
-
-            # Read response
-            response = b''
-            while True:
-                chunk = sock.recv(8192)
-                if not chunk:
-                    break
-                response += chunk
-                if b'\n' in response:
-                    break
-
-            sock.close()
-
-            # Success
+                return payload if isinstance(payload, dict) else {'ok': False, 'error': 'invalid_response'}
             if self.circuit_breaker:
                 self.circuit_breaker.record_success()
-
-            return json.loads(response.decode('utf-8').strip())
-        except socket.timeout:
-            logger.warning(f"Thompson service timeout")
+            return payload
+        except TimeoutError:
+            logger.warning("Thompson service timeout")
             if self.circuit_breaker:
                 self.circuit_breaker.record_failure()
             return {'ok': False, 'error': 'timeout'}

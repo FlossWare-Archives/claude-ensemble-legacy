@@ -6,6 +6,7 @@ daemons or call external APIs.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -148,6 +149,16 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         cls.graph_server.shutdown()
         cls.graph_server.server_close()
         cls.graph_thread.join(timeout=2)
+
+    @staticmethod
+    def _free_ports(count: int) -> list[int]:
+        # Keep all sockets bound until every distinct port has been allocated.
+        # Calling a single-port helper repeatedly can hand back the same port.
+        with contextlib.ExitStack() as stack:
+            listeners = [stack.enter_context(socket.socket()) for _ in range(count)]
+            for listener in listeners:
+                listener.bind(("127.0.0.1", 0))
+            return [int(listener.getsockname()[1]) for listener in listeners]
 
     def setUp(self) -> None:
         FakeMemoryHandler.requests = []
@@ -432,16 +443,19 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ce-workflow-e2e-") as temp_dir:
             root = Path(temp_dir)
             env = os.environ.copy()
+            thompson_port, learning_port = self._free_ports(2)
             env.update({
                 "HOME": str(root / "home"),
                 "ENSEMBLE_LOG_DIR": str(root / "logs"),
                 "ENSEMBLE_LEARNING_DIR": str(root / "learning"),
                 "ENSEMBLE_RUNTIME_DIR": str(root / "runtime"),
                 "ENSEMBLE_THOMPSON_SOCKET": str(root / "thompson.sock"),
+                "ENSEMBLE_THOMPSON_HTTP_PORT": str(thompson_port),
+                "ENSEMBLE_LEARNING_HTTP_PORT": str(learning_port),
                 "ENSEMBLE_THOMPSON_STATE_FILE": str(root / "thompson-state.json"),
             })
             script = r'''
-import json, socket, sys, tempfile, threading, time
+import json, os, socket, sys, tempfile, threading, time, urllib.request
 from pathlib import Path
 
 repo = Path(sys.argv[1])
@@ -462,16 +476,43 @@ class IsolatedMemory:
 
 socket_path = root / "thompson.sock"
 state_path = root / "thompson-state.json"
+thompson_url = "http://127.0.0.1:" + os.environ["ENSEMBLE_THOMPSON_HTTP_PORT"]
+learning_url = "http://127.0.0.1:" + os.environ["ENSEMBLE_LEARNING_HTTP_PORT"]
 thompson = ThompsonService(socket_path, state_path)
 worker = threading.Thread(target=thompson.start, daemon=True)
 worker.start()
-deadline = time.monotonic() + 3
-while not socket_path.exists() and time.monotonic() < deadline: time.sleep(0.01)
-assert socket_path.exists(), "Thompson service failed to start"
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(thompson_url + "/health", timeout=0.2) as response:
+            if response.status == 200:
+                break
+    except Exception:
+        time.sleep(0.02)
+else:
+    raise AssertionError(
+        f"Thompson REST service failed to become ready at {thompson_url}/health"
+    )
 
 memory = IsolatedMemory()
 learning = LearningService(root / "learning.sock", root / "learning", memory)
-learning.thompson_client = ThompsonClient(socket_path=socket_path, timeout=1)
+learning.thompson_client = ThompsonClient(service_url=thompson_url, timeout=1)
+learning_worker = threading.Thread(target=learning.start, daemon=True)
+learning_worker.start()
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(learning_url + "/health", timeout=0.2) as response:
+            if response.status == 200:
+                break
+    except Exception:
+        time.sleep(0.02)
+else:
+    learning.stop()
+    thompson.stop()
+    raise AssertionError(
+        f"Learning REST service failed to become ready at {learning_url}/health"
+    )
 task_id = sys.argv[3]
 request = {
     "op": "process_outcome", "task_id": task_id,
@@ -479,20 +520,14 @@ request = {
     "rating": 5, "tokens": 17, "cost": 0.0,
 }
 try:
-    client, service = socket.socketpair()
-    client.settimeout(5)
-    handler = threading.Thread(target=learning._handle_client, args=(service,), daemon=True)
-    handler.start()
-    client.sendall((json.dumps(request) + "\n").encode())
-    response = bytearray()
-    while b"\n" not in response and len(response) < 65536:
-        chunk = client.recv(4096)
-        if not chunk: break
-        response.extend(chunk)
-    client.close()
-    handler.join(timeout=2)
-    assert not handler.is_alive(), "Learning handler did not finish"
-    result = json.loads(bytes(response).split(b"\n", 1)[0].decode())
+    http_request = urllib.request.Request(
+        learning_url + "/learning",
+        data=json.dumps(request).encode(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(http_request, timeout=5) as response:
+        result = json.loads(response.read().decode())
     assert result.get("ok") is True, result
     assert result.get("thompson") is True, result
     assert result.get("checkpoint_advanced") is True, result
@@ -502,7 +537,9 @@ try:
     print(json.dumps({"ok": True, "task_id": task_id, "learning": result,
                       "thompson": stats, "memory_events": len(memory.events)}))
 finally:
+    learning.stop()
     thompson.stop()
+    learning_worker.join(timeout=2)
     worker.join(timeout=2)
 '''
             completed = subprocess.run(

@@ -3,9 +3,7 @@
 Claude Ensemble Thompson Router Service Daemon
 
 Central Thompson Sampling authority for model selection across Claude Code sessions.
-Runs as systemd user service, listens on Unix socket.
-Maintains Beta priors for each model, samples from posterior to select best model.
-Single-threaded: processes requests sequentially, daemon owns state.
+Runs as a loopback HTTP/JSON service and owns its persisted sampling state.
 """
 
 import json
@@ -27,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from shared.request_context import RequestContext
 from shared.validators import Validators
 from shared.runtime_config import log_dir, socket_path, thompson_state_file
+from shared.service_http import start_service_http
 
 LOG_DIR = log_dir()
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -42,6 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = socket_path('ENSEMBLE_THOMPSON_SOCKET', '/tmp/claude-thompson.sock')
+HTTP_PORT = int(os.environ.get('ENSEMBLE_THOMPSON_HTTP_PORT', '8769'))
 STATE_FILE = thompson_state_file()
 
 
@@ -271,94 +271,33 @@ class ThompsonService:
         self.socket = None
 
     def start(self):
-        """Start the service"""
+        """Run the Thompson service over loopback HTTP/JSON only."""
         logger.info("Starting RH Thompson Router Service")
-
-        # Clean up old socket if it exists
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-
-        # Create Unix domain socket
-        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.socket.bind(str(self.socket_path))
-        self.socket.listen(5)
-        self.socket.settimeout(None)
-
-        logger.info(f"Listening on {self.socket_path}")
-
+        self.http_server = start_service_http(
+            "thompson",
+            HTTP_PORT,
+            lambda raw: self._process_request(
+                raw, RequestContext(caller="thompson-rest", method="http")
+            ),
+            "action",
+        )
         try:
+            # The HTTP adapter owns its serving thread. Keep this process alive
+            # until shutdown; do not create or accept Unix-domain socket clients.
             while True:
-                conn, _ = self.socket.accept()
-                # Single-threaded: handle one request at a time
-                self._handle_client(conn)
+                time.sleep(3600)
         except KeyboardInterrupt:
             logger.info("Shutting down")
-            self.stop()
-        except Exception as e:
-            logger.error(f"Service error: {e}")
+        finally:
             self.stop()
 
     def stop(self):
-        """Stop the service"""
-        if self.socket:
-            self.socket.close()
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+        """Stop the REST service cleanly."""
+        server = getattr(self, "http_server", None)
+        if server is not None:
+            server.shutdown()
+            server.server_close()
         logger.info("Thompson service stopped")
-
-    def _handle_client(self, conn: socket.socket):
-        """Handle client request with correlation logging"""
-        ctx = RequestContext(caller='thompson-client', method='unknown')
-        ctx.log_entry()
-
-        try:
-            conn.settimeout(5.0)
-            # Read request (ends with newline)
-            data = b''
-            while True:
-                chunk = conn.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-                if b'\n' in data:  # End of request
-                    break
-
-            request_str = data.decode('utf-8').strip()
-            if not request_str:
-                return
-
-            # Update method from request
-            try:
-                req_data = json.loads(request_str)
-                ctx.method = req_data.get('action', 'unknown')
-            except:
-                pass
-
-            response = self._process_request(request_str, ctx)
-
-            # Send response
-            conn.sendall((response + '\n').encode('utf-8'))
-            ctx.log_exit(status='success')
-        except socket.timeout:
-            logger.debug(f"{ctx} Client timeout")
-            ctx.log_exit(status='timeout', error_code='timeout')
-            try:
-                conn.sendall(b'{"ok": false, "error": "timeout"}\n')
-            except:
-                pass
-        except Exception as e:
-            logger.error(f"{ctx} Client error: {e}")
-            ctx.log_error('handle_client', e)
-            ctx.log_exit(status='error', error_code='client_error')
-            try:
-                conn.sendall(b'{"ok": false, "error": "server error"}\n')
-            except:
-                pass
-        finally:
-            try:
-                conn.close()
-            except:
-                pass
 
     def _process_request(self, request: str, ctx: RequestContext) -> str:
         """Process a request, return JSON response"""

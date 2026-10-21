@@ -156,46 +156,23 @@ class CircuitBreakerTester:
         print("✓ get_state returns valid state information")
 
     def test_thompson_client_integration(self):
-        """Test circuit breaker integration with ThompsonClient"""
-        # Create client with circuit breaker enabled
-        with patch('thompson_client.socket.socket') as mock_socket_class:
-            mock_socket = MagicMock()
-            mock_socket_class.return_value = mock_socket
+        """Test circuit-breaker behavior when the REST service is unavailable."""
+        client = ThompsonClient(
+            service_url="http://127.0.0.1:1",
+            timeout=0.1,
+            enable_circuit_breaker=True,
+        )
 
-            # Simulate failures
-            mock_socket.recv.side_effect = Exception("Connection failed")
+        with patch("thompson_client.urllib.request.urlopen", side_effect=OSError("Connection failed")):
+            # Three failed REST requests should open the circuit and use fallback.
+            for _ in range(3):
+                assert client.select_model("test-task") == "haiku"
 
-            client = ThompsonClient(
-                socket_path=Path('/tmp/test-thompson.sock'),
-                timeout=0.1,
-                enable_circuit_breaker=True
-            )
+            assert client.circuit_breaker.state == CircuitState.OPEN
+            assert client.select_model("test-task") == "haiku"
+            assert client.get_circuit_breaker_state()["state"] == "open"
 
-            # Patch Path.exists as a method (not attribute)
-            original_exists = Path.exists
-            Path.exists = lambda self: True
-
-            try:
-                # Make 3 failing requests
-                for i in range(3):
-                    response = client.select_model("test-task")
-                    assert response == 'haiku'  # Should return fallback
-
-                # Circuit should be open now
-                assert client.circuit_breaker.state == CircuitState.OPEN
-
-                # 4th request should be blocked immediately
-                response = client.select_model("test-task")
-                assert response == 'haiku'
-
-                cb_state = client.get_circuit_breaker_state()
-                assert cb_state['state'] == 'open'
-
-            finally:
-                # Restore original method
-                Path.exists = original_exists
-
-        print("✓ Circuit breaker integrates with ThompsonClient")
+        print("✓ Circuit breaker integrates with Thompson REST client")
 
     def test_consecutive_failures_only(self):
         """Test that only consecutive failures trigger opening"""

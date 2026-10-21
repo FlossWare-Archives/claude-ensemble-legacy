@@ -139,7 +139,7 @@ def test_reports_failed_learning_outcome_delivery_for_retry():
 
 
 def test_real_learning_client_contract_reports_only_learning_level_ack(monkeypatch):
-    client = LearningClient(socket_path="/unused.sock")
+    client = LearningClient(service_url="http://127.0.0.1:1")
     sent = []
 
     def fake_send_request(request):

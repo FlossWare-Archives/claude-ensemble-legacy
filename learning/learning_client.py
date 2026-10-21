@@ -9,61 +9,47 @@ Graceful degradation if daemon is not running.
 
 import json
 import os
-import socket
 import logging
 import uuid
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
-SOCKET_PATH = Path(os.environ.get('ENSEMBLE_LEARNING_SOCKET', '/tmp/claude-learning.sock')).expanduser()
+DEFAULT_SERVICE_URL = os.environ.get('ENSEMBLE_LEARNING_URL', 'http://127.0.0.1:8768').rstrip('/')
 
 
 class LearningClient:
     """Client for RH Learning Service"""
 
-    def __init__(self, socket_path: Path = SOCKET_PATH, timeout: float = 3.0):
-        """Initialize learning client
-
-        Args:
-            socket_path: Path to learning service socket
-            timeout: Connection timeout in seconds
-        """
-        self.socket_path = Path(socket_path)
+    def __init__(self, service_url: str = DEFAULT_SERVICE_URL, timeout: float = 3.0):
+        """Initialize the REST client for the Learning service."""
+        self.service_url = service_url.rstrip("/")
         self.timeout = timeout
 
     def _send_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Send request to service, return parsed response"""
+        """Send a JSON request over HTTP and return the parsed response."""
+        import urllib.error
+        import urllib.request
+
         try:
-            if not self.socket_path.exists():
-                logger.warning(f"Learning service not running (socket not found: {self.socket_path})")
-                return {'ok': False, 'error': 'Service not available'}
-
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(self.timeout)
-            sock.connect(str(self.socket_path))
-
-            # Send request as JSON
-            request_str = json.dumps(request) + '\n'
-            sock.sendall(request_str.encode('utf-8'))
-
-            # Read response
-            response = b''
-            while True:
-                chunk = sock.recv(8192)
-                if not chunk:
-                    break
-                response += chunk
-                if b'\n' in response:
-                    break
-
-            sock.close()
-
-            return json.loads(response.decode('utf-8').strip())
-        except Exception as e:
-            logger.warning(f"Request error: {e}")
-            return {'ok': False, 'error': str(e)}
+            body = json.dumps(request).encode("utf-8")
+            http_request = urllib.request.Request(
+                self.service_url + "/learning",
+                data=body,
+                method="POST",
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(http_request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                payload = json.loads(exc.read().decode("utf-8"))
+            if isinstance(payload, dict):
+                return payload
+            return {"ok": False, "error": "invalid_response"}
+        except Exception as exc:
+            logger.warning("Learning REST request failed: %s", exc)
+            return {"ok": False, "error": str(exc)}
 
     def record_artifact(self, artifact: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
         """Submit a portable learning artifact to the canonical Learning service."""
