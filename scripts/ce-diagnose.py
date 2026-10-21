@@ -315,8 +315,6 @@ def main() -> int:
         parser.error("--timeout must be between 0.1 and 10 seconds")
 
     gateway = os.environ.get("ENSEMBLE_GATEWAY_URL", DEFAULT_GATEWAY).rstrip("/")
-    learning_url = os.environ.get("ENSEMBLE_LEARNING_URL", DEFAULT_LEARNING_URL).rstrip("/")
-    thompson_url = os.environ.get("ENSEMBLE_THOMPSON_URL", DEFAULT_THOMPSON_URL).rstrip("/")
     correlation_id = str(uuid.uuid4())
     results: list[dict[str, Any]] = []
 
