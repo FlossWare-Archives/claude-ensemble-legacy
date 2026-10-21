@@ -319,16 +319,16 @@ git -C "$SOURCE_FIXTURE" commit -qm "fixture"
 BAD_SOURCE="$TMP/bad-source"
 cp -a "$SOURCE_FIXTURE" "$BAD_SOURCE"
 BAD_HEAD_REF="$(git -C "$BAD_SOURCE" symbolic-ref HEAD)"
-printf '%s\\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
+printf '%s\n' '1111111111111111111111111111111111111111' > "$BAD_SOURCE/.git/$BAD_HEAD_REF"
 BAD_ROOT="$INSTALL_HOME/.FlossWare/bad-staging-target"
 BAD_STATUS_FILE="$TMP/bad-source.status"
 cat > "$TMP/run-bad-source.sh" <<'BAD_SOURCE_WRAPPER'
 #!/usr/bin/env bash
 set +e
-ENSEMBLE_INSTALL_ROOT="$1" ENSEMBLE_STAGING_ONLY=1 \\
+ENSEMBLE_INSTALL_ROOT="$1" ENSEMBLE_STAGING_ONLY=1 \
   bash "$2/tools/install-ce-versioned.sh" 0.3 "$3" >"$4" 2>&1
 status=$?
-printf '%s\\n' "$status" > "$5"
+printf '%s\n' "$status" > "$5"
 exit 0
 BAD_SOURCE_WRAPPER
 bash "$TMP/run-bad-source.sh" "$BAD_ROOT" "$SCRIPT_DIR/.." "$BAD_SOURCE" "$TMP/bad-source.out" "$BAD_STATUS_FILE"
