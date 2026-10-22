@@ -1,4 +1,5 @@
 import concurrent.futures
+import gc
 import math
 import os
 import resource
@@ -129,15 +130,6 @@ class HybridRetrievalTests(unittest.TestCase):
                     self.assertTrue(stored["embedding"])
                     self.assertEqual(stored["embedding_model"], model_path)
 
-                # A fresh index instance must reuse persisted vectors and remain searchable.
-                restarted = HybridRetrievalIndex(database, embedding_model=model_path)
-                restarted.warm_corpus({"target", "lexical-distractor", "model-distractor"})
-                after_restart = restarted.search(
-                    query, 3, {"target", "lexical-distractor", "model-distractor"}
-                )
-                self.assertTrue(after_restart)
-                self.assertEqual(after_restart[0]["file"], "target")
-
                 # Add a meaningful local corpus in one batch, then exercise the
                 # concurrent query fan-out that the prompt hook creates.
                 index.replace_document(
@@ -160,12 +152,16 @@ class HybridRetrievalTests(unittest.TestCase):
                     "target", "lexical-distractor", "model-distractor",
                     "corpus-distractors",
                 }
-                # New instance after the complete corpus is persisted: warm-up
-                # must rebuild only its in-memory BM25 statistics, not vectors.
-                acceptance_restart = HybridRetrievalIndex(
-                    database, embedding_model=model_path
-                )
-                acceptance_restart.warm_corpus(all_files)
+                # Drop the first model instance before simulating a process
+                # restart, then warm a fresh index from persisted vectors.
+                del index
+                gc.collect()
+                restarted = HybridRetrievalIndex(database, embedding_model=model_path)
+                restarted.warm_corpus(all_files)
+                after_restart = restarted.search(query, 3, all_files)
+                self.assertTrue(after_restart)
+                self.assertEqual(after_restart[0]["file"], "target")
+
                 queries = [
                     query,
                     "where are vector representations kept after restarting memory",
@@ -178,7 +174,7 @@ class HybridRetrievalTests(unittest.TestCase):
 
                 def run_query(prompt):
                     started = time.monotonic()
-                    hits = acceptance_restart.search(prompt, 5, all_files)
+                    hits = restarted.search(prompt, 5, all_files)
                     return time.monotonic() - started, hits
 
                 # Use the restarted index to ensure this is not an in-memory
