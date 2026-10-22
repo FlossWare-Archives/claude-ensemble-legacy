@@ -1422,6 +1422,19 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
+    def post_json(self, path, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.server.server_port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
     def test_liveness_is_independent_of_index_warmup(self):
         status, health = self.get_json("/health")
         self.assertEqual(status, 200)
@@ -1458,6 +1471,13 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         status, readiness = self.get_json("/ready")
         self.assertEqual(status, 503)
         self.assertEqual(readiness["search_index"]["state"], "timed_out")
+
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "first prompt after restart"}
+        )
+        self.assertEqual(status, 503)
+        self.assertTrue(search["retryable"])
+        self.assertEqual(search["error_code"], "index_not_ready")
 
         status, health = self.get_json("/health")
         self.assertEqual(status, 200)
