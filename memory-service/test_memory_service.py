@@ -623,6 +623,53 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 "new revision failed indexing",
             )
 
+    def test_concurrent_newer_write_stays_pending_when_older_index_finishes(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            store = MemoryStore(root)
+            store.write_file("race-note", "# Note\n\ninitial revision")
+            path = root / "race-note.md"
+            path.write_text("# Note\n\nolder revision", encoding="utf-8")
+
+            indexed_older_revision = threading.Event()
+            release_older_index = threading.Event()
+            original_indexed_chunks = store._indexed_chunks
+            first_call = True
+
+            def pause_after_index(md_file, *, update_hybrid=True):
+                nonlocal first_call
+                result = original_indexed_chunks(md_file, update_hybrid=update_hybrid)
+                if first_call and update_hybrid:
+                    first_call = False
+                    indexed_older_revision.set()
+                    if not release_older_index.wait(timeout=5):
+                        raise TimeoutError("test did not release older index operation")
+                return result
+
+            with patch.object(store, "_indexed_chunks", side_effect=pause_after_index):
+                worker = threading.Thread(target=store._index_written_file, args=(path,))
+                worker.start()
+                self.assertTrue(indexed_older_revision.wait(timeout=5))
+                path.write_text("# Note\n\nnewer revision", encoding="utf-8")
+                store._mark_index_pending(path, RuntimeError("newer revision indexing failed"))
+                newer_signature = repr(store._file_signature(path.stat()))
+                release_older_index.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive(), "older index operation did not finish")
+
+            pending = store.pending_index_status()
+            self.assertIn("race-note", pending["files"])
+            self.assertEqual(
+                json.loads((root / ".hybrid-index-pending.json").read_text(encoding="utf-8"))["race-note"]["signature"],
+                newer_signature,
+            )
+            self.assertEqual(
+                pending["errors"]["race-note"],
+                "file changed during hybrid indexing; retry required",
+            )
+
     def test_pending_ledger_write_failure_keeps_readiness_degraded(self):
         from memory_service import MemoryService
 
