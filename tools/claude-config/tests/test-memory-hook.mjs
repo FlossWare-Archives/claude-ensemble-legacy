@@ -507,7 +507,7 @@ try {
       limitRequests.push(request);
       res.writeHead(200, { 'content-type': 'application/json' });
       const results = Array.from({ length: 10 }, (_, index) => ({
-        file: 'knowledge-' + index,
+        file: 'claude-code-knowledge-' + index,
         section: 'Limit test',
         score: 1 - index * 0.01,
         content: 'Knowledge result ' + index,
