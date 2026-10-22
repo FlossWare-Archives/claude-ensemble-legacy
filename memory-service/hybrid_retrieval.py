@@ -127,7 +127,10 @@ class HybridRetrievalIndex:
                 id INTEGER PRIMARY KEY, file TEXT NOT NULL, ordinal INTEGER NOT NULL,
                 signature TEXT NOT NULL, header TEXT NOT NULL, heading_path TEXT NOT NULL,
                 content TEXT NOT NULL, size_bytes INTEGER NOT NULL, tokens TEXT NOT NULL,
-                embedding TEXT, UNIQUE(file, ordinal))""")
+                embedding TEXT, embedding_model TEXT, UNIQUE(file, ordinal))""")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(chunks)")}
+            if "embedding_model" not in columns:
+                db.execute("ALTER TABLE chunks ADD COLUMN embedding_model TEXT")
             db.execute("CREATE INDEX IF NOT EXISTS chunks_file_idx ON chunks(file)")
 
     @contextmanager
@@ -201,10 +204,14 @@ class HybridRetrievalIndex:
     def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
         with self._connect() as db:
             row = db.execute(
-                "SELECT signature FROM chunks WHERE file=? LIMIT 1", (file,)
+                "SELECT signature, embedding, embedding_model FROM chunks WHERE file=? LIMIT 1",
+                (file,),
             ).fetchone()
             if row and row["signature"] == signature:
-                return
+                if not self.embedding_model_name:
+                    return
+                if row["embedding"] and row["embedding_model"] == self.embedding_model_name:
+                    return
         texts = [str(chunk.get("content", "")) for chunk in chunks]
         embeddings = self._embed(texts)
         with self._connect() as db:
@@ -213,12 +220,13 @@ class HybridRetrievalIndex:
                 content = texts[ordinal]
                 db.execute(
                     """INSERT INTO chunks
-                    (file, ordinal, signature, header, heading_path, content, size_bytes, tokens, embedding)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (file, ordinal, signature, header, heading_path, content, size_bytes, tokens, embedding, embedding_model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (file, ordinal, signature, str(chunk.get("header", "")),
                      str(chunk.get("heading_path", chunk.get("header", ""))), content,
                      len(content.encode("utf-8")), json.dumps(tokenize(content)),
-                     json.dumps(embeddings[ordinal]) if embeddings else None),
+                     json.dumps(embeddings[ordinal]) if embeddings else None,
+                     self.embedding_model_name if embeddings else None),
                 )
 
         self._invalidate_cache()
