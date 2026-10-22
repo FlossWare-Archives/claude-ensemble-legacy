@@ -1,0 +1,3 @@
+# Optional local embedding backend for hybrid memory retrieval.
+# Not installed by default. Requires explicit ENSEMBLE_MEMORY_EMBEDDING_MODEL configuration.
+sentence-transformers>=3.0,<6.0
