@@ -233,6 +233,8 @@ rm -rf -- "$STAGED/claude-code"
 ln -s ../../shared/claude-code "$STAGED/claude-code"
 mkdir -p "$RELEASES"
 mv -- "$STAGED" "$RELEASE"
+# Preserve the deployment manager executable bit in every installed release.
+chmod 0755 "$RELEASE/tools/ce-deployment"
 
 if ! ENSEMBLE_INSTALL_ROOT="$ROOT" bash "$RELEASE/tools/ce-deployment" validate "$VERSION"; then
   rm -rf -- "$RELEASE"
