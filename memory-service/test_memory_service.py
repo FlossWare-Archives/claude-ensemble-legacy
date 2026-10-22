@@ -1464,12 +1464,20 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         release = threading.Event()
         self.service._index_warmup_timeout_seconds = 0.02
 
-        def slow_warmup():
+        def slow_warmup_report(max_passes=3):
             started.set()
             release.wait(timeout=2)
-            return 0
+            return {
+                "pass": 1,
+                "expected_files": [],
+                "indexed_files": [],
+                "failed_files": {},
+                "added_files": [],
+                "removed_files": [],
+                "complete": True,
+            }
 
-        self.service.store.warm_search_index = slow_warmup
+        self.service.store.warm_search_index_report = slow_warmup_report
         worker = threading.Thread(target=self.service._warm_search_index, daemon=True)
         worker.start()
         self.assertTrue(started.wait(timeout=1))
