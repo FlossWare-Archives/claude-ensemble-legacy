@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Allow execution from the repository without requiring package installation.
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 from execution.context import ExecutionContext
 from shared.runtime_config import log_dir, memory_dir, runtime_dir, socket_path
 from hybrid_retrieval import HybridRetrievalIndex, chunk_markdown
