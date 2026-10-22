@@ -1396,5 +1396,80 @@ class MemorySchemaVersionTest(unittest.TestCase):
                     ExecutionContext.from_dict(value)
 
 
+class MemoryIndexReadinessTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name)
+        from memory_service import MemoryService, create_http_server
+
+        self.service = MemoryService(root / "memory.sock", root / "memory")
+        self.server = create_http_server(self.service, "127.0.0.1", 0)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.temp_dir.cleanup()
+
+    def get_json(self, path):
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.server.server_port}{path}", timeout=2
+            ) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def test_liveness_is_independent_of_index_warmup(self):
+        status, health = self.get_json("/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 503)
+        self.assertFalse(readiness["ready"])
+        self.assertEqual(readiness["search_index"]["state"], "not_started")
+
+        self.service._warm_search_index()
+
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 200)
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["search_index"]["state"], "ready")
+
+    def test_warmup_timeout_reports_not_ready_without_failing_liveness(self):
+        started = threading.Event()
+        release = threading.Event()
+        self.service._index_warmup_timeout_seconds = 0.02
+
+        def slow_warmup():
+            started.set()
+            release.wait(timeout=2)
+            return 0
+
+        self.service.store.warm_search_index = slow_warmup
+        worker = threading.Thread(target=self.service._warm_search_index, daemon=True)
+        worker.start()
+        self.assertTrue(started.wait(timeout=1))
+        time.sleep(0.03)
+
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 503)
+        self.assertEqual(readiness["search_index"]["state"], "timed_out")
+
+        status, health = self.get_json("/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+
+        release.set()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 200)
+        self.assertTrue(readiness["ready"])
+
+
 if __name__ == "__main__":
     unittest.main()
