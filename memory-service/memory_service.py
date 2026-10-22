@@ -1058,6 +1058,7 @@ class MemoryService:
         self._index_expected_files = 0
         self._index_indexed_files = 0
         self._index_error: str | None = None
+        self._index_timeout_logged = False
         try:
             self._index_warmup_timeout_seconds = float(
                 os.environ.get("ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS", "30")
@@ -1092,6 +1093,13 @@ class MemoryService:
                 "search index warm-up exceeded "
                 f"{self._index_warmup_timeout_seconds:g} seconds"
             )
+            should_log = False
+            with self._index_status_lock:
+                if not self._index_timeout_logged:
+                    self._index_timeout_logged = True
+                    should_log = True
+            if should_log:
+                logger.warning("%s", error)
         return {
             "state": state,
             "indexed_files": indexed,
@@ -1123,11 +1131,12 @@ class MemoryService:
             self._index_state = "warming"
             self._index_started_at = self._index_started_at or started_at
             self._index_completed_at = None
-            self._index_expected_files = len(
-                [path for path in self.store.memory_dir.glob("*.md") if path.is_file()]
-            )
+            # The report supplies the exact per-pass file set and outcomes.
+            # Do not take a separate directory-count snapshot for readiness.
+            self._index_expected_files = 0
             self._index_indexed_files = 0
             self._index_error = None
+            self._index_timeout_logged = False
 
         last_report: Dict[str, Any] = {}
         for attempt in range(1, 4):
@@ -1199,8 +1208,8 @@ class MemoryService:
         with self._index_status_lock:
             self._index_state = "warming"
             self._index_started_at = time.monotonic()
-            self._index_expected_files = len(list(self.store.memory_dir.glob("*.md")))
             self._index_error = None
+            self._index_timeout_logged = False
 
         http_host=os.environ.get("ENSEMBLE_MEMORY_HTTP_HOST","127.0.0.1")
         http_port=int(os.environ.get("ENSEMBLE_MEMORY_HTTP_PORT","8767"))
