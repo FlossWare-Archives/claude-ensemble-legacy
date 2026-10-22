@@ -268,7 +268,9 @@ class HybridRetrievalIndex:
                 score = lexical
             if exact:
                 score = max(score, 1.0)
-            if score > 0:
+            # Exact phrases always survive. Otherwise reject near-zero
+            # semantic-only matches and tiny normalized lexical noise.
+            if exact or lexical >= 0.08 or semantic >= 0.30:
                 results.append({
                     "file": row["file"], "section": row["section"],
                     "heading_path": row["heading_path"], "score": score,
