@@ -199,10 +199,18 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertIn("Current architecture fact", context)
         self.assertEqual(hook_output["contextRetrieval"]["memoryCount"], 1)
         self.assertEqual(hook_output["contextRetrieval"]["knowledgeCount"], 1)
-        self.assertEqual(FakeMemoryHandler.requests[0][0], "/memory/search")
-        self.assertEqual(FakeMemoryHandler.requests[0][1]["query"], "How did we decide the service boundary?")
-        self.assertEqual(FakeMemoryHandler.requests[0][1]["limit"], 10)
-        self.assertEqual(FakeMemoryHandler.requests[0][1]["source"], "memory")
+        # Memory and Knowledge searches run concurrently, so request arrival
+        # order is not deterministic; assert on the requests by source instead.
+        search_requests = [payload for path, payload in FakeMemoryHandler.requests if path == "/memory/search"]
+        memory_requests = [payload for payload in search_requests if payload.get("source") == "memory"]
+        knowledge_requests = [payload for payload in search_requests if payload.get("source") == "claude-code"]
+        prompt = "How did we decide the service boundary?"
+        self.assertTrue(memory_requests)
+        self.assertTrue(knowledge_requests)
+        self.assertIn(prompt, [payload["query"] for payload in memory_requests])
+        self.assertIn(prompt, [payload["query"] for payload in knowledge_requests])
+        for payload in search_requests:
+            self.assertEqual(payload["limit"], 10)
         self.assertEqual(FakeGraphHandler.requests, [])
 
     def test_real_memory_service_rest_write_search_and_hook_context_injection(self) -> None:
