@@ -119,7 +119,10 @@ class MemoryStore:
         path = self.memory_dir / f"{name}{suffix}"
         resolved_root = self.memory_dir.resolve()
         resolved_path = path.resolve()
-        if resolved_path.parent != resolved_root:
+        if (
+            not resolved_path.is_relative_to(resolved_root)
+            or resolved_path.parent != resolved_root
+        ):
             raise ValueError("Memory path escapes the configured memory directory")
         return path
 
