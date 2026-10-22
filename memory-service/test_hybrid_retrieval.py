@@ -40,6 +40,21 @@ class HybridRetrievalTests(unittest.TestCase):
                 index.warm_corpus(set())
             preload.assert_called_once_with()
 
+    def test_warm_search_encodes_query_without_reembedding_documents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3")
+            index.replace_document("target", "rev1", [{
+                "header": "Architecture",
+                "heading_path": "Architecture",
+                "content": "Local SQLite stores persistent memory embeddings.",
+            }])
+            index.warm_corpus({"target"})
+            query = "Where are memory embeddings stored?"
+            with patch.object(index, "_embed", wraps=index._embed) as embed:
+                results = index.search(query, 3, {"target"})
+            self.assertTrue(results)
+            embed.assert_called_once_with([query])
+
     def test_chunks_respect_character_limit_and_track_oversized_paragraph_lines(self):
         notes = "# Notes\n\n" + "".join(
             f"entry-{number:04d} alpha beta gamma delta\n" for number in range(260)
