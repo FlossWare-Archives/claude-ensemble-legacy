@@ -166,6 +166,10 @@ class HybridRetrievalIndex:
         vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
         return [vector.astype(float).tolist() for vector in vectors]
 
+    def _invalidate_cache(self) -> None:
+        with self._cache_lock:
+            self._corpus_cache.clear()
+
     def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
         with self._connect() as db:
             row = db.execute(
