@@ -383,7 +383,7 @@ All dashboards read from local JSON files (no database):
 ```
 scripts/
   ensemble-init.sh            # Session initialization
-  config.sh                   # Interactive tool configuration
+  config.sh                   # Legacy helper; installer enables features by default
   ga-tuning-schedule.sh       # Cron: GA every 4 hours
 
 memory-service/
