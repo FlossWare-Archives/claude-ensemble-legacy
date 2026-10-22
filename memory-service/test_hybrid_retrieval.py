@@ -6,6 +6,16 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hybrid_retrieval import HybridRetrievalIndex, chunk_markdown
 
+# Unit tests use deterministic local vectors. Real model download and inference are
+# covered by install/runtime acceptance, not by every lexical unit test.
+def _test_embeddings(self, texts):
+    if not self.embedding_model_name:
+        return None
+    return [[float(len(text.split()) or 1), 1.0] for text in texts]
+
+
+HybridRetrievalIndex._embed = _test_embeddings
+
 
 class HybridRetrievalTests(unittest.TestCase):
     def test_heading_hierarchy_is_preserved(self):
