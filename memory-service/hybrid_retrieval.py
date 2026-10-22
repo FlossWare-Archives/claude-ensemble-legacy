@@ -220,13 +220,23 @@ class HybridRetrievalIndex:
         """
         with self._connect() as db:
             row = db.execute(
-                "SELECT signature, embedding, embedding_model FROM chunks WHERE file=? LIMIT 1",
-                (file,),
+                """
+                SELECT signature, COUNT(*) AS chunk_count,
+                       SUM(CASE WHEN embedding IS NOT NULL AND embedding_model=? THEN 1 ELSE 0 END)
+                           AS valid_embeddings
+                FROM chunks WHERE file=? GROUP BY signature
+                """,
+                (self.embedding_model_name, file),
             ).fetchone()
             if not force and row and row["signature"] == signature:
                 if not self.embedding_model_name:
                     return
-                if row["embedding"] and row["embedding_model"] == self.embedding_model_name:
+                # Do not treat a partially embedded document as complete just
+                # because its first chunk happens to have a current-model vector.
+                if (
+                    row["chunk_count"] == len(chunks)
+                    and row["valid_embeddings"] == len(chunks)
+                ):
                     return
         texts = [str(chunk.get("content", "")) for chunk in chunks]
         embeddings = self._embed(texts)
