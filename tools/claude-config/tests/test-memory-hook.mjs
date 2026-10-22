@@ -560,7 +560,7 @@ try {
         res.end(JSON.stringify({ ok: true, results: [] }));
         return;
       }
-      const results = request.query === 'alpha question about memory beta details about memory'
+      const results = request.query.toLowerCase().startsWith('alpha question about memory')
         ? [
           { file: 'claude-code-alpha', section: 'Alpha', score: 0.99, content: 'Alpha is a one-off high score.' },
           { file: 'claude-code-beta', section: 'Beta', score: 0.18, content: 'Beta is corroborated by a focused query.' },
