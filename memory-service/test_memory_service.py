@@ -169,6 +169,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
             store.write_file("deployment", "# Deployment\n\nThe default deployment root is local.")
+            self.assertIn(frozenset({"deployment"}), store._hybrid_index._corpus_cache)
             with patch.object(store, "_indexed_chunks", side_effect=AssertionError("prompt search rebuilt a document")):
                 with patch.object(store._hybrid_index, "replace_document", side_effect=AssertionError("prompt search wrote the hybrid index")):
                     results = store.search_semantic("What is the default deployment root?", source="memory")
