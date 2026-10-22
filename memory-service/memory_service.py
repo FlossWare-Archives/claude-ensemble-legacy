@@ -64,7 +64,7 @@ def validate_memory_name(name: str) -> str:
         or name in (".", "..", "__ledger_error__")
     ):
         raise ValueError(
-            "Invalid or reserved memory name: use only letters, numbers, '.', '_' and '-'; "
+            "Invalid memory name or reserved name: use only letters, numbers, '.', '_' and '-'; "
             "not '.', '..', or the reserved ledger key"
         )
     return name
