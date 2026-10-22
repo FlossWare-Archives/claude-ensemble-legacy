@@ -1466,11 +1466,13 @@ class MemoryIndexReadinessTest(unittest.TestCase):
     def test_warmup_timeout_reports_not_ready_without_failing_liveness(self):
         started = threading.Event()
         release = threading.Event()
-        self.service._index_warmup_timeout_seconds = 0.02
+        # Keep the initial state assertion well clear of the deadline; then
+        # move the recorded start time across it deterministically.
+        self.service._index_warmup_timeout_seconds = 30.0
 
         def slow_warmup_report(max_passes=3):
             started.set()
-            release.wait(timeout=2)
+            release.wait(timeout=5)
             return {
                 "pass": 1,
                 "expected_files": [],
@@ -1484,36 +1486,36 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         self.service.store.warm_search_index_report = slow_warmup_report
         worker = threading.Thread(target=self.service._warm_search_index, daemon=True)
         worker.start()
-        self.assertTrue(started.wait(timeout=1))
+        try:
+            self.assertTrue(started.wait(timeout=1))
 
-        status, search = self.post_json(
-            "/memory/search-semantic", {"query": "first prompt during warm-up"}
-        )
-        self.assertEqual(status, 503)
-        self.assertTrue(search["retryable"])
-        self.assertEqual(search["search_index"]["state"], "warming")
+            status, search = self.post_json(
+                "/memory/search-semantic", {"query": "first prompt during warm-up"}
+            )
+            self.assertEqual(status, 503)
+            self.assertTrue(search["retryable"])
+            self.assertEqual(search["search_index"]["state"], "warming")
 
-        # Move the recorded start time across the deadline explicitly;
-        # do not make the test depend on scheduler timing.
-        with self.service._index_status_lock:
-            self.service._index_started_at = time.monotonic() - 1.0
-        status, readiness = self.get_json("/ready")
-        self.assertEqual(status, 503)
-        self.assertEqual(readiness["search_index"]["state"], "timed_out")
+            with self.service._index_status_lock:
+                self.service._index_started_at = time.monotonic() - 31.0
+            status, readiness = self.get_json("/ready")
+            self.assertEqual(status, 503)
+            self.assertEqual(readiness["search_index"]["state"], "timed_out")
 
-        status, search = self.post_json(
-            "/memory/search-semantic", {"query": "first prompt after restart"}
-        )
-        self.assertEqual(status, 503)
-        self.assertTrue(search["retryable"])
-        self.assertEqual(search["error_code"], "index_not_ready")
+            status, search = self.post_json(
+                "/memory/search-semantic", {"query": "first prompt after restart"}
+            )
+            self.assertEqual(status, 503)
+            self.assertTrue(search["retryable"])
+            self.assertEqual(search["error_code"], "index_not_ready")
 
-        status, health = self.get_json("/health")
-        self.assertEqual(status, 200)
-        self.assertTrue(health["ok"])
+            status, health = self.get_json("/health")
+            self.assertEqual(status, 200)
+            self.assertTrue(health["ok"])
+        finally:
+            release.set()
+            worker.join(timeout=2)
 
-        release.set()
-        worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
         status, readiness = self.get_json("/ready")
         self.assertEqual(status, 200)
