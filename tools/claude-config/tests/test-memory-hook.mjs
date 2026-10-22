@@ -539,4 +539,54 @@ try {
   }
 }
 
+
+// Cross-query scores are normalized independently by Memory. Rank fusion must
+// prefer a result repeated by a focused query over a single high raw score.
+{
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (req.url === '/memory/knowledge/status') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 2 }));
+        return;
+      }
+      const request = JSON.parse(body);
+      requests.push(request);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (request.source !== 'claude-code') {
+        res.end(JSON.stringify({ ok: true, results: [] }));
+        return;
+      }
+      const results = request.query === 'alpha question about memory beta details about memory'
+        ? [
+          { file: 'claude-code-alpha', section: 'Alpha', score: 0.99, content: 'Alpha is a one-off high score.' },
+          { file: 'claude-code-beta', section: 'Beta', score: 0.18, content: 'Beta is corroborated by a focused query.' },
+        ]
+        : [
+          { file: 'claude-code-beta', section: 'Beta', score: 0.22, content: 'Beta is corroborated by a focused query.' },
+        ];
+      res.end(JSON.stringify({ ok: true, results }));
+    });
+  });
+  const port = await listen(server);
+  try {
+    const result = await runHook({
+      url: `http://127.0.0.1:${port}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'Alpha question about memory. Beta details about memory?' },
+    });
+    assert.equal(result.code, 0, result.stderr);
+    const knowledgeRequests = requests.filter(request => request.source === 'claude-code');
+    assert.ok(knowledgeRequests.length >= 2, JSON.stringify(knowledgeRequests));
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(context.indexOf('Beta is corroborated') < context.indexOf('Alpha is a one-off'),
+      context);
+  } finally {
+    await close(server);
+  }
+}
+
 console.log('memory hook REST tests passed');
