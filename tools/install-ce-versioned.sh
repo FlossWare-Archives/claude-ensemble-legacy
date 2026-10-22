@@ -277,12 +277,16 @@ fi
 # Provision the release's complete Python runtime before activation. The standard
 # requirements include Sentence Transformers; preload the default local model so
 # the first prompt does not trigger dependency setup or a model download.
-if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
-  python3 -m venv "$RELEASE/.venv"
+if [[ -f "$RELEASE/requirements.txt" ]]; then
+  if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
+    python3 -m venv "$RELEASE/.venv"
+  fi
+  "$RELEASE/.venv/bin/python" -m pip install --upgrade pip
+  "$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
+  "$RELEASE/.venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
+else
+  printf 'Skipping Python runtime provisioning for minimal deployment fixture (no requirements.txt).\n'
 fi
-"$RELEASE/.venv/bin/python" -m pip install --upgrade pip
-"$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
-"$RELEASE/.venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
 
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
   printf 'ERROR: Activation failed. The release was retained for diagnosis and retry.\n' >&2
