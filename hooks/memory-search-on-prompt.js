@@ -339,16 +339,16 @@ async function searchContext(query, source, config) {
 }
 
 function buildKnowledgeQueries(query, maxQueries) {
-  const normalized = query.replace(/\\s+/g, ' ').trim();
+  const normalized = query.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
 
   // The Memory service currently uses lexical similarity rather than embeddings.
   // Keep the complete prompt first, then add a small number of meaningful clauses
   // so compound questions can retrieve documents about each requested concept.
   const clauses = normalized
-    .split(/(?:[.!?;\\n]+|,\\s+(?=(?:and|but|while|whereas|versus|vs\\.? )\\b))/i)
+    .split(/(?:[.!?;\n]+|,\s+(?=(?:and|but|while|whereas|versus|vs\.? )\b))/i)
     .map(part => part.trim())
-    .filter(part => part.split(/\\s+/).length >= 4 && part.length >= 20);
+    .filter(part => part.split(/\s+/).length >= 4 && part.length >= 20);
   const queries = [];
   for (const candidate of [normalized, ...clauses]) {
     const key = candidate.toLocaleLowerCase();

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtemp, rm, cp } from 'node:fs/promises';
+import fs from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -335,6 +336,24 @@ try {
 } finally {
   await close(server);
   await close(graphServer);
+}
+
+// Regression: the regexes in buildKnowledgeQueries were double-escaped
+// (/\\s+/, [\\n]), so whitespace was never normalized and compound prompts never
+// produced clause queries; Knowledge only ever searched the full prompt.
+{
+  const hookSource = fs.readFileSync(new URL('../../../hooks/memory-search-on-prompt.js', import.meta.url), 'utf8');
+  const fnSource = hookSource.match(/function buildKnowledgeQueries[\s\S]*?\n}\n/)[0];
+  const buildKnowledgeQueries = new Function(fnSource + '; return buildKnowledgeQueries;')();
+  const compound = 'What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?';
+  const queries = buildKnowledgeQueries(compound, 3);
+  assert.equal(queries[0], compound);
+  assert.ok(queries.includes('What did we decide about the memory service boundary'), JSON.stringify(queries));
+  assert.ok(queries.includes('and how does the installer handle the acceptance profile'), JSON.stringify(queries));
+  assert.equal(buildKnowledgeQueries(compound, 1).length, 1);
+  // Whitespace and newlines collapse, and the letter "n" must not split clauses.
+  assert.deepEqual(buildKnowledgeQueries('  one   spaced\tquery  ', 3), ['one spaced query']);
+  assert.deepEqual(buildKnowledgeQueries('connection pooling configuration notes', 3), ['connection pooling configuration notes']);
 }
 
 // A service slower than the hook's budget must be reported as a timeout, not as
