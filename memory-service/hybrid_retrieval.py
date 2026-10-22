@@ -120,6 +120,7 @@ class HybridRetrievalIndex:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.embedding_model_name = embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
         self._embedder = None
+        self._model_lock = threading.Lock()
         self._cache_lock = threading.RLock()
         self._corpus_cache = {}
         with self._connect() as db:
@@ -152,14 +153,16 @@ class HybridRetrievalIndex:
         if not self.embedding_model_name:
             return None
         if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Embeddings are configured but sentence-transformers is not installed; "
-                    "install memory-service/requirements-embeddings.txt"
-                ) from exc
-            self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
+            with self._model_lock:
+                if self._embedder is None:
+                    try:
+                        from sentence_transformers import SentenceTransformer
+                    except ImportError as exc:
+                        raise RuntimeError(
+                            "Embeddings are configured but sentence-transformers is not installed; "
+                            "install memory-service/requirements-embeddings.txt"
+                        ) from exc
+                    self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
         return self._embedder
 
     def _embed(self, texts: list[str]) -> list[list[float]] | None:
