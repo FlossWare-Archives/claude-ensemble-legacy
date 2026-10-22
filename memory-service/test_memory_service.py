@@ -146,7 +146,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("deployment", "# Deployment\\n\\nThe default deployment root is local.")
+            store.write_file("deployment", "# Deployment\n\nThe default deployment root is local.")
             with patch.object(store, "_indexed_chunks", side_effect=AssertionError("prompt search rebuilt a document")):
                 with patch.object(store._hybrid_index, "replace_document", side_effect=AssertionError("prompt search wrote the hybrid index")):
                     results = store.search_semantic("What is the default deployment root?", source="memory")
@@ -231,12 +231,12 @@ class MemorySearchRegressionTest(unittest.TestCase):
             for index in range(12):
                 service.store.write_file(
                     f"operational-learning-artifact-{index}",
-                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
+                    "# Operational Event\n\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
                 )
             knowledge_path = root / "project" / "CLAUDE.md"
             knowledge_path.parent.mkdir()
             knowledge_content = (
-                "# Lifecycle Contract\\n\\n"
+                "# Lifecycle Contract\n\n"
                 "Memory is episodic experience; Knowledge is durable current facts. "
                 "SessionEnd captures metadata only and does not establish task quality."
             )
@@ -250,7 +250,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             distractor_path = root / "other-project" / "CLAUDE.md"
             distractor_path.parent.mkdir()
             distractor_content = (
-                "# Collaboration Event Contract\\n\\n"
+                "# Collaboration Event Contract\n\n"
                 "Collaboration events record operational task metadata and memory state. "
                 "Knowledge is maintained separately from transient collaboration results."
             )
