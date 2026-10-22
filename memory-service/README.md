@@ -72,9 +72,10 @@ Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/cla
 - `GET /health` is liveness. It reports that the Memory process is responding and remains HTTP 200 while the search index warms.
 - `GET /ready` is readiness. It returns HTTP 200 only after the initial search index is usable; while warming or after a warm-up failure/timeout it returns HTTP 503 with the index state and indexed/expected file counts.
 - `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` controls the warm-up readiness budget and defaults to 30 seconds. Exceeding it reports `timed_out`; the service remains live, and readiness can recover if the warm-up later completes successfully.
+- Semantic and hybrid search requests received while the index is warming, timed out, or degraded return HTTP 503 with `error_code: index_not_ready` and `retryable: true`. This avoids spending the prompt hook's full timeout building the corpus on the request path.
 - The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
 
-The first search after a restart may still perform on-demand work for files changed or created during warm-up. Readiness describes completion of the initial index pass, not a guarantee that every later query has a fixed latency.
+The first search after a restart may still perform on-demand work for files changed or created after warm-up. Readiness describes completion of the initial index pass, not a guarantee that every later query has a fixed latency.
 
 ### Ping
 ```json
