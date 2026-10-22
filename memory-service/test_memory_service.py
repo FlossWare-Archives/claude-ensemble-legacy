@@ -1009,19 +1009,19 @@ class MemoryServiceSecurityTest(unittest.TestCase):
             fake_package = root / "fake_modules" / "sentence_transformers"
             fake_package.mkdir(parents=True)
             (fake_package / "__init__.py").write_text(
-                "import math\\n"
-                "class _Vector(list):\\n"
-                "    def astype(self, dtype): return self\\n"
-                "    def tolist(self): return list(self)\\n"
-                "class SentenceTransformer:\\n"
-                "    def __init__(self, model_name, device='cpu'): pass\\n"
-                "    def encode(self, texts, **kwargs):\\n"
-                "        vectors = []\\n"
-                "        for text in texts:\\n"
-                "            count = float(len(str(text).split()) or 1)\\n"
-                "            norm = math.sqrt(count * count + 1.0)\\n"
-                "            vectors.append(_Vector([count / norm, 1.0 / norm]))\\n"
-                "        return vectors\\n",
+                "import math\n"
+                "class _Vector(list):\n"
+                "    def astype(self, dtype): return self\n"
+                "    def tolist(self): return list(self)\n"
+                "class SentenceTransformer:\n"
+                "    def __init__(self, model_name, device='cpu'): pass\n"
+                "    def encode(self, texts, **kwargs):\n"
+                "        vectors = []\n"
+                "        for text in texts:\n"
+                "            count = float(len(str(text).split()) or 1)\n"
+                "            norm = math.sqrt(count * count + 1.0)\n"
+                "            vectors.append(_Vector([count / norm, 1.0 / norm]))\n"
+                "        return vectors\n",
                 encoding="utf-8",
             )
             env["PYTHONPATH"] = os.pathsep.join(
