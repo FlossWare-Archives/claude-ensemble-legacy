@@ -272,7 +272,7 @@ class HybridRetrievalIndex:
                 score = max(score, 1.0)
             if score > 0:
                 results.append({
-                    "file": row["file"], "section": row["header"],
+                    "file": row["file"], "section": row["section"],
                     "heading_path": row["heading_path"], "score": score,
                     "size_bytes": row["size_bytes"], "retrieval": (
                         "exact+hybrid" if exact and query_vector else
