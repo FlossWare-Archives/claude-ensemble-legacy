@@ -67,6 +67,19 @@ skips all package installation and requires an existing .venv/bin/python.
 Activation, recovery, and rollback reuse the immutable release runtime. They do
 not run pip or download model weights.
 
+The opt-in local-model smoke test requires an already installed model directory
+and does not download weights:
+
+```bash
+ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 \
+ENSEMBLE_MEMORY_EMBEDDING_MODEL=/path/to/local/model \
+python -m pytest memory-service/test_hybrid_retrieval.py -k real_local_model_acceptance -q
+```
+
+This smoke test verifies actual vector persistence and retrieval, but it is not a
+substitute for measuring warm-up and concurrent prompt-hook latency against the
+real corpus under the Memory service's systemd memory and CPU limits.
+
 ## Installation
 
 ```bash
