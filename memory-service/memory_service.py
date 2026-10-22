@@ -17,6 +17,7 @@ import socket
 import stat
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import Counter
 from datetime import datetime, timezone
@@ -872,7 +873,19 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
         return value
 
     def do_GET(self) -> None:
-        if self.path == "/health": self._send(200, {"ok": True, "service": "memory"}); return
+        service = self.server.memory_service
+        if self.path == "/health":
+            # Liveness must not depend on index warm-up.
+            self._send(200, {"ok": True, "service": "memory"})
+            return
+        if self.path == "/ready":
+            status = service.search_index_status()
+            ready = status["state"] == "ready"
+            self._send(
+                200 if ready else 503,
+                {"ok": ready, "service": "memory", "ready": ready, "search_index": status},
+            )
+            return
         self._send(404, {"ok": False, "error": "not found"})
 
     def do_POST(self) -> None:
@@ -984,6 +997,52 @@ class MemoryService:
         self.http_server = None
         self.http_thread = None
         self.http_port = 0
+        self._index_status_lock = threading.Lock()
+        self._index_state = "not_started"
+        self._index_started_at: float | None = None
+        self._index_completed_at: float | None = None
+        self._index_expected_files = 0
+        self._index_indexed_files = 0
+        self._index_error: str | None = None
+        try:
+            self._index_warmup_timeout_seconds = float(
+                os.environ.get("ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS", "30")
+            )
+            if self._index_warmup_timeout_seconds <= 0:
+                raise ValueError
+        except ValueError as exc:
+            raise ValueError(
+                "ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS must be a positive number"
+            ) from exc
+
+    def search_index_status(self) -> Dict[str, Any]:
+        """Return an explicit, bounded startup state for the search index."""
+        with self._index_status_lock:
+            state = self._index_state
+            started_at = self._index_started_at
+            completed_at = self._index_completed_at
+            expected = self._index_expected_files
+            indexed = self._index_indexed_files
+            error = self._index_error
+        elapsed = (
+            max(0.0, (completed_at or time.monotonic()) - started_at)
+            if started_at is not None
+            else 0.0
+        )
+        if state == "warming" and elapsed >= self._index_warmup_timeout_seconds:
+            state = "timed_out"
+            error = (
+                "search index warm-up exceeded "
+                f"{self._index_warmup_timeout_seconds:g} seconds"
+            )
+        return {
+            "state": state,
+            "indexed_files": indexed,
+            "expected_files": expected,
+            "elapsed_seconds": round(elapsed, 3),
+            "warmup_timeout_seconds": self._index_warmup_timeout_seconds,
+            **({"error": error} if error else {}),
+        }
 
     def _prepare_socket_path(self) -> None:
         """Create a private parent directory and safely remove a stale socket."""
@@ -1001,10 +1060,36 @@ class MemoryService:
         self.socket_path.unlink()
 
     def _warm_search_index(self) -> None:
+        started_at = time.monotonic()
+        expected = len(list(self.store.memory_dir.glob("*.md")))
+        with self._index_status_lock:
+            self._index_state = "warming"
+            self._index_started_at = started_at
+            self._index_completed_at = None
+            self._index_expected_files = expected
+            self._index_indexed_files = 0
+            self._index_error = None
         try:
             count = self.store.warm_search_index()
-            logger.info("Search index warmed for %d memory files", count)
-        except Exception:
+            completed_at = time.monotonic()
+            ready = count >= expected
+            with self._index_status_lock:
+                self._index_indexed_files = count
+                self._index_completed_at = completed_at
+                self._index_state = "ready" if ready else "degraded"
+                if not ready:
+                    self._index_error = (
+                        f"indexed {count} of {expected} memory files during warm-up"
+                    )
+            if ready:
+                logger.info("Search index warmed for %d memory files", count)
+            else:
+                logger.error("Search index warm-up incomplete: %d of %d files", count, expected)
+        except Exception as exc:
+            with self._index_status_lock:
+                self._index_completed_at = time.monotonic()
+                self._index_state = "failed"
+                self._index_error = str(exc)
             logger.exception("Search index warm-up failed")
 
     def start(self):
