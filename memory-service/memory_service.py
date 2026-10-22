@@ -1410,6 +1410,184 @@ class MemoryService:
             return json.dumps({"ok": False, "error": str(e), "error_type": "internal"})
 
 
-if __name__ == "__main__":
+
+def run_reindex(mode: str, source: str = "all", dry_run: bool = False) -> Dict[str, Any]:
+    """Rebuild the persistent retrieval index in a repeatable operator-controlled pass.
+
+    Run with the Memory service stopped to avoid competing writers and stale in-process
+    caches. Each document replacement is transactional; a failed document retains its
+    previous indexed rows and can be retried by rerunning the command.
+    """
+    if mode not in {"full", "incremental", "embeddings"}:
+        raise ValueError("mode must be full, incremental, or embeddings")
+    if source not in {"all", "memory", "claude-code"}:
+        raise ValueError("source must be all, memory, or claude-code")
+
+    store = MemoryStore(MEMORY_DIR)
+    index = store._hybrid_index
+    if mode == "embeddings" and not index.embedding_model_name:
+        raise ValueError(
+            "embeddings mode requires ENSEMBLE_MEMORY_EMBEDDING_MODEL to be explicitly configured"
+        )
+
+    ingest_index = store._load_ingest_index()
+    active_knowledge = {
+        entry.get("document")
+        for entry in ingest_index.values()
+        if isinstance(entry, dict)
+        and not entry.get("stale", False)
+        and isinstance(entry.get("document"), str)
+        and entry.get("document", "").startswith("claude-code-")
+    }
+    candidates = []
+    for path in sorted(MEMORY_DIR.glob("*.md")):
+        name = path.stem
+        is_knowledge = name.startswith("claude-code-")
+        if source == "memory" and is_knowledge:
+            continue
+        if source == "claude-code" and not is_knowledge:
+            continue
+        if is_knowledge and name not in active_knowledge:
+            continue
+        candidates.append(path)
+
+    existing_counts = {}
+    with index._connect() as db:
+        for row in db.execute(
+            "SELECT file, COUNT(*) AS chunks, "
+            "SUM(CASE WHEN embedding IS NOT NULL AND embedding_model=? THEN 1 ELSE 0 END) AS valid_embeddings "
+            "FROM chunks GROUP BY file",
+            (index.embedding_model_name,),
+        ):
+            existing_counts[row["file"]] = {
+                "chunks": int(row["chunks"]),
+                "valid_embeddings": int(row["valid_embeddings"] or 0),
+            }
+
+    plans = []
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8")
+            chunks = chunk_markdown(text)
+            signature = repr(store._file_signature(path.stat()))
+            old = existing_counts.get(path.stem, {"chunks": 0, "valid_embeddings": 0})
+            changed = old["chunks"] == 0
+            if old["chunks"]:
+                with index._connect() as db:
+                    row = db.execute(
+                        "SELECT signature FROM chunks WHERE file=? LIMIT 1", (path.stem,)
+                    ).fetchone()
+                changed = row is None or row["signature"] != signature
+            if mode == "full" or mode == "embeddings":
+                needs_work = True
+            else:
+                needs_work = changed or (
+                    bool(index.embedding_model_name)
+                    and old["valid_embeddings"] < len(chunks)
+                )
+            plans.append({
+                "path": path, "name": path.stem, "signature": signature,
+                "chunks": chunks, "changed": changed, "needs_work": needs_work,
+                "old_chunks": old["chunks"],
+            })
+        except Exception as exc:
+            plans.append({"path": path, "name": path.stem, "error": str(exc)})
+
+    embedding_work = 0
+    for plan in plans:
+        if "error" in plan or not plan["needs_work"]:
+            continue
+        if index.embedding_model_name:
+            embedding_work += len(plan["chunks"])
+
+    report = {
+        "mode": mode,
+        "source": source,
+        "dry_run": dry_run,
+        "embedding_model": index.embedding_model_name,
+        "documents_found": len(candidates),
+        "documents_to_process": sum(
+            1 for plan in plans if "error" not in plan and plan["needs_work"]
+        ),
+        "documents_unchanged": sum(
+            1 for plan in plans if "error" not in plan and not plan["needs_work"]
+        ),
+        "chunks_found": sum(len(plan.get("chunks", [])) for plan in plans),
+        "embedding_chunks_to_generate": embedding_work,
+        "planning_errors": [
+            {"file": plan["name"], "error": plan["error"]}
+            for plan in plans if "error" in plan
+        ],
+    }
+    if dry_run:
+        return report
+
+    processed = 0
+    skipped = 0
+    failures = list(report["planning_errors"])
+    for plan in plans:
+        if "error" in plan:
+            continue
+        if not plan["needs_work"]:
+            skipped += 1
+            continue
+        try:
+            index.replace_document(
+                plan["name"],
+                plan["signature"],
+                plan["chunks"],
+                force=(mode in {"full", "embeddings"}),
+            )
+            processed += 1
+            print(json.dumps({
+                "event": "document_reindexed",
+                "file": plan["name"],
+                "chunks": len(plan["chunks"]),
+                "processed": processed,
+                "total": report["documents_to_process"],
+            }), flush=True)
+        except Exception as exc:
+            failures.append({"file": plan["name"], "error": str(exc)})
+            logger.exception("Reindex failed for %s", plan["name"])
+
+    # Only an unfiltered pass owns the complete corpus and can safely prune stale
+    # index rows. Filtered maintenance must not delete documents from other sources.
+    if source == "all":
+        present = {
+            plan["name"] for plan in plans
+            if "error" not in plan
+        }
+        index.remove_missing(present)
+
+    report.update({
+        "documents_processed": processed,
+        "documents_skipped": skipped,
+        "failures": failures,
+        "complete": not failures,
+    })
+    return report
+
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Claude Ensemble Memory service")
+    parser.add_argument(
+        "--reindex", choices=("full", "incremental", "embeddings"),
+        help="run an operator-controlled retrieval-index maintenance pass instead of starting the daemon",
+    )
+    parser.add_argument("--source", choices=("all", "memory", "claude-code"), default="all")
+    parser.add_argument("--dry-run", action="store_true", help="report planned work without changing the index or loading the embedding model")
+    args = parser.parse_args()
+    if args.reindex:
+        report = run_reindex(args.reindex, args.source, args.dry_run)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        if report.get("failures") or report.get("planning_errors"):
+            raise SystemExit(1)
+        return
     service = MemoryService(SOCKET_PATH, MEMORY_DIR)
     service.start()
+
+
+if __name__ == "__main__":
+    _main()
