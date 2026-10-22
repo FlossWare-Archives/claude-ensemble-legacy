@@ -531,7 +531,7 @@ try {
     assert.equal(limited.code, 0, limited.stderr);
     const output = JSON.parse(limited.stdout);
     assert.equal(output.hookSpecificOutput.contextRetrieval.knowledgeCount, 3);
-    assert.equal((output.hookSpecificOutput.additionalContext.match(/Knowledge result \\d+/g) || []).length, 3);
+    assert.equal((output.hookSpecificOutput.additionalContext.match(/Knowledge result \d+/g) || []).length, 3);
     assert.ok(limitRequests.filter(request => request.source === 'claude-code').every(request => request.limit === 3));
   } finally {
     await close(limitServer);
