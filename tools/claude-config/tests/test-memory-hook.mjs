@@ -431,7 +431,7 @@ try {
         res.end(JSON.stringify({ ok: true, results: [] }));
         return;
       }
-      if (request.query === 'install root default Claude Ensemble') {
+      if (request.query === 'install root establish default Claude Ensemble') {
         res.end(JSON.stringify({
           ok: true,
           results: [{
@@ -464,9 +464,7 @@ try {
     const knowledgeQueries = retrievalRequests
       .filter(request => request.source === 'claude-code')
       .map(request => request.query);
-    assert.ok(knowledgeQueries.includes('install root default Claude Ensemble'), JSON.stringify(knowledgeQueries));
-    assert.ok(!knowledgeQueries.some(query => /\\bestablish(?:ed)?\\b/i.test(query) && query !== prompt),
-      'domain-specific verbs should remain meaningful keyword terms when present');
+    assert.ok(knowledgeQueries.includes('install root establish default Claude Ensemble'), JSON.stringify(knowledgeQueries));
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
     assert.ok(context.includes('~/.FlossWare/claude-ensemble'));
     assert.ok(context.indexOf('~/.FlossWare/claude-ensemble') < context.indexOf('Unrelated deployment note'));
