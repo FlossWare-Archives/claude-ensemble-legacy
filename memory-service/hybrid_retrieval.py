@@ -190,7 +190,7 @@ class HybridRetrievalIndex:
             for term in freq:
                 df[term] = df.get(term, 0) + 1
             total += len(tokens)
-            docs.append({"file": row["file"], "section": row["header"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
+            docs.append({"file": row["file"], "section": row["section"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
         result = (docs, total / max(len(docs), 1), df)
         with self._cache_lock:
             self._corpus_cache[key] = result
@@ -238,23 +238,13 @@ class HybridRetrievalIndex:
         if self.embedding_model_name:
             encoded = self._embed([query])
             query_vector = encoded[0] if encoded else None
-        with self._connect() as db:
-            rows = db.execute("SELECT * FROM chunks").fetchall()
-        rows = [row for row in rows if row["file"] in allowed_files]
-        corpus_tokens = [json.loads(row["tokens"]) for row in rows]
+        rows, avg_len, doc_freq = self._corpus(allowed_files)
         n_docs = len(rows)
-        avg_len = sum(len(tokens) for tokens in corpus_tokens) / max(n_docs, 1)
-        doc_freq: dict[str, int] = {}
-        for tokens in corpus_tokens:
-            for term in set(tokens):
-                doc_freq[term] = doc_freq.get(term, 0) + 1
         scored = []
         qset = set(query_tokens)
-        for row, tokens in zip(rows, corpus_tokens):
-            freq: dict[str, int] = {}
-            for token in tokens:
-                freq[token] = freq.get(token, 0) + 1
-            length = len(tokens)
+        for row in rows:
+            freq = row["frequencies"]
+            length = row["length"]
             bm25 = 0.0
             for term in qset:
                 tf = freq.get(term, 0)
