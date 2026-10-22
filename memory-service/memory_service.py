@@ -139,7 +139,11 @@ class MemoryStore:
             try:
                 self._indexed_chunks(path)
                 present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
-                self._hybrid_index._corpus(present_stems)
+                if (
+                    self._hybrid_index._full_corpus_key is None
+                    or present_stems != set(self._hybrid_index._full_corpus_key)
+                ):
+                    self._hybrid_index.warm_corpus(present_stems)
             except Exception as index_error:
                 logger.warning("Memory %s was written but indexing is deferred: %s", name, index_error)
             logger.info(f"Wrote memory: {name}")
@@ -669,7 +673,7 @@ class MemoryStore:
                 self._prune_search_index(present_stems)
                 # Populate the SQLite-backed corpus cache before readiness flips
                 # to ready; the first prompt must not pay the cold corpus scan.
-                self._hybrid_index._corpus(present_stems)
+                self._hybrid_index.warm_corpus(present_stems)
                 return last_report
         return last_report
 
@@ -678,7 +682,7 @@ class MemoryStore:
         report = self.warm_search_index_report()
         indexed_files = {Path(name).stem for name in report.get("indexed_files", [])}
         if report.get("complete"):
-            self._hybrid_index._corpus(indexed_files)
+            self._hybrid_index.warm_corpus(indexed_files)
         return len(indexed_files)
 
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
