@@ -138,6 +138,8 @@ class MemoryStore:
             # retrieval must not rebuild document vectors or mutate the index.
             try:
                 self._indexed_chunks(path)
+                present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
+                self._hybrid_index._corpus(present_stems)
             except Exception as index_error:
                 logger.warning("Memory %s was written but indexing is deferred: %s", name, index_error)
             logger.info(f"Wrote memory: {name}")
