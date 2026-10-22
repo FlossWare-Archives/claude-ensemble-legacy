@@ -1,7 +1,7 @@
 """Persistent hybrid retrieval for the CE Memory service.
 
-SQLite is embedded storage, not a server. Sentence-transformers is optional and
-loaded only when ENSEMBLE_MEMORY_EMBEDDING_MODEL is explicitly configured.
+SQLite is embedded storage, not a server. Local Sentence Transformers embeddings
+are enabled by default; ENSEMBLE_MEMORY_EMBEDDING_MODEL can override the default model.
 """
 from __future__ import annotations
 
@@ -113,12 +113,12 @@ def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -
 
 
 class HybridRetrievalIndex:
-    """SQLite-backed BM25 + optional local embedding cosine similarity."""
+    """SQLite-backed BM25 + default-on local embedding cosine similarity."""
 
     def __init__(self, path: Path, embedding_model: str | None = None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.embedding_model_name = embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+        self.embedding_model_name = (embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL") or "sentence-transformers/all-MiniLM-L6-v2")
         self._embedder = None
         self._model_lock = threading.Lock()
         self._cache_lock = threading.RLock()
