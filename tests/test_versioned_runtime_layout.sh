@@ -17,6 +17,7 @@ ROOT="$HOME/.FlossWare/claude-ensemble"
 mkdir -p "$ROOT/releases" "$WORK/bin" "$WORK/units" "$WORK/empty-pip-cache"
 ACTIVE_FILE="$WORK/active-units.txt"
 SYSTEMCTL_LOG="$WORK/systemctl.log"
+export ACTIVE_FILE SYSTEMCTL_LOG
 : > "$ACTIVE_FILE"
 : > "$SYSTEMCTL_LOG"
 
