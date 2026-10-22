@@ -58,12 +58,14 @@ def get_socket_path() -> Path:
 
 def validate_memory_name(name: str) -> str:
     """Validate a memory name before using it as part of a filesystem path."""
-    if not isinstance(name, str) or not MEMORY_NAME_PATTERN.fullmatch(name) or name in (
-        "..",
-        ".",
+    if (
+        not isinstance(name, str)
+        or not MEMORY_NAME_PATTERN.fullmatch(name)
+        or name in (".", "..", "__ledger_error__")
     ):
         raise ValueError(
-            "Invalid memory name: use only letters, numbers, '.', '_' and '-'; not '.' or '..'"
+            "Invalid or reserved memory name: use only letters, numbers, '.', '_' and '-'; "
+            "not '.', '..', or the reserved ledger key"
         )
     return name
 
@@ -170,7 +172,11 @@ class MemoryStore:
         validated: Dict[str, Dict[str, str]] = {}
         for name, record in value.items():
             if name == "__ledger_error__":
-                if not isinstance(record, dict) or not isinstance(record.get("error"), str):
+                if (
+                    not isinstance(record, dict)
+                    or set(record) != {"error"}
+                    or not isinstance(record.get("error"), str)
+                ):
                     return self._ledger_error("retry ledger has an invalid __ledger_error__ record")
                 validated[name] = {"error": record["error"]}
                 continue
@@ -181,6 +187,7 @@ class MemoryStore:
                 return self._ledger_error("retry ledger contains an invalid memory name")
             if (
                 not isinstance(record, dict)
+                or set(record) != {"signature", "error"}
                 or not isinstance(record.get("signature"), str)
                 or not isinstance(record.get("error"), str)
             ):
@@ -212,6 +219,7 @@ class MemoryStore:
                     continue
                 if (
                     not isinstance(record, dict)
+                    or set(record) != {"signature", "error"}
                     or not isinstance(record.get("signature"), str)
                     or not isinstance(record.get("error"), str)
                 ):
