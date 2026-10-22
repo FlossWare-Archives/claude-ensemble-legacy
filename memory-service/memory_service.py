@@ -900,6 +900,20 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                         "/memory/knowledge/status":"knowledge_status"}
             operation=operations.get(self.path)
             if operation is None: self._send(404,{"ok":False,"error":"not found"}); return
+            if operation in {"search_semantic", "search_hybrid"}:
+                index_status = self.server.memory_service.search_index_status()
+                if index_status["state"] not in {"ready", "not_started"}:
+                    self._send(
+                        503,
+                        {
+                            "ok": False,
+                            "error": "memory search index is not ready",
+                            "error_code": "index_not_ready",
+                            "retryable": True,
+                            "search_index": index_status,
+                        },
+                    )
+                    return
             body["op"]=operation
             if operation == "append_once":
                 try:
@@ -1109,6 +1123,15 @@ class MemoryService:
         self.socket.settimeout(None)
 
         logger.info(f"Listening on {self.socket_path}")
+
+        # Mark the index as warming before exposing HTTP so prompt-time
+        # searches cannot slip through the startup window and rebuild the
+        # corpus on demand.
+        with self._index_status_lock:
+            self._index_state = "warming"
+            self._index_started_at = time.monotonic()
+            self._index_expected_files = len(list(self.store.memory_dir.glob("*.md")))
+            self._index_error = None
 
         http_host=os.environ.get("ENSEMBLE_MEMORY_HTTP_HOST","127.0.0.1")
         http_port=int(os.environ.get("ENSEMBLE_MEMORY_HTTP_PORT","8767"))
