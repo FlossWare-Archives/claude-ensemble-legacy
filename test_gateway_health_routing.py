@@ -171,6 +171,68 @@ def test_gateway_liveness_is_distinct_from_downstream_readiness(tmp_path, monkey
         stop(graph, graph_thread)
 
 
+def test_gateway_readiness_stays_503_while_memory_is_warming(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    graph_paths = []
+    memory_paths = []
+
+    class WarmingMemoryHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            memory_paths.append(self.path)
+            if self.path == "/health":
+                status, payload = 200, {"ok": True, "service": "memory"}
+            elif self.path == "/ready":
+                status, payload = 503, {
+                    "ok": False,
+                    "service": "memory",
+                    "ready": False,
+                    "search_index": {"state": "warming"},
+                }
+            else:
+                status, payload = 404, {"ok": False}
+            raw = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *_args):
+            pass
+
+    graph = ThreadingHTTPServer(
+        ("127.0.0.1", 0), service_handler("graph", graph_paths)
+    )
+    memory = ThreadingHTTPServer(("127.0.0.1", 0), WarmingMemoryHandler)
+    graph_thread = start(graph)
+    memory_thread = start(memory)
+    gateway = create_server(
+        "127.0.0.1",
+        0,
+        graph_url=f"http://127.0.0.1:{graph.server_port}",
+        memory_url=f"http://127.0.0.1:{memory.server_port}",
+    )
+    gateway_thread = start(gateway)
+    try:
+        memory_live_status, memory_live = get_json(
+            gateway, "/api/v1/memory/health"
+        )
+        gateway_ready_status, gateway_ready = get_json(gateway, "/api/v1/ready")
+
+        assert memory_live_status == 200 and memory_live["ok"] is True
+        assert gateway_ready_status == 503
+        assert gateway_ready["ready"] is False
+        assert gateway_ready["dependencies"]["graph"]["ok"] is True
+        assert gateway_ready["dependencies"]["memory"]["ok"] is False
+        assert gateway_ready["dependencies"]["memory"]["response"]["search_index"]["state"] == "warming"
+        assert "/health" in memory_paths
+        assert "/ready" in memory_paths
+    finally:
+        stop(gateway, gateway_thread)
+        stop(memory, memory_thread)
+        stop(graph, graph_thread)
+
+
 def test_readiness_rejects_a_cross_wired_dependency_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
     graph_paths = []
