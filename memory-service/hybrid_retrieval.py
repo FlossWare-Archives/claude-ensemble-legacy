@@ -190,7 +190,7 @@ class HybridRetrievalIndex:
             for term in freq:
                 df[term] = df.get(term, 0) + 1
             total += len(tokens)
-            docs.append({"file": row["file"], "section": row["section"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
+            docs.append({"file": row["file"], "section": row["header"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
         result = (docs, total / max(len(docs), 1), df)
         with self._cache_lock:
             self._corpus_cache[key] = result
