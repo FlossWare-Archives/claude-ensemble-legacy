@@ -602,6 +602,67 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 {},
             )
 
+    def test_pending_ledger_rejects_traversal_keys_and_reconciles_safely(self):
+        from memory_service import MemoryService, MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            outside = root / "outside.md"
+            outside.write_text("must not be touched", encoding="utf-8")
+            (memory_dir / "note.md").write_text(
+                "# Note\\n\\nSafe reconciliation target.", encoding="utf-8"
+            )
+            ledger = memory_dir / ".hybrid-index-pending.json"
+            ledger.write_text(
+                json.dumps({"../outside": {"signature": "x", "error": "untrusted"}}),
+                encoding="utf-8",
+            )
+
+            store = MemoryStore(memory_dir)
+            status = store.pending_index_status()
+            self.assertEqual(status["files"], [])
+            self.assertIn("__ledger_error__", status["errors"])
+            with self.assertRaises(ValueError):
+                store._clear_index_pending("../outside", "x")
+            with self.assertRaises(ValueError):
+                store._mark_index_pending(outside, RuntimeError("must reject outside path"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), "must not be touched")
+
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(json.loads(ledger.read_text(encoding="utf-8")), {})
+            self.assertEqual(outside.read_text(encoding="utf-8"), "must not be touched")
+
+    def test_pending_ledger_rejects_non_object_records_and_recovers(self):
+        from memory_service import MemoryService
+
+        for malformed_record in (None, [], "not-an-object"):
+            with self.subTest(record=malformed_record), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                memory_dir = root / "memory"
+                memory_dir.mkdir()
+                (memory_dir / "note.md").write_text(
+                    "# Note\\n\\nSafe reconciliation target.", encoding="utf-8"
+                )
+                ledger = memory_dir / ".hybrid-index-pending.json"
+                ledger.write_text(
+                    json.dumps({"note": malformed_record}), encoding="utf-8"
+                )
+
+                service = MemoryService(root / "memory.sock", memory_dir)
+                status = service.store.pending_index_status()
+                self.assertEqual(status["files"], [])
+                self.assertIn("__ledger_error__", status["errors"])
+
+                service._warm_search_index()
+                self.assertEqual(service.search_index_status()["state"], "ready")
+                self.assertEqual(service.store.pending_index_status()["count"], 0)
+                self.assertEqual(json.loads(ledger.read_text(encoding="utf-8")), {})
+
     def test_pending_index_clear_cannot_remove_a_newer_revision(self):
         from memory_service import MemoryStore
 
