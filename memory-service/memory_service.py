@@ -1553,11 +1553,10 @@ def run_reindex(mode: str, source: str = "all", dry_run: bool = False) -> Dict[s
     # Only an unfiltered pass owns the complete corpus and can safely prune stale
     # index rows. Filtered maintenance must not delete documents from other sources.
     if source == "all":
-        present = {
-            plan["name"] for plan in plans
-            if "error" not in plan
-        }
-        index.remove_missing(present)
+        # Keep every eligible source file in the present set, including files
+        # that failed to read or chunk. Their old index rows must survive so a
+        # later retry can recover them instead of deleting the last good copy.
+        index.remove_missing({path.stem for path in candidates})
 
     report.update({
         "documents_processed": processed,
