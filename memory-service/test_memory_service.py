@@ -79,6 +79,7 @@ def send_request(socket_path: Path, request: dict) -> dict:
 
 
 class MemoryClientContextTest(unittest.TestCase):
+
     def test_append_accepts_canonical_context_without_duplicate_schema(self):
         client = MemoryClient(socket_path=Path("/does/not/exist"))
         captured = {}
@@ -114,6 +115,7 @@ class MemoryClientContextTest(unittest.TestCase):
 
 
 class MemorySearchRegressionTest(unittest.TestCase):
+
     def test_operational_learning_artifact_is_findable_by_identifiers(self):
         from memory_service import MemoryStore
 
@@ -542,7 +544,6 @@ class MemorySearchRegressionTest(unittest.TestCase):
             # The hook allows 1500ms per request; require a wide safety margin.
             self.assertLess(max(durations), 0.75)
 
-
     def test_concurrent_searches_use_warm_hybrid_index_without_revectorizing_files(self):
         from memory_service import MemoryStore
 
@@ -614,6 +615,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
 
 class MemoryServiceIdempotencyTest(unittest.TestCase):
+
     def test_append_once_deduplicates_retries_and_rejects_key_reuse(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -658,7 +660,6 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
             self.assertFalse(response["ok"])
             self.assertIn("event_id", response["error"])
 
-
     def test_append_once_rejects_malformed_and_non_object_jsonl_records(self):
         from memory_service import MemoryStore
 
@@ -696,7 +697,6 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
             store = MemoryStore(Path(temp_dir))
             with self.assertRaisesRegex(ValueError, "non-empty JSON object"):
                 store.append_entry_once("events", "event-1", {})
-
 
     def test_append_once_retries_fsync_failure_before_duplicate_ack(self):
         from unittest.mock import patch
@@ -742,6 +742,7 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
 
 
 class MemoryServiceRestIdempotencyTest(unittest.TestCase):
+
     def test_append_once_rest_endpoint_maps_validation_conflict_and_corruption(self):
         from memory_service import MemoryService, create_http_server
 
@@ -831,8 +832,6 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
-
-
     def test_installed_session_end_hook_round_trips_to_durable_memory_once(self):
         """Exercise the installed Node hook through HTTP and durable Memory storage."""
         from memory_service import MemoryService, create_http_server
@@ -892,6 +891,7 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
 
 
 class MemoryServiceRestStatusTest(unittest.TestCase):
+
     def test_generic_memory_routes_map_failure_to_non_2xx_status(self):
         from memory_service import MemoryService, create_http_server
 
@@ -946,7 +946,6 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
-
     def test_semantic_search_enrichment_read_failure_returns_500(self):
         from memory_service import MemoryService, create_http_server
 
@@ -987,6 +986,7 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
 
 
 class MemoryServiceSecurityTest(unittest.TestCase):
+
     def test_private_runtime_directory_socket_permissions_and_name_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1062,6 +1062,7 @@ class MemoryServiceSecurityTest(unittest.TestCase):
 
 
 class MemoryServiceContextTest(unittest.TestCase):
+
     def test_execution_aware_retrieval_returns_related_prior_context(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1418,6 +1419,7 @@ class MemoryServiceContextTest(unittest.TestCase):
 
 
 class MemorySchemaVersionTest(unittest.TestCase):
+
     def test_current_context_includes_schema_version(self):
         context = ExecutionContext(
             request_id="request-1",
@@ -1476,6 +1478,7 @@ class MemorySchemaVersionTest(unittest.TestCase):
 
 
 class MemoryIndexReadinessTest(unittest.TestCase):
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         root = Path(self.temp_dir.name)
