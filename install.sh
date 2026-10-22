@@ -74,11 +74,23 @@ for required_path in \
     fi
 done
 
+# Install the complete Python runtime in a checkout-local virtualenv. All CE
+# services use this environment, including the default local embedding backend.
+install_python_runtime() {
+    local venv="$REPO_PATH/.venv"
+    echo "Installing Claude Ensemble Python dependencies (including Sentence Transformers)..."
+    python3 -m venv "$venv"
+    "$venv/bin/python" -m pip install --upgrade pip
+    "$venv/bin/python" -m pip install -r "$REPO_PATH/requirements.txt"
+    echo "Provisioning the default local embedding model..."
+    "$venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
+}
+
 # Snapshot the selected profile, existing CE deployment state, and managed units
 # before the first configuration or service mutation. If backup fails, stop here.
 bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
 
-# Migrate existing service state by copying missing files only. The original
+install_python_runtime\n\n# Migrate existing service state by copying missing files only. The original
 # ~/.claude data remains untouched and the backup above captures it first.
 STATE_ROOT="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
 MEMORY_STATE="${ENSEMBLE_MEMORY_DIR:-$STATE_ROOT/data/memory}"
@@ -472,19 +484,7 @@ echo "  Configuration"
 echo "================================================"
 echo ""
 
-# Never block a non-interactive install (for example, curl | bash).
-if [ -t 0 ] && [ -t 1 ]; then
-    read -r -p "Would you like to configure which tools/features to enable? [y/N]: " -n 1 REPLY
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        bash "$CONFIG_SOURCE"
-    else
-        echo "   ℹ You can configure anytime by running: $CLAUDE_HOME/config.sh"
-    fi
-else
-    echo "   ℹ Non-interactive install: keeping default feature configuration."
-fi
-
+echo "All Claude Ensemble features are installed with their default enabled configuration."\n
 echo ""
 echo "================================================"
 echo "  Installation Complete!"
