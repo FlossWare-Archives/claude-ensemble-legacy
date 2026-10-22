@@ -82,9 +82,13 @@ install_python_runtime() {
     python3 -m venv --copies "$venv"
     "$venv/bin/python" -m pip install --upgrade pip
     "$venv/bin/python" -m pip install -r "$REPO_PATH/requirements.txt"
-    echo "Provisioning the configured local embedding model..."
-    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
-        "$venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
+    if [[ "${ENSEMBLE_SKIP_MODEL_PROVISION:-0}" == "1" ]]; then
+        echo "Skipping model preload; ensure the configured local model is already cached for offline use."
+    else
+        echo "Provisioning the configured local embedding model..."
+        ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+            "$venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
+    fi
 }
 
 # Snapshot the selected profile, existing CE deployment state, and managed units
@@ -502,7 +506,7 @@ echo "  Configuration"
 echo "================================================"
 echo ""
 
-echo "All Claude Ensemble features are installed with their default enabled configuration."\n
+echo "All Claude Ensemble features are installed with their default enabled configuration."
 echo ""
 echo "================================================"
 echo "  Installation Complete!"
