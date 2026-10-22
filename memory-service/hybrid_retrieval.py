@@ -284,6 +284,28 @@ class HybridRetrievalIndex:
             self._corpus_cache[key] = result
             return result
 
+    def document_revision_matches(self, file: str, signature: str) -> bool:
+        """Return whether SQLite has this exact file revision and model identity.
+
+        The in-memory lexical cache and persistent hybrid index have independent
+        lifecycles. A matching lexical signature alone is not proof that SQLite
+        contains the same revision or vectors for the currently configured model.
+        """
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT signature, embedding, embedding_model FROM chunks WHERE file=?",
+                (file,),
+            ).fetchall()
+        if not rows or any(row["signature"] != signature for row in rows):
+            return False
+        if not self.embedding_model_name:
+            return all(row["embedding"] is None for row in rows)
+        return all(
+            row["embedding"] is not None
+            and row["embedding_model"] == self.embedding_model_name
+            for row in rows
+        )
+
     def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
         with self._connect() as db:
             row = db.execute(
@@ -350,7 +372,17 @@ class HybridRetrievalIndex:
             exact = bool(phrase and phrase in folded)
             semantic = 0.0
             if query_vector and row["embedding"]:
+                if row.get("embedding_model") != self.embedding_model_name:
+                    raise RuntimeError(
+                        "Memory embeddings use a different model; run the documented "
+                        "embedding reindex operation before serving semantic search"
+                    )
                 candidate = json.loads(row["embedding"])
+                if len(query_vector) != len(candidate):
+                    raise RuntimeError(
+                        "Memory embedding dimensions do not match; reindex embeddings "
+                        "with the configured local model before searching"
+                    )
                 semantic = max(0.0, sum(a * b for a, b in zip(query_vector, candidate)))
             scored.append((row, bm25, semantic, exact))
         max_bm25 = max((entry[1] for entry in scored), default=0.0)
