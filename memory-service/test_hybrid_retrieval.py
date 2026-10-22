@@ -33,5 +33,53 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertEqual(results[0]['file'], 'exact')
 
 
+    def test_configured_embeddings_are_persisted_and_used_for_search(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [
+                    [1.0, 0.0] if ("deployment root" in text.casefold() or "install root" in text.casefold()) else [0.0, 1.0]
+                    for text in texts
+                ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            index = FakeEmbeddingIndex(path, embedding_model="test-model")
+            index.replace_document("installation", "rev1", [{
+                "header": "Install root",
+                "heading_path": "Architecture > Install root",
+                "content": "The default deployment root is ~/.FlossWare/claude-ensemble.",
+            }])
+            index.replace_document("unrelated", "rev1", [{
+                "header": "General",
+                "heading_path": "General",
+                "content": "Claude Ensemble has hooks and memory retrieval.",
+            }])
+            with index._connect() as db:
+                row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
+            self.assertIsNotNone(row["embedding"])
+            self.assertEqual(row["embedding_model"], "test-model")
+            results = index.search("What install root did we establish as the default for Claude Ensemble?", 5, {"installation", "unrelated"})
+            self.assertEqual(results[0]["file"], "installation")
+            self.assertEqual(results[0]["retrieval"], "hybrid")
+
+    def test_enabling_embeddings_backfills_existing_lexical_index(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[1.0, 0.0] for _ in texts]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            chunk = [{"header": "Root", "heading_path": "Root", "content": "The default deployment root is ~/.FlossWare/claude-ensemble."}]
+            lexical = HybridRetrievalIndex(path)
+            lexical.replace_document("installation", "rev1", chunk)
+            embedded = FakeEmbeddingIndex(path, embedding_model="test-model")
+            embedded.replace_document("installation", "rev1", chunk)
+            with embedded._connect() as db:
+                row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
+            self.assertIsNotNone(row["embedding"])
+            self.assertEqual(row["embedding_model"], "test-model")
+
+
+
 if __name__ == '__main__':
     unittest.main()
