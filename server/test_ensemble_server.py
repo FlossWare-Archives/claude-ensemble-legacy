@@ -253,6 +253,23 @@ def run():
             assert graph_status == 200 and graph_health.get("ok") is True, graph_health
             memory_status, memory_health = request(gateway, "GET", "/api/v1/memory/health")
             assert memory_status == 200 and memory_health.get("ok") is True, memory_health
+
+            # Memory liveness stays healthy during warm-up, while readiness is
+            # gated on the initial search-index pass.
+            memory_ready_status = 503
+            for _ in range(200):
+                memory_ready_status, memory_ready = request(
+                    gateway, "GET", "/api/v1/memory/ready"
+                )
+                if memory_ready_status == 200:
+                    break
+                time.sleep(0.01)
+            assert memory_ready_status == 200 and memory_ready.get("ready") is True, memory_ready
+            gateway_ready_status, gateway_ready = request(
+                gateway, "GET", "/api/v1/ready"
+            )
+            assert gateway_ready_status == 200 and gateway_ready.get("ready") is True, gateway_ready
+
             for node in [
                 {"id":"model:sonnet","type":"model","properties":{"name":"sonnet"}},
                 {"id":"task:code_review","type":"task_type","properties":{"name":"code_review"}},

@@ -3,8 +3,10 @@
 ## Liveness versus readiness
 
 - GET /api/v1/health is a liveness check. HTTP 200 means the gateway process is responding; it does not claim downstream services are available.
-- GET /api/v1/ready is a readiness check. It probes Graph and Memory through the same forwarding boundary used for service requests. It returns HTTP 200 only when both services return a successful JSON health response with ok: true; otherwise it returns HTTP 503 and a per-dependency result.
-- GET /api/v1/graph/health and GET /api/v1/memory/health remain service-specific probes.
+- GET /api/v1/ready is a readiness check. It probes Graph liveness and Memory readiness through the same forwarding boundary used for service requests. It returns HTTP 200 only when Graph returns a successful health response and Memory reports that its initial search index is ready; otherwise it returns HTTP 503 and a per-dependency result.
+- GET /api/v1/graph/health and GET /api/v1/memory/health remain service-specific liveness probes. Memory's GET /api/v1/memory/ready reports search-index warm-up state independently.
+
+Memory remains live while the initial search index warms. Its readiness response reports `warming`, `ready`, `degraded`, `failed`, or `timed_out`, along with indexed/expected file counts and elapsed time. `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` defaults to 30 seconds; exceeding the bound keeps Memory not-ready and reports a diagnostic reason. A warm-up that eventually completes successfully can transition to ready.
 
 Readiness is a point-in-time probe, not a guarantee that a dependency will remain available after the response. It can take up to the upstream request timeout per unavailable dependency.
 

@@ -159,6 +159,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 f'{{"artifact_type":"integration.test.learning-memory","run_id":"{run_id}"}}\n'
             )
             service.store.write_file(document_name, content)
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -220,6 +221,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 hashlib.sha256(distractor_content.encode("utf-8")).hexdigest(),
                 {"scope": str(distractor_path.parent)},
             )
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -510,6 +512,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             service = MemoryService(root / "memory.sock", root / "memory")
             for index in range(5):
                 service.store.write_file(f"note-{index}", f"# Note {index}\n\nretrieval contract detail {index}\n")
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -875,6 +878,7 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1394,6 +1398,245 @@ class MemorySchemaVersionTest(unittest.TestCase):
             with self.subTest(schema_version=schema_version):
                 with self.assertRaises(ValueError):
                     ExecutionContext.from_dict(value)
+
+
+class MemoryIndexReadinessTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name)
+        from memory_service import MemoryService, create_http_server
+
+        self.service = MemoryService(root / "memory.sock", root / "memory")
+        self.server = create_http_server(self.service, "127.0.0.1", 0)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+        self.temp_dir.cleanup()
+
+    def get_json(self, path):
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.server.server_port}{path}", timeout=2
+            ) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def post_json(self, path, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.server.server_port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def test_liveness_is_independent_of_index_warmup(self):
+        status, health = self.get_json("/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["ok"])
+
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 503)
+        self.assertFalse(readiness["ready"])
+        self.assertEqual(readiness["search_index"]["state"], "not_started")
+
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "must not cold-build before startup"}
+        )
+        self.assertEqual(status, 503)
+        self.assertFalse(search["retryable"])
+        self.assertEqual(search["search_index"]["state"], "not_started")
+
+        self.service._warm_search_index()
+
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 200)
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["search_index"]["state"], "ready")
+
+    def test_warmup_timeout_reports_not_ready_without_failing_liveness(self):
+        started = threading.Event()
+        release = threading.Event()
+        # Keep the initial state assertion well clear of the deadline; then
+        # move the recorded start time across it deterministically.
+        self.service._index_warmup_timeout_seconds = 30.0
+
+        def slow_warmup_report(max_passes=3):
+            started.set()
+            release.wait(timeout=5)
+            return {
+                "pass": 1,
+                "expected_files": [],
+                "indexed_files": [],
+                "failed_files": {},
+                "added_files": [],
+                "removed_files": [],
+                "complete": True,
+            }
+
+        self.service.store.warm_search_index_report = slow_warmup_report
+        worker = threading.Thread(target=self.service._warm_search_index, daemon=True)
+        worker.start()
+        try:
+            self.assertTrue(started.wait(timeout=1))
+
+            status, search = self.post_json(
+                "/memory/search-semantic", {"query": "first prompt during warm-up"}
+            )
+            self.assertEqual(status, 503)
+            self.assertTrue(search["retryable"])
+            self.assertEqual(search["search_index"]["state"], "warming")
+
+            with self.service._index_status_lock:
+                self.service._index_started_at = time.monotonic() - 31.0
+            status, readiness = self.get_json("/ready")
+            self.assertEqual(status, 503)
+            self.assertEqual(readiness["search_index"]["state"], "timed_out")
+
+            status, search = self.post_json(
+                "/memory/search-semantic", {"query": "first prompt after restart"}
+            )
+            self.assertEqual(status, 503)
+            self.assertTrue(search["retryable"])
+            self.assertEqual(search["error_code"], "index_not_ready")
+
+            status, health = self.get_json("/health")
+            self.assertEqual(status, 200)
+            self.assertTrue(health["ok"])
+        finally:
+            release.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        status, readiness = self.get_json("/ready")
+        self.assertEqual(status, 200)
+        self.assertTrue(readiness["ready"])
+
+    def test_non_finite_warmup_timeout_is_rejected(self):
+        for value in ("nan", "inf", "-inf", "0", "-1"):
+            with self.subTest(value=value), patch.dict(
+                os.environ, {"ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS": value}
+            ):
+                from memory_service import MemoryService
+
+                with self.assertRaisesRegex(ValueError, "finite positive"):
+                    MemoryService(
+                        Path(self.temp_dir.name) / "invalid.sock",
+                        Path(self.temp_dir.name) / ("memory-" + value.replace("-", "minus")),
+                    )
+
+    def test_index_report_tracks_per_file_failures_and_directory_mutation(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+
+        original = self.service.store._indexed_chunks
+
+        def fail_one(path):
+            if path.name == "one.md":
+                raise OSError("simulated unreadable file")
+            return original(path)
+
+        self.service.store._indexed_chunks = fail_one
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("one.md", report["failed_files"])
+        self.assertIn("two.md", report["indexed_files"])
+
+    def test_index_report_detects_addition_during_failed_pass(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+        original = self.service.store._indexed_chunks
+
+        def mutate_and_fail(path):
+            if path.name == "one.md":
+                (memory_dir / "three.md").write_text("three", encoding="utf-8")
+                raise OSError("simulated unreadable file")
+            return original(path)
+
+        self.service.store._indexed_chunks = mutate_and_fail
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("one.md", report["failed_files"])
+        self.assertIn("three.md", report["added_files"])
+
+    def test_index_report_detects_removal_during_pass(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+        original = self.service.store._indexed_chunks
+
+        def remove_during_index(path):
+            if path.name == "one.md":
+                (memory_dir / "two.md").unlink()
+            return original(path)
+
+        self.service.store._indexed_chunks = remove_during_index
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("two.md", report["removed_files"])
+
+    def test_exhausted_warmup_retries_return_non_retryable_search_error(self):
+        calls = []
+        def incomplete_report(max_passes=3):
+            calls.append(max_passes)
+            return {
+                "pass": len(calls),
+                "expected_files": ["broken.md"],
+                "indexed_files": [],
+                "failed_files": {"broken.md": "simulated read error"},
+                "added_files": [],
+                "removed_files": [],
+                "complete": False,
+            }
+
+        self.service.store.warm_search_index_report = incomplete_report
+        self.service._warm_search_index()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(self.service.search_index_status()["state"], "degraded")
+
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "must not retry terminal failure"}
+        )
+        self.assertEqual(status, 503)
+        self.assertFalse(search["retryable"])
+        self.assertEqual(search["search_index"]["state"], "degraded")
+
+    def test_warmup_recovers_after_transient_index_failure(self):
+        calls = []
+        original = self.service.store.warm_search_index_report
+
+        def transient_failure(max_passes=3):
+            calls.append(max_passes)
+            if len(calls) == 1:
+                return {
+                    "pass": 1,
+                    "expected_files": [],
+                    "indexed_files": [],
+                    "failed_files": {"temporary.md": "temporary read error"},
+                    "added_files": [],
+                    "removed_files": [],
+                    "complete": False,
+                }
+            return original(max_passes=max_passes)
+
+        self.service.store.warm_search_index_report = transient_failure
+        self.service._warm_search_index()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.service.search_index_status()["state"], "ready")
 
 
 if __name__ == "__main__":
