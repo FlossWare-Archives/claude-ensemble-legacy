@@ -40,12 +40,25 @@ python3 -m pip install -r memory-service/requirements-embeddings.txt
 ```
 
 Then set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` in the Memory service environment to
-a locally available Sentence Transformers model name or model directory. The
-model runs on CPU and may download weights on first use if a model name is not
-already present locally. Do not enable this for work data unless local model
-execution and model acquisition are approved for the environment. Without that
-setting, retrieval uses BM25 and exact-match ranking only; it makes no embedding
-provider calls and downloads no model weights.
+a locally available Sentence Transformers model name or model directory. For
+a small general-purpose starting point, use
+`sentence-transformers/all-MiniLM-L6-v2`. The model runs on CPU and may
+download weights on first use if it is not already present locally. For an
+offline setup, pre-download the approved model and configure its local directory
+instead of a remote model name.
+
+When embeddings are enabled, the service stores each vector and the model
+identity beside the chunk in SQLite. If embeddings are enabled after a lexical
+index already exists, the next indexing pass backfills missing vectors. Changing
+the configured model causes vectors to be regenerated, rather than mixing vectors
+from different models. The first indexing pass and first query may be slower
+while the model loads and vectors are generated; later searches reuse stored
+vectors.
+
+Do not enable this for work data unless local model execution and model
+acquisition are approved for the environment. Without that setting, retrieval
+uses BM25 and exact-match ranking only; it makes no embedding provider calls and
+downloads no model weights.
 
 ## Installation
 
