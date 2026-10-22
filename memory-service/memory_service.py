@@ -100,6 +100,8 @@ class MemoryStore:
         # file's (mtime_ns, size) on every search, so external edits are seen.
         self._search_index: Dict[str, Tuple[Tuple[int, int], List[Dict[str, Any]]]] = {}
         self._search_index_lock = threading.Lock()
+        self._pending_index_lock = threading.Lock()
+        self._pending_index_path = self.memory_dir / ".hybrid-index-pending.json"
         # Per-file locks make cache population single-flight without serializing
         # independent files. Locks are retained for deleted names to avoid a
         # second lock being created while an older builder is still active.
@@ -134,22 +136,79 @@ class MemoryStore:
             with self.lock:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
-            # Keep the persistent hybrid index current at write time. Prompt-time
-            # retrieval must not rebuild document vectors or mutate the index.
-            try:
-                self._indexed_chunks(path)
-                present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
-                if (
-                    self._hybrid_index._full_corpus_key is None
-                    or present_stems != set(self._hybrid_index._full_corpus_key)
-                ):
-                    self._hybrid_index.warm_corpus(present_stems)
-            except Exception as index_error:
-                logger.warning("Memory %s was written but indexing is deferred: %s", name, index_error)
+            # Keep the persistent hybrid index current at write time. If indexing
+            # fails, retain a durable retry record and fail readiness closed.
+            self._index_written_file(path)
             logger.info(f"Wrote memory: {name}")
             return True
         except Exception as e:
             logger.error(f"Error writing {name}: {e}")
+            return False
+
+    def _pending_index_records(self) -> Dict[str, Dict[str, str]]:
+        """Read the durable retry ledger for files not yet reflected in SQLite."""
+        try:
+            value = json.loads(self._pending_index_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("Cannot read hybrid-index retry ledger: %s", exc)
+            return {"__ledger_error__": {"error": str(exc)}}
+        return value if isinstance(value, dict) else {
+            "__ledger_error__": {"error": "retry ledger is not a JSON object"}
+        }
+
+    def pending_index_status(self) -> Dict[str, Any]:
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+        return {
+            "count": len(records),
+            "files": sorted(name for name in records if name != "__ledger_error__"),
+            "errors": {name: record.get("error", "indexing pending")
+                       for name, record in records.items()},
+        }
+
+    def _write_pending_index_records(self, records: Dict[str, Dict[str, str]]) -> None:
+        temporary = self._pending_index_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, self._pending_index_path)
+
+    def _mark_index_pending(self, path: Path, error: Exception) -> None:
+        try:
+            with self._pending_index_lock:
+                records = self._pending_index_records()
+                records[path.stem] = {
+                    "signature": repr(self._file_signature(path.stat())) if path.exists() else "missing",
+                    "error": str(error),
+                }
+                self._write_pending_index_records(records)
+        except OSError as ledger_error:
+            logger.exception("Could not persist hybrid-index retry record for %s: %s", path, ledger_error)
+
+    def _clear_index_pending(self, file_name: str) -> None:
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+            if file_name in records:
+                records.pop(file_name, None)
+                self._write_pending_index_records(records)
+            if "__ledger_error__" in records and len(records) == 1:
+                self._write_pending_index_records({})
+
+    def _index_written_file(self, path: Path) -> bool:
+        """Index a durable Markdown write or record explicit deferred work."""
+        try:
+            self._indexed_chunks(path)
+            present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
+            if (
+                self._hybrid_index._full_corpus_key is None
+                or present_stems != set(self._hybrid_index._full_corpus_key)
+            ):
+                self._hybrid_index.warm_corpus(present_stems)
+            self._clear_index_pending(path.stem)
+            return True
+        except Exception as index_error:
+            self._mark_index_pending(path, index_error)
+            logger.warning("Memory %s was written but indexing is pending: %s", path.stem, index_error)
             return False
 
     def append_entry(self, name: str, entry: Dict[str, Any]) -> bool:
@@ -439,25 +498,8 @@ class MemoryStore:
                 "stale": False,
             }
             self._save_ingest_index(index)
-        # Ingestion writes the Markdown file directly rather than going through
-        # write_file(), so explicitly keep the persistent hybrid index in sync.
         # This work happens on the ingestion/write path, never during prompt search.
-        try:
-            self._indexed_chunks(path)
-            present_stems = {
-                item.stem for item in self.memory_dir.glob("*.md") if item.is_file()
-            }
-            if (
-                self._hybrid_index._full_corpus_key is None
-                or present_stems != set(self._hybrid_index._full_corpus_key)
-            ):
-                self._hybrid_index.warm_corpus(present_stems)
-        except Exception as index_error:
-            logger.warning(
-                "Knowledge %s was ingested but hybrid indexing is deferred: %s",
-                document_key,
-                index_error,
-            )
+        self._index_written_file(path)
         logger.info("Ingested Claude Code memory: %s", source_path)
         return {"status": "ingested", "source_path": source_path, "sha256": sha256, "document": document_key}
 
