@@ -257,6 +257,35 @@ class HybridRetrievalIndex:
 
         self._invalidate_cache()
 
+    def reembed_document(self, file: str) -> int:
+        """Regenerate vectors for the existing chunks without changing chunking.
+
+        All vectors are computed before the transaction starts. If model loading
+        or encoding fails, the document's previous vectors remain usable.
+        """
+        if not self.embedding_model_name:
+            raise RuntimeError(
+                "Embedding backfill requires ENSEMBLE_MEMORY_EMBEDDING_MODEL"
+            )
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT id, content FROM chunks WHERE file=? ORDER BY ordinal",
+                (file,),
+            ).fetchall()
+        if not rows:
+            return 0
+        embeddings = self._embed([row["content"] for row in rows])
+        if embeddings is None or len(embeddings) != len(rows):
+            raise RuntimeError("Embedding provider returned an incomplete vector batch")
+        with self._connect() as db:
+            for row, embedding in zip(rows, embeddings):
+                db.execute(
+                    "UPDATE chunks SET embedding=?, embedding_model=? WHERE id=?",
+                    (json.dumps(embedding), self.embedding_model_name, row["id"]),
+                )
+        self._invalidate_cache()
+        return len(rows)
+
     def remove_missing(self, present_files: set[str]) -> None:
         with self._connect() as db:
             indexed = {row["file"] for row in db.execute("SELECT DISTINCT file FROM chunks")}
