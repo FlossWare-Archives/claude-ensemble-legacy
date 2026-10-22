@@ -374,7 +374,7 @@ try {
     );
     assert.ok(compound.includes('What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?'), JSON.stringify(compound));
     assert.ok(compound.includes('What did we decide about the memory service boundary'), JSON.stringify(compound));
-    assert.ok(compound.includes('and how does the installer handle the acceptance profile'), JSON.stringify(compound));
+    assert.ok(compound.includes('decide about memory service boundary installer handle acceptance profile'), JSON.stringify(compound));
     assert.ok(compound.length <= 3, JSON.stringify(compound));
 
     // The letter "n" must not split a prompt that has no clause boundary.
