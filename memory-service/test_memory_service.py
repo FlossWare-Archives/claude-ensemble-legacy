@@ -612,7 +612,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             outside = root / "outside.md"
             outside.write_text("must not be touched", encoding="utf-8")
             (memory_dir / "note.md").write_text(
-                "# Note\\n\\nSafe reconciliation target.", encoding="utf-8"
+                "# Note\n\nSafe reconciliation target.", encoding="utf-8"
             )
             ledger = memory_dir / ".hybrid-index-pending.json"
             ledger.write_text(
@@ -654,7 +654,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 memory_dir = root / "memory"
                 memory_dir.mkdir()
                 (memory_dir / "note.md").write_text(
-                    "# Note\\n\\nSafe reconciliation target.", encoding="utf-8"
+                    "# Note\n\nSafe reconciliation target.", encoding="utf-8"
                 )
                 ledger = memory_dir / ".hybrid-index-pending.json"
                 ledger.write_text(
