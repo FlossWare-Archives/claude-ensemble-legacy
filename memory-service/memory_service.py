@@ -734,7 +734,15 @@ class MemoryStore:
             added = sorted(final_names - set(initial))
             removed = sorted(set(initial) - final_names)
             stable = not added and not removed
-            complete = stable and not failures and len(indexed) == len(initial)
+            present_stems = {Path(name).stem for name in final_names}
+            for pending_name in self.pending_index_status()["files"]:
+                if pending_name not in present_stems:
+                    self._clear_index_pending(pending_name)
+            pending_status = self.pending_index_status()
+            complete = (
+                stable and not failures and len(indexed) == len(initial)
+                and pending_status["count"] == 0
+            )
             last_report = {
                 "pass": pass_number,
                 "expected_files": sorted(initial),
@@ -742,6 +750,8 @@ class MemoryStore:
                 "failed_files": failures,
                 "added_files": added,
                 "removed_files": removed,
+                "pending_index_files": pending_status["files"],
+                "pending_index_errors": pending_status["errors"],
                 "complete": complete,
             }
             if complete:
@@ -1183,10 +1193,20 @@ class MemoryService:
                     should_log = True
             if should_log:
                 logger.warning("%s", error)
+        pending = self.store.pending_index_status()
+        if pending["count"] and state == "ready":
+            state = "degraded"
+            error = (
+                f"{pending['count']} document(s) have durable pending hybrid-index work; "
+                "retry the write/ingest or restart Memory to retry indexing"
+            )
         return {
             "state": state,
             "indexed_files": indexed,
             "expected_files": expected,
+            "pending_index_files": pending["files"],
+            "pending_index_count": pending["count"],
+            "pending_index_errors": pending["errors"],
             "elapsed_seconds": round(elapsed, 3),
             "warmup_timeout_seconds": self._index_warmup_timeout_seconds,
             **({"error": error} if error else {}),
