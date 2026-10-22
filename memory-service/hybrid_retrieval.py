@@ -169,6 +169,22 @@ class HybridRetrievalIndex:
             cached = self._corpus_cache.get(key)
             if cached is not None:
                 return cached
+            # Warm-up caches the full corpus before readiness is reported. A
+            # source-filtered query can derive its statistics from that in-memory
+            # superset instead of reopening SQLite and rebuilding the corpus.
+            for cached_key, cached_value in self._corpus_cache.items():
+                if key.issubset(cached_key):
+                    full_docs = cached_value[0]
+                    docs = [doc for doc in full_docs if doc["file"] in allowed_files]
+                    df: dict[str, int] = {}
+                    total = 0
+                    for doc in docs:
+                        for term in doc["frequencies"]:
+                            df[term] = df.get(term, 0) + 1
+                        total += doc["length"]
+                    result = (docs, total / max(len(docs), 1), df)
+                    self._corpus_cache[key] = result
+                    return result
             with self._connect() as db:
                 rows = db.execute("SELECT * FROM chunks").fetchall()
             docs = []
