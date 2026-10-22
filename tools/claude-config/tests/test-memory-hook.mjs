@@ -465,11 +465,64 @@ try {
       .filter(request => request.source === 'claude-code')
       .map(request => request.query);
     assert.ok(knowledgeQueries.includes('install root default Claude Ensemble'), JSON.stringify(knowledgeQueries));
+    assert.ok(!knowledgeQueries.some(query => /\\bestablish(?:ed)?\\b/i.test(query) && query !== prompt),
+      'domain-specific verbs should remain meaningful keyword terms when present');
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
     assert.ok(context.includes('~/.FlossWare/claude-ensemble'));
     assert.ok(context.indexOf('~/.FlossWare/claude-ensemble') < context.indexOf('Unrelated deployment note'));
   } finally {
     await close(retrievalServer);
+  }
+}
+
+
+{
+  // Knowledge result count must honor rag.json rather than the global constant.
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'ce-rag-config-'));
+  const configPath = path.join(configDir, 'rag.json');
+  const limitRequests = [];
+  const limitServer = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (req.url === '/memory/knowledge/status') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 1 }));
+        return;
+      }
+      const request = JSON.parse(body);
+      limitRequests.push(request);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      const results = Array.from({ length: 10 }, (_, index) => ({
+        file: 'knowledge-' + index,
+        section: 'Limit test',
+        score: 1 - index * 0.01,
+        content: 'Knowledge result ' + index,
+      }));
+      res.end(JSON.stringify({ ok: true, results: request.source === 'claude-code' ? results : [] }));
+    });
+  });
+  const limitPort = await listen(limitServer);
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      knowledge: { max_results: 3, max_queries: 3 },
+      memory: { enabled: false },
+      graph: { enabled: false },
+    }));
+    const limited = await runHook({
+      url: `http://127.0.0.1:${limitPort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      env: { FLOSSWARE_CE_RAG_CONFIG: configPath },
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'Explain knowledge result limits clearly' },
+    });
+    assert.equal(limited.code, 0, limited.stderr);
+    const output = JSON.parse(limited.stdout);
+    assert.equal(output.hookSpecificOutput.contextRetrieval.knowledgeCount, 3);
+    assert.equal((output.hookSpecificOutput.additionalContext.match(/Knowledge result \\d+/g) || []).length, 3);
+    assert.ok(limitRequests.filter(request => request.source === 'claude-code').every(request => request.limit === 3));
+  } finally {
+    await close(limitServer);
+    await rm(configDir, { recursive: true, force: true });
   }
 }
 
