@@ -1466,8 +1466,15 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         worker = threading.Thread(target=self.service._warm_search_index, daemon=True)
         worker.start()
         self.assertTrue(started.wait(timeout=1))
-        time.sleep(0.03)
 
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "first prompt during warm-up"}
+        )
+        self.assertEqual(status, 503)
+        self.assertTrue(search["retryable"])
+        self.assertEqual(search["search_index"]["state"], "warming")
+
+        time.sleep(0.03)
         status, readiness = self.get_json("/ready")
         self.assertEqual(status, 503)
         self.assertEqual(readiness["search_index"]["state"], "timed_out")
