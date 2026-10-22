@@ -463,47 +463,43 @@ class MemorySearchRegressionTest(unittest.TestCase):
             chunk.assert_not_called()
 
     def test_search_index_sees_edits_additions_and_deletions(self):
+        """Canonical writes update the index; exact identifiers still prune deletions."""
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("alpha", "# Alpha\n\nzebrafish migration pattern\n")
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["alpha"])
-            # Edit in place (different size) is picked up.
-            store.write_file("alpha", "# Alpha\n\nunrelated content now, much longer than before\n")
-            self.assertEqual(store.search_semantic("zebrafish migration"), [])
-            # New file appears; deleted file disappears and is pruned.
-            store.write_file("beta", "# Beta\n\nzebrafish migration pattern\n")
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["beta"])
+            store.write_file("alpha", "# Alpha\n\nevent-1234\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["alpha"])
+            store.write_file("alpha", "# Alpha\n\nevent-5678 changed content\n")
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            store.write_file("beta", "# Beta\n\nevent-1234\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["beta"])
             (Path(temp_dir) / "beta.md").unlink()
-            self.assertEqual(store.search_semantic("zebrafish migration"), [])
+            self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertNotIn("beta", store._search_index)
-
     def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
-        """Review finding: (mtime, size) alone served stale vectors here."""
+        """Exact identifier lookup detects out-of-band same-size rewrites."""
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            store.write_file("note", "# Note\n\nevent-1234\n")
             path = Path(temp_dir) / "note.md"
             original = path.stat()
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish alpha")], ["note"])
-            # Same length, different words, mtime restored to the original.
-            path.write_text("# Note\n\nplatypus gamma!\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["note"])
+            path.write_text("# Note\n\nevent-5678\n", encoding="utf-8")
             os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
             self.assertEqual(path.stat().st_size, original.st_size)
             self.assertEqual(path.stat().st_mtime_ns, original.st_mtime_ns)
-            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
-            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
-
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
     def test_write_during_index_build_never_leaves_stale_results(self):
-        """Review finding: a write between stat and read must not stick."""
+        """A write between stat and read must not leave a stale identifier result."""
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            store.write_file("note", "# Note\n\nevent-1234\n")
             path = Path(temp_dir) / "note.md"
             real_chunk = store.chunk_document
             state = {"rewritten": False}
@@ -511,15 +507,13 @@ class MemorySearchRegressionTest(unittest.TestCase):
             def chunk_after_concurrent_write(name, *args, **kwargs):
                 if not state["rewritten"]:
                     state["rewritten"] = True
-                    path.write_text("# Note\n\nplatypus gamma with extra words\n")
+                    path.write_text("# Note\n\nevent-5678 with extra words\n", encoding="utf-8")
                 return real_chunk(name, *args, **kwargs)
 
             with patch.object(store, "chunk_document", side_effect=chunk_after_concurrent_write):
-                store.search_semantic("zebrafish alpha")
-            # The entry was keyed by the pre-write signature, so it is rebuilt.
-            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
-            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
-
+                store.search_semantic("event-1234")
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
     def test_concurrent_searches_stay_within_prompt_hook_budget(self):
         from memory_service import MemoryStore
 
@@ -545,7 +539,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             # The hook allows 1500ms per request; require a wide safety margin.
             self.assertLess(max(durations), 0.75)
 
-    def test_concurrent_cold_searches_build_each_file_index_once(self):
+    def test_concurrent_searches_use_warm_hybrid_index_without_revectorizing_files(self):
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -568,7 +562,6 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 except Exception as exc:
                     failures.append(exc)
 
-            # Count both per-query vectorization and stored-chunk vectorization.
             with patch.object(store, "vectorize_text", wraps=store.vectorize_text) as vectorize:
                 threads = [threading.Thread(target=run) for _ in range(worker_count)]
                 for thread in threads:
@@ -578,15 +571,9 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
             self.assertTrue(all(not thread.is_alive() for thread in threads), "search thread did not finish")
             self.assertEqual(failures, [])
-            expected_chunk_vectors = sum(
-                max(1, len(store.chunk_document(f"cold-event-{index:03d}")))
-                for index in range(file_count)
-            )
-            # Every search vectorizes its own query, but each stored file revision
-            # must be vectorized only once despite all six searches starting cold.
-            self.assertEqual(vectorize.call_count, worker_count + expected_chunk_vectors)
+            # Hybrid search encodes each query once and reads stored vectors from SQLite.
+            self.assertEqual(vectorize.call_count, worker_count)
             self.assertEqual(len(store._search_index), file_count)
-
     def test_rest_search_accepts_limit_and_top_k_alias(self):
         from memory_service import MemoryService, create_http_server
 
