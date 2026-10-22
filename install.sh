@@ -90,7 +90,9 @@ install_python_runtime() {
 # before the first configuration or service mutation. If backup fails, stop here.
 bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
 
-install_python_runtime\n\n# Migrate existing service state by copying missing files only. The original
+install_python_runtime
+
+# Migrate existing service state by copying missing files only. The original
 # ~/.claude data remains untouched and the backup above captures it first.
 STATE_ROOT="${ENSEMBLE_CE_DEV_STATE:-$HOME/.FlossWare/claude-ensemble-state}"
 MEMORY_STATE="${ENSEMBLE_MEMORY_DIR:-$STATE_ROOT/data/memory}"
