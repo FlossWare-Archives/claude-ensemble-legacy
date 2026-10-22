@@ -219,11 +219,16 @@ class HybridRetrievalIndex:
                      json.dumps(embeddings[ordinal]) if embeddings else None),
                 )
 
+        self._invalidate_cache()
+
     def remove_missing(self, present_files: set[str]) -> None:
         with self._connect() as db:
             indexed = {row["file"] for row in db.execute("SELECT DISTINCT file FROM chunks")}
             for file in indexed - present_files:
                 db.execute("DELETE FROM chunks WHERE file=?", (file,))
+
+        if indexed - present_files:
+            self._invalidate_cache()
 
     def search(self, query: str, top_k: int, allowed_files: set[str]) -> list[dict[str, Any]]:
         query_tokens = tokenize(query)
