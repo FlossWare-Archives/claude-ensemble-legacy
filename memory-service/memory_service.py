@@ -224,9 +224,10 @@ class MemoryStore:
             records.pop(file_name, None)
             self._pending_index_faults.pop(file_name, None)
             try:
-                records.pop("__ledger_error__", None)
+                # Do not clear a global ledger fault merely because one file
+                # recovered. A complete corpus reconciliation is required to
+                # prove no failed ledger write hid pending work for another file.
                 self._write_pending_index_records(records)
-                self._pending_index_faults.pop("__ledger_error__", None)
             except OSError as ledger_error:
                 self._pending_index_faults["__ledger_error__"] = {
                     "error": f"Could not update retry ledger: {ledger_error}"
