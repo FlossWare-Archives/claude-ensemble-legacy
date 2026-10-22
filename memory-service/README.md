@@ -44,13 +44,25 @@ not require that setting.
 Existing lexical indexes are backfilled as documents are indexed, and the
 operator-controlled reindex command can rebuild the entire corpus or migrate
 vectors after a model change. Vectors and model identity are stored with each
-chunk in SQLite. The first model load and initial backfill take longer; later
-searches reuse stored vectors.
+chunk in SQLite. The first model load and initial backfill take longer; later searches reuse
+stored document vectors. Prompt-time searches read the persisted SQLite index
+and embed only the query, not the document corpus.
 
 The model is local inference. Memory content is not sent to an external
-embedding API. For disconnected environments, provision the model weights in the
-local model cache as part of installation so startup does not depend on network
-access.
+embedding API.
+
+For disconnected environments, provide a local wheelhouse and a pre-cached model
+(or set ENSEMBLE_MEMORY_EMBEDDING_MODEL to a local model directory). The
+versioned installer supports an offline package path through pip's standard
+PIP_NO_INDEX=1 and PIP_FIND_LINKS=/path/to/wheelhouse settings, and
+ENSEMBLE_SKIP_MODEL_PROVISION=1 skips model acquisition during installation.
+Set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 to forbid Hugging Face network
+access. The selected model must already be available locally. For a source
+checkout whose .venv is already provisioned, ENSEMBLE_SKIP_PYTHON_PROVISION=1
+skips all package installation and requires an existing .venv/bin/python.
+
+Activation, recovery, and rollback reuse the immutable release runtime. They do
+not run pip or download model weights.
 
 ## Installation
 
@@ -105,7 +117,7 @@ Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/cla
 - Semantic and hybrid search requests in `not_started`, `warming`, `timed_out`, `degraded`, or `failed` state return HTTP 503 with `error_code: index_not_ready`. Only `warming` and `timed_out` responses are marked `retryable: true`, because the active warm-up can still complete.
 - The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
 
-Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files added or changed after startup are indexed on demand; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
+Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files written through the Memory service are indexed at write time. External edits are incorporated during the next warm-up or explicit reindex. Prompt-time retrieval does not rebuild document chunks or write the hybrid index; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
 
 ### Ping
 ```json
