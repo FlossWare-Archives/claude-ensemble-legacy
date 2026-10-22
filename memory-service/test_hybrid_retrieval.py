@@ -127,8 +127,12 @@ class HybridRetrievalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "index.sqlite3"
             chunk = [{"header": "Root", "heading_path": "Root", "content": "The default deployment root is ~/.FlossWare/claude-ensemble."}]
-            lexical = HybridRetrievalIndex(path)
+            lexical = HybridRetrievalIndex(path, embedding_model="")
             lexical.replace_document("installation", "rev1", chunk)
+            with lexical._connect() as db:
+                legacy_row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
+            self.assertIsNone(legacy_row["embedding"])
+            self.assertIsNone(legacy_row["embedding_model"])
             embedded = FakeEmbeddingIndex(path, embedding_model="test-model")
             embedded.replace_document("installation", "rev1", chunk)
             with embedded._connect() as db:
