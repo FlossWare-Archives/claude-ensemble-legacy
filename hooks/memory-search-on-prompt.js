@@ -440,15 +440,19 @@ async function searchKnowledgeContext(query, config) {
     throw responses.find(response => response.error).error;
   }
 
-  // Scores from the same Memory index are comparable across queries. Rank
-  // the union instead of letting results from the full prompt crowd out a
-  // stronger match found by the compact keyword query.
+  // Scores are calibrated per query (BM25 is normalized to each query's
+  // best hit), so fuse ranks rather than comparing raw scores across variants.
+  // Reciprocal-rank fusion rewards results that consistently appear near the
+  // top while preserving useful coverage from keyword and clause searches.
   const byKey = new Map();
   let ordinal = 0;
+  const rrfK = 60;
   for (const response of successful) {
-    for (const raw of Array.isArray(response.results) ? response.results : []) {
+    const seenInQuery = new Set();
+    const results = Array.isArray(response.results) ? response.results : [];
+    results.forEach((raw, rank) => {
       const content = resultText(raw);
-      if (!content) continue;
+      if (!content) return;
       const result = { ...raw, content, _ordinal: ordinal++ };
       const key = [
         resultSource(result),
@@ -456,20 +460,29 @@ async function searchKnowledgeContext(query, config) {
         result.section || '',
         content,
       ].join('\u0000');
+      if (seenInQuery.has(key)) return;
+      seenInQuery.add(key);
       const previous = byKey.get(key);
-      const score = Number.isFinite(result.score) ? result.score : 0;
-      const previousScore = previous && Number.isFinite(previous.score) ? previous.score : 0;
-      if (!previous || score > previousScore) byKey.set(key, result);
-    }
+      if (previous) {
+        previous._rrf += 1 / (rrfK + rank + 1);
+        previous._appearances += 1;
+      } else {
+        byKey.set(key, {
+          ...result,
+          _rrf: 1 / (rrfK + rank + 1),
+          _appearances: 1,
+        });
+      }
+    });
   }
   const ranked = [...byKey.values()]
-    .sort((left, right) => {
-      const leftScore = Number.isFinite(left.score) ? left.score : 0;
-      const rightScore = Number.isFinite(right.score) ? right.score : 0;
-      return rightScore - leftScore || left._ordinal - right._ordinal;
-    })
+    .sort((left, right) =>
+      right._rrf - left._rrf
+      || right._appearances - left._appearances
+      || left._ordinal - right._ordinal
+    )
     .slice(0, config.knowledge.max_results)
-    .map(({ _ordinal, ...result }) => result);
+    .map(({ _ordinal, _rrf, _appearances, ...result }) => result);
   return { ok: successful.length > 0, results: ranked };
 }
 
