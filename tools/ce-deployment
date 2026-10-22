@@ -208,6 +208,44 @@ assert_managed_layout() {
 }
 assert_managed_layout
 
+write_deployment_manifest() {
+  local version="$1" tmp="$ROOT/.deployment.json.$BASHPID"
+  python3 - "$RELEASES/$version/.ce-release.json" "$ROOT/deployment.json" "$tmp" "$version" <<'PY'
+import datetime, json, os, re, sys
+release_path, current_path, output_path, version = sys.argv[1:]
+if not re.fullmatch(r"[0-9]+\.[0-9]+", version):
+    raise SystemExit("invalid deployment release version")
+if os.path.isfile(release_path) and not os.path.islink(release_path):
+    with open(release_path, encoding="utf-8") as source:
+        metadata = json.load(source)
+    if metadata.get("schema_version") != 1 or metadata.get("release") != version:
+        raise SystemExit("release provenance metadata does not match the activated release")
+    commit = metadata.get("source_commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SystemExit("release provenance metadata has an invalid source commit")
+    created_at = metadata.get("created_at")
+    if not isinstance(created_at, str) or not created_at:
+        raise SystemExit("release provenance metadata has no creation timestamp")
+else:
+    commit = None
+    created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if os.path.isfile(current_path) and not os.path.islink(current_path):
+        with open(current_path, encoding="utf-8") as source:
+            current = json.load(source)
+        if current.get("schema_version") == 1 and current.get("release") == version:
+            candidate = current.get("source_commit")
+            if candidate is None or (isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{40}", candidate)):
+                commit = candidate
+                created_at = current.get("created_at", created_at)
+payload = {"schema_version": 1, "release": version, "source_commit": commit,
+           "created_at": created_at, "validation": "activated"}
+with open(output_path, "w", encoding="utf-8") as target:
+    json.dump(payload, target, indent=2)
+    target.write("\n")
+os.replace(output_path, os.path.join(os.path.dirname(output_path), "deployment.json"))
+PY
+}
+
 write_known_good() {
   local previous="$1" target="$2" tmp="$ROOT/.known-good.json.$BASHPID"
   python3 - "$tmp" "$previous" "$target" <<'PY'
@@ -310,6 +348,7 @@ recover_activation() {
     restore_units "$backup" "$active_file" || die "original unit restoration failed; journal retained"
   fi
   if [[ -f "$backup/known-good-before.json" ]]; then cp -a -- "$backup/known-good-before.json" "$KNOWN_GOOD"; elif [[ -f "$backup/known-good-before.absent" ]]; then rm -f -- "$KNOWN_GOOD"; fi
+  if [[ -f "$backup/deployment-before.json" ]]; then cp -a -- "$backup/deployment-before.json" "$ROOT/deployment.json"; elif [[ -f "$backup/deployment-before.absent" ]]; then rm -f -- "$ROOT/deployment.json"; fi
   rm -f -- "$JOURNAL"
   rm -rf -- "$backup"
   rm -f -- "$active_file"
@@ -400,6 +439,7 @@ case "$cmd" in
       "$SYSTEMCTL_BIN" --user is-active --quiet "$unit" && printf "%s\n" "$unit" >> "$active_file" || true
     done
     if [[ -f "$KNOWN_GOOD" ]]; then cp -a -- "$KNOWN_GOOD" "$backup/known-good-before.json"; else : > "$backup/known-good-before.absent"; fi
+    if [[ -f "$ROOT/deployment.json" ]]; then cp -a -- "$ROOT/deployment.json" "$backup/deployment-before.json"; else : > "$backup/deployment-before.absent"; fi
     write_journal "$previous" "$version" "$backup" "$active_file"
     [[ -f "$JOURNAL" ]] || die "failed to persist activation journal at $JOURNAL"
     stop_services || die "could not stop all CE services; run ce-deployment recover; journal retained"
@@ -410,6 +450,7 @@ case "$cmd" in
     fi
     if start_services; then
       write_known_good "$previous" "$version" || die "activation succeeded but known-good state could not be persisted; journal retained"
+      write_deployment_manifest "$version" || die "activation succeeded but deployment manifest could not be persisted; journal retained"
       rm -f -- "$JOURNAL"; rm -rf -- "$backup"
       printf "Activated Claude Ensemble release %s. Previous release: %s\n" "$version" "${previous:-none}"
       exit 0

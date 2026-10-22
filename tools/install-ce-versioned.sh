@@ -233,6 +233,16 @@ rm -rf -- "$STAGED/claude-code"
 ln -s ../../shared/claude-code "$STAGED/claude-code"
 mkdir -p "$RELEASES"
 mv -- "$STAGED" "$RELEASE"
+python3 - "$RELEASE/.ce-release.json" "$VERSION" "$SOURCE_COMMIT" <<'PY'
+import datetime
+import json
+import sys
+path, version, commit = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as output:
+    json.dump({"schema_version": 1, "release": version, "source_commit": commit,
+               "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, output, indent=2)
+    output.write("\n")
+PY
 
 if ! ENSEMBLE_INSTALL_ROOT="$ROOT" bash "$RELEASE/tools/ce-deployment" validate "$VERSION"; then
   rm -rf -- "$RELEASE"
