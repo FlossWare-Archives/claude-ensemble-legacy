@@ -44,12 +44,15 @@ Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to override the default
 model or point to a preinstalled local model directory. Normal operation does
 not require that setting.
 
-Existing lexical indexes are backfilled as documents are indexed, and the
-operator-controlled reindex command can rebuild the entire corpus or migrate
-vectors after a model change. Vectors and model identity are stored with each
-chunk in SQLite. The first model load and initial backfill take longer; later searches reuse
-stored document vectors. Prompt-time searches read the persisted SQLite index
-and embed only the query, not the document corpus.
+Existing lexical indexes are backfilled during startup warm-up and as
+documents are written or ingested. Restart the Memory service to incorporate
+external Markdown edits or to retry a failed index write; prompt-time prose
+search deliberately does not repair the index. The companion reindex-operations
+change adds explicit full, incremental, and embedding-only maintenance commands.
+Vectors and model identity are stored with each chunk in SQLite. The first model
+load and initial backfill take longer; later searches reuse stored document
+vectors. Prompt-time searches read the persisted SQLite index and embed only the
+query, not the document corpus.
 
 The model is local inference. Memory content is not sent to an external
 embedding API.
@@ -133,7 +136,7 @@ Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/cla
 - Semantic and hybrid search requests in `not_started`, `warming`, `timed_out`, `degraded`, or `failed` state return HTTP 503 with `error_code: index_not_ready`. Only `warming` and `timed_out` responses are marked `retryable: true`, because the active warm-up can still complete.
 - The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
 
-Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files written through the Memory service are indexed at write time. External edits are incorporated during the next warm-up or explicit reindex. Prompt-time retrieval does not rebuild document chunks or write the hybrid index; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
+Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files written through the Memory service are indexed at write time. External edits are incorporated during the next startup warm-up or explicit maintenance reindex. Prompt-time retrieval does not rebuild document chunks or write the hybrid index; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
 
 ### Ping
 ```json
