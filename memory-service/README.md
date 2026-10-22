@@ -67,6 +67,15 @@ systemctl --user disable rh-memory
 
 Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/claude-ensemble/memory.sock` when `XDG_RUNTIME_DIR` is available. If it is unavailable, the service uses `~/.cache/claude-ensemble/memory.sock`. The fallback also uses a `0700` parent directory and `0600` socket permissions.
 
+### Liveness, readiness, and index warm-up
+
+- `GET /health` is liveness. It reports that the Memory process is responding and remains HTTP 200 while the search index warms.
+- `GET /ready` is readiness. It returns HTTP 200 only after the initial search index is usable; while warming or after a warm-up failure/timeout it returns HTTP 503 with the index state and indexed/expected file counts.
+- `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` controls the warm-up readiness budget and defaults to 30 seconds. Exceeding it reports `timed_out`; the service remains live, and readiness can recover if the warm-up later completes successfully.
+- The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
+
+The first search after a restart may still perform on-demand work for files changed or created during warm-up. Readiness describes completion of the initial index pass, not a guarantee that every later query has a fixed latency.
+
 ### Ping
 ```json
 {"op": "ping"}
