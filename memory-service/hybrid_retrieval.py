@@ -5,6 +5,7 @@ are enabled by default; ENSEMBLE_MEMORY_EMBEDDING_MODEL can override the default
 """
 from __future__ import annotations
 
+import bisect
 import json
 import math
 from contextlib import contextmanager
@@ -28,70 +29,58 @@ def tokenize(text: str) -> list[str]:
 
 
 def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -> list[dict[str, Any]]:
-    """Split Markdown by heading hierarchy and paragraph boundaries with overlap."""
+    """Split Markdown near paragraph boundaries, with bounded overlap and line provenance."""
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    overlap_chars = max(0, min(overlap_chars, max_chars - 1))
     lines = text.splitlines(keepends=True)
     chunks: list[dict[str, Any]] = []
     heading_stack: list[tuple[int, str]] = []
     section_lines: list[tuple[int, str]] = []
-    section_start = 1
 
     def emit_section() -> None:
-        nonlocal section_lines, section_start
+        nonlocal section_lines
         if not section_lines:
             return
         heading_path = " > ".join(label for _, label in heading_stack) or "Introduction"
         header = heading_stack[-1][1] if heading_stack else "Introduction"
-        paragraphs: list[tuple[int, str]] = []
-        buf: list[str] = []
-        buf_start = section_start
-        for line_no, line in section_lines:
-            if not line.strip() and buf:
-                paragraphs.append((buf_start, "".join(buf)))
-                buf = []
-            else:
-                if not buf:
-                    buf_start = line_no
-                buf.append(line)
-        if buf:
-            paragraphs.append((buf_start, "".join(buf)))
+        section_text = "".join(line for _, line in section_lines)
+        line_offsets: list[int] = []
+        offset = 0
+        for _, line in section_lines:
+            line_offsets.append(offset)
+            offset += len(line)
 
-        current: list[tuple[int, str]] = []
-        current_size = 0
-        for p_start, paragraph in paragraphs:
-            pieces = [paragraph]
-            if len(paragraph) > max_chars:
-                pieces = []
-                remaining = paragraph
-                while len(remaining) > max_chars:
-                    cut = remaining.rfind("\n", 0, max_chars)
-                    if cut < max_chars // 2:
-                        cut = max_chars
-                    pieces.append(remaining[:cut])
-                    remaining = remaining[max(0, cut - overlap_chars):]
-                if remaining:
-                    pieces.append(remaining)
-            for piece in pieces:
-                if current and current_size + len(piece) > max_chars:
-                    content = "".join(part for _, part in current)
-                    chunks.append({
-                        "header": header, "heading_path": heading_path,
-                        "start_line": current[0][0],
-                        "end_line": current[-1][0] + current[-1][1].count("\n"),
-                        "content": content,
-                    })
-                    overlap = content[-overlap_chars:] if overlap_chars else ""
-                    current = [(max(1, current[-1][0]), overlap)] if overlap else []
-                    current_size = len(overlap)
-                current.append((p_start, piece))
-                current_size += len(piece)
-        if current:
-            content = "".join(part for _, part in current)
+        def line_at(char_offset: int) -> int:
+            index = max(0, bisect.bisect_right(line_offsets, char_offset) - 1)
+            return section_lines[index][0]
+
+        start = 0
+        while start < len(section_text):
+            limit = min(start + max_chars, len(section_text))
+            end = limit
+            if limit < len(section_text):
+                # Prefer a paragraph boundary in the latter half of the window.
+                boundary = section_text.rfind("\n\n", start + max_chars // 2, limit)
+                if boundary >= 0:
+                    end = boundary + 2
+                else:
+                    newline = section_text.rfind("\n", start + max_chars // 2, limit)
+                    if newline >= 0:
+                        end = newline + 1
+            if end <= start:
+                end = min(start + max_chars, len(section_text))
+            content = section_text[start:end]
             chunks.append({
-                "header": header, "heading_path": heading_path,
-                "start_line": current[0][0],
-                "end_line": current[-1][0] + current[-1][1].count("\n"),
+                "header": header,
+                "heading_path": heading_path,
+                "start_line": line_at(start),
+                "end_line": line_at(max(start, end - 1)) + content.count("\n"),
                 "content": content,
             })
+            if end >= len(section_text):
+                break
+            start = max(start + 1, end - overlap_chars)
         section_lines = []
 
     for line_no, line in enumerate(lines, start=1):
@@ -102,15 +91,11 @@ def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -
             heading = match.group(2).strip()
             heading_stack[:] = [(depth, label) for depth, label in heading_stack if depth < level]
             heading_stack.append((level, heading))
-            section_start = line_no
             section_lines = [(line_no, line)]
         else:
-            if not section_lines:
-                section_start = line_no
             section_lines.append((line_no, line))
     emit_section()
     return chunks
-
 
 class HybridRetrievalIndex:
     """SQLite-backed BM25 + default-on local embedding cosine similarity."""
@@ -160,7 +145,7 @@ class HybridRetrievalIndex:
                     except ImportError as exc:
                         raise RuntimeError(
                             "Embeddings are configured but sentence-transformers is not installed; "
-                            "install memory-service/requirements-embeddings.txt"
+                            "install the root requirements.txt"
                         ) from exc
                     self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
         return self._embedder
