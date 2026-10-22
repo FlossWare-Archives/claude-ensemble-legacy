@@ -8,7 +8,18 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+from server import ensemble_server as ensemble_module
 from server.ensemble_server import create_server
+
+
+@pytest.fixture(autouse=True)
+def clear_gateway_health_cache():
+    # Ephemeral HTTP servers can reuse ports across tests. Never let a cached
+    # gateway classification from a prior test leak into a different service.
+    ensemble_module._health_cache.clear()
+    yield
+    ensemble_module._health_cache.clear()
 
 
 def service_handler(service_name, observed_paths):
