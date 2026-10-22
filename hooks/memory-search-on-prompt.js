@@ -342,15 +342,29 @@ function buildKnowledgeQueries(query, maxQueries) {
   const normalized = query.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
 
-  // The Memory service currently uses lexical similarity rather than embeddings.
-  // Keep the complete prompt first, then add a small number of meaningful clauses
-  // so compound questions can retrieve documents about each requested concept.
+  // The Memory service uses lexical similarity rather than embeddings. Search
+  // the complete prompt, meaningful clauses, and a compact keyword query. The
+  // latter removes question framing so short factual questions still match
+  // documents whose wording differs from the prompt.
   const clauses = normalized
     .split(/(?:[.!?;\n]+|,\s+(?=(?:and|but|while|whereas|versus|vs\.? )\b))/i)
     .map(part => part.trim())
     .filter(part => part.split(/\s+/).length >= 4 && part.length >= 20);
+  const stopWords = new Set([
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'did', 'do',
+    'does', 'for', 'from', 'have', 'how', 'i', 'in', 'is', 'it', 'me',
+    'of', 'on', 'or', 'our', 'please', 'that', 'the', 'this', 'to', 'was',
+    'we', 'were', 'what', 'when', 'where', 'which', 'who', 'why', 'with',
+    'you', 'your', 'establish', 'established',
+  ]);
+  const keywords = normalized
+    .replace(/[?!.;,]+/g, ' ')
+    .split(/\s+/)
+    .filter(word => word && !stopWords.has(word.toLocaleLowerCase()))
+    .join(' ');
   const queries = [];
-  for (const candidate of [normalized, ...clauses]) {
+  for (const candidate of [normalized, ...clauses, keywords]) {
+    if (!candidate) continue;
     const key = candidate.toLocaleLowerCase();
     if (queries.some(item => item.toLocaleLowerCase() === key)) continue;
     queries.push(candidate);
@@ -426,11 +440,37 @@ async function searchKnowledgeContext(query, config) {
     throw responses.find(response => response.error).error;
   }
 
-  const merged = [];
+  // Scores from the same Memory index are comparable across queries. Rank
+  // the union instead of letting results from the full prompt crowd out a
+  // stronger match found by the compact keyword query.
+  const byKey = new Map();
+  let ordinal = 0;
   for (const response of successful) {
-    merged.push(...(Array.isArray(response.results) ? response.results : []));
+    for (const raw of Array.isArray(response.results) ? response.results : []) {
+      const content = resultText(raw);
+      if (!content) continue;
+      const result = { ...raw, content, _ordinal: ordinal++ };
+      const key = [
+        resultSource(result),
+        result.file || '',
+        result.section || '',
+        content,
+      ].join('\u0000');
+      const previous = byKey.get(key);
+      const score = Number.isFinite(result.score) ? result.score : 0;
+      const previousScore = previous && Number.isFinite(previous.score) ? previous.score : 0;
+      if (!previous || score > previousScore) byKey.set(key, result);
+    }
   }
-  return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, MAX_RESULTS) };
+  const ranked = [...byKey.values()]
+    .sort((left, right) => {
+      const leftScore = Number.isFinite(left.score) ? left.score : 0;
+      const rightScore = Number.isFinite(right.score) ? right.score : 0;
+      return rightScore - leftScore || left._ordinal - right._ordinal;
+    })
+    .slice(0, MAX_RESULTS)
+    .map(({ _ordinal, ...result }) => result);
+  return { ok: successful.length > 0, results: ranked };
 }
 
 async function searchKnowledgeStatus(config) {
