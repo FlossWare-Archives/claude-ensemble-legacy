@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import contextmanager
 import os
 import re
 import sqlite3
@@ -126,12 +127,20 @@ class HybridRetrievalIndex:
                 embedding TEXT, UNIQUE(file, ordinal))""")
             db.execute("CREATE INDEX IF NOT EXISTS chunks_file_idx ON chunks(file)")
 
+    @contextmanager
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA busy_timeout=10000")
-        return db
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA busy_timeout=10000")
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     def _model(self):
         if not self.embedding_model_name:
