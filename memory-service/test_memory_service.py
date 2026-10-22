@@ -496,7 +496,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             )
 
             # Exact identifier lookup updates only the lexical cache by design.
-            self.assertEqual(store.search_semantic("revision-5678"), [])
+            self.assertEqual(store.search_semantic("revision-1234"), [])
             report = store.warm_search_index_report()
             self.assertTrue(report["complete"], report)
 
