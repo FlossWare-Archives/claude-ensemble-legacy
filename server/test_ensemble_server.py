@@ -92,11 +92,15 @@ def run():
 
     from hybrid_retrieval import HybridRetrievalIndex
 
-    # Keep REST timeout tests independent of first-run model downloads. The
-    # memory-service suite validates hybrid behavior using deterministic vectors.
-    HybridRetrievalIndex._embed = lambda self, texts: (
-        [[1.0, 0.0] for _ in texts] if self.embedding_model_name else None
+    # Keep REST timeout tests independent of model downloads, without
+    # permanently mutating the production class for later tests in this process.
+    from unittest.mock import patch
+    embedding_patch = patch.object(
+        HybridRetrievalIndex,
+        "_embed",
+        lambda self, texts: [[1.0, 0.0] for _ in texts] if self.embedding_model_name else None,
     )
+    embedding_patch.start()
     from server.ensemble_server import create_server as gateway_server, _forward
     from learning.arbitration_advisor import ArbitrationAdvisor
     with tempfile.TemporaryDirectory() as tmp:
@@ -528,6 +532,7 @@ def run():
             graph.shutdown(); graph.server_close()
             memory.stop()
             kt.join(2); gt.join(2); mt.join(2)
+            embedding_patch.stop()
             capture.shutdown(); capture.server_close(); ct.join(2)
 
 if __name__=="__main__":
