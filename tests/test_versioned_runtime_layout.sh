@@ -83,7 +83,7 @@ export HTTP_PROXY="http://127.0.0.1:1"
 export HTTPS_PROXY="http://127.0.0.1:1"
 export ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS=3
 
-python3 - "$WORK/ready-port" <<'PY' >/dev/null 2>&1 &
+cat > "$WORK/readiness_server.py" <<'PY'
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
@@ -100,6 +100,10 @@ server = HTTPServer(("127.0.0.1", 0), Handler)
 Path(sys.argv[1]).write_text(str(server.server_port), encoding="utf-8")
 server.serve_forever()
 PY
+# Detach the fixture from the activation shell's process group and stdin so
+# nested installer shells cannot accidentally terminate the readiness stub.
+nohup setsid python3 "$WORK/readiness_server.py" "$WORK/ready-port" \
+  </dev/null >/dev/null 2>&1 &
 READY_PID=$!
 for _ in $(seq 1 100); do
   [[ -s "$WORK/ready-port" ]] && break
