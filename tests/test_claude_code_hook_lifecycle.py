@@ -263,6 +263,10 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
                     ingest_resp = json.loads(resp.read().decode())
                 self.assertTrue(ingest_resp.get("ok"))
 
+                # The HTTP factory intentionally does not imply readiness. Warm the
+                # index after seeding and before asserting positive search behavior.
+                service._warm_search_index()
+
                 # Step B: Retrieve via REST search interface directly
                 search_req = urllib.request.Request(
                     f"{base_url}/memory/search",
