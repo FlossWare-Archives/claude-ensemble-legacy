@@ -236,6 +236,31 @@ class MemoryStore:
                 return False
             return True
 
+    def _clear_ledger_fault_after_reconciliation(self, present: Dict[str, Path]) -> None:
+        """Clear a lost-ledger-write fault only after every live file is indexed."""
+        if "__ledger_error__" not in self._pending_index_faults:
+            return
+        for name, path in present.items():
+            try:
+                signature = repr(self._file_signature(path.stat()))
+            except OSError:
+                return
+            if not self._hybrid_index.document_revision_matches(Path(name).stem, signature):
+                return
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+            if any(name != "__ledger_error__" for name in records):
+                return
+            try:
+                self._write_pending_index_records({})
+            except OSError as ledger_error:
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not reconcile retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not reconcile hybrid-index retry ledger: %s", ledger_error)
+                return
+            self._pending_index_faults.pop("__ledger_error__", None)
+
     def _index_written_file(self, path: Path) -> bool:
         """Index a durable Markdown write or record explicit deferred work."""
         try:
@@ -251,7 +276,9 @@ class MemoryStore:
                 or present_stems != set(self._hybrid_index._full_corpus_key)
             ):
                 self._hybrid_index.warm_corpus(present_stems)
-            self._clear_index_pending(path.stem, signature)
+            if not self._clear_index_pending(path.stem, signature):
+                logger.warning("Memory %s is indexed but pending-index bookkeeping is not reconciled", path.stem)
+                return False
             return True
         except Exception as index_error:
             self._mark_index_pending(path, index_error)
@@ -781,6 +808,8 @@ class MemoryStore:
             added = sorted(final_names - set(initial))
             removed = sorted(set(initial) - final_names)
             stable = not added and not removed
+            if stable and not failures:
+                self._clear_ledger_fault_after_reconciliation(initial)
             present_stems = {Path(name).stem for name in final_names}
             for pending_name in self.pending_index_status()["files"]:
                 if pending_name not in present_stems:
