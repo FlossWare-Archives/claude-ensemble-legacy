@@ -31,7 +31,10 @@ the index is stored beside the memory documents as
 `.hybrid-retrieval.sqlite3` and is rebuilt incrementally as documents change.
 Markdown is chunked at heading and paragraph boundaries, with heading paths
 retained as retrieval metadata. Structured identifiers continue through the
-existing exact-identifier path.
+existing exact-identifier path. The two indexes are intentionally split for now:
+the in-memory lexical cache preserves the exact identifier path, while SQLite
+owns persistent BM25 and semantic retrieval for natural-language prose. Warm-up
+and Memory writes update both; prompt-time searches do not re-embed documents.
 
 The default local embedding model is
 `sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU. The standard Claude
