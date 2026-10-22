@@ -225,6 +225,9 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     if result.returncode != 0:
         fail(f"full installer failed ({result.returncode}):\n{result.stdout}\n{result.stderr}")
 
+    if "Skipping network provisioning" not in result.stdout:
+        fail("top-level installer did not honor ENSEMBLE_SKIP_PYTHON_PROVISION")
+
     if identical_deployment.read_bytes() != original_hook_bytes or not identical_deployment.stat().st_mode & 0o111:
         fail("identical non-executable hook was not preserved and repaired")
     if differing_deployment.read_bytes() != custom_hook_bytes:
