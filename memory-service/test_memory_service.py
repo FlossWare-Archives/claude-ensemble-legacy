@@ -2,6 +2,7 @@
 """Tests for the memory service security boundary."""
 
 import json
+import math
 import os
 import socket
 import stat
@@ -31,7 +32,11 @@ from hybrid_retrieval import HybridRetrievalIndex  # noqa: E402
 def _test_embeddings(self, texts):
     if not self.embedding_model_name:
         return None
-    return [[float(len(text.split()) or 1), 1.0] for text in texts]
+    vectors = [[float(len(text.split()) or 1), 1.0] for text in texts]
+    return [
+        [component / math.sqrt(sum(value * value for value in vector)) for component in vector]
+        for vector in vectors
+    ]
 
 
 
