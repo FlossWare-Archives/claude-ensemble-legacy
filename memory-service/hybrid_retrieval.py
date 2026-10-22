@@ -172,29 +172,31 @@ class HybridRetrievalIndex:
 
     def _corpus(self, allowed_files: set[str]):
         key = frozenset(allowed_files)
+        # Serialize cold-cache builds so concurrent prompt hooks do not all
+        # scan and tokenize the same corpus at once.
         with self._cache_lock:
-            if key in self._corpus_cache:
-                return self._corpus_cache[key]
-        with self._connect() as db:
-            rows = db.execute("SELECT * FROM chunks").fetchall()
-        docs = []
-        df = {}
-        total = 0
-        for row in rows:
-            if row["file"] not in allowed_files:
-                continue
-            tokens = json.loads(row["tokens"])
-            freq = {}
-            for term in tokens:
-                freq[term] = freq.get(term, 0) + 1
-            for term in freq:
-                df[term] = df.get(term, 0) + 1
-            total += len(tokens)
-            docs.append({"file": row["file"], "section": row["header"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
-        result = (docs, total / max(len(docs), 1), df)
-        with self._cache_lock:
+            cached = self._corpus_cache.get(key)
+            if cached is not None:
+                return cached
+            with self._connect() as db:
+                rows = db.execute("SELECT * FROM chunks").fetchall()
+            docs = []
+            df = {}
+            total = 0
+            for row in rows:
+                if row["file"] not in allowed_files:
+                    continue
+                tokens = json.loads(row["tokens"])
+                freq = {}
+                for term in tokens:
+                    freq[term] = freq.get(term, 0) + 1
+                for term in freq:
+                    df[term] = df.get(term, 0) + 1
+                total += len(tokens)
+                docs.append({"file": row["file"], "section": row["header"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
+            result = (docs, total / max(len(docs), 1), df)
             self._corpus_cache[key] = result
-        return result
+            return result
 
     def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
         with self._connect() as db:
