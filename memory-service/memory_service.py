@@ -665,6 +665,9 @@ class MemoryStore:
                 present_stems = {Path(name).stem for name in final_names}
                 self._hybrid_index.remove_missing(present_stems)
                 self._prune_search_index(present_stems)
+                # Populate the SQLite-backed corpus cache before readiness flips
+                # to ready; the first prompt must not pay the cold corpus scan.
+                self._hybrid_index._corpus(present_stems)
                 return last_report
         return last_report
 
