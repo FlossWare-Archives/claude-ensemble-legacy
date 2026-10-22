@@ -108,6 +108,10 @@ Rollback selects the recorded previous known-good release, not simply the highes
 
 For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The root `install.sh` is the per-release runtime installer used by the deployment manager, not the supported first-install or upgrade entry point. Use `install-standalone.sh`, `upgrade.sh`, and `uninstall.sh` for the deployment lifecycle.
 
+#### Offline or air-gapped provisioning
+
+The default runtime install provisions the Python dependencies and preloads the configured local Sentence Transformers model. For a disconnected host, provision a compatible `.venv` with `--copies` and the root `requirements.txt` in the source checkout, and ensure the selected model is already available in the host's local Hugging Face cache. Then set both `ENSEMBLE_SKIP_PYTHON_PROVISION=1` and `ENSEMBLE_SKIP_MODEL_PROVISION=1` for the versioned install or per-release installer. The Python skip flag fails closed if `.venv/bin/python` is missing; the model skip flag does not disable embeddings or silently substitute a different model. If the model is not already cached, the service may fail readiness when it tries to load it, so verify the configured `ENSEMBLE_MEMORY_EMBEDDING_MODEL` before activation.
+
 The versioned installer:
 1. Keeps immutable release trees under `~/.FlossWare/claude-ensemble/releases/` without Git metadata
 2. Selects the active release through `current` and retains the active and previous known-good release
