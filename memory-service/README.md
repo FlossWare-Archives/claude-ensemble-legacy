@@ -79,9 +79,19 @@ ENSEMBLE_MEMORY_EMBEDDING_MODEL=/path/to/local/model \
 python -m pytest memory-service/test_hybrid_retrieval.py -k real_local_model_acceptance -q
 ```
 
-This smoke test verifies actual vector persistence and retrieval, but it is not a
-substitute for measuring warm-up and concurrent prompt-hook latency against the
-real corpus under the Memory service's systemd memory and CPU limits.
+This opt-in acceptance test verifies semantic discrimination against lexical
+and topical distractors, persisted-vector reuse after constructing a fresh
+index instance, and concurrent query fan-out. It prints maximum query latency
+and process peak RSS, and fails against configurable budgets:
+
+- `ENSEMBLE_MEMORY_ACCEPTANCE_LATENCY_SECONDS` (default `1.5`)
+- `ENSEMBLE_MEMORY_ACCEPTANCE_MEMORY_KIB` (default `524288`, Linux `ru_maxrss` units)
+
+Run it on the installed host with the same local model and under the actual
+Memory service resource limits. The standalone test process cannot prove that
+systemd's `MemoryLimit=512M` and `CPUQuota=50%` are enforced merely because its
+assertions pass; retain the service-level multi-query acceptance as a deployment
+gate, including first-start warm-up timing and a restart against persisted vectors.
 
 ## Installation
 
