@@ -594,9 +594,15 @@ class MemoryStore:
         signature = self._file_signature(md_file.stat())
         with self._search_index_lock:
             cached = self._search_index.get(file_name)
-            if cached is not None and cached[0] == signature:
-                return cached[1]
+            indexed_cached = cached[1] if cached is not None and cached[0] == signature else None
             file_lock = self._file_index_locks.setdefault(file_name, threading.Lock())
+
+        if indexed_cached is not None:
+            if update_hybrid and not self._hybrid_index.document_revision_matches(
+                file_name, repr(signature)
+            ):
+                self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
+            return indexed_cached
 
         # Recheck after acquiring the per-file lock: another search or the
         # background warm-up may have populated this revision while we waited.
@@ -610,8 +616,13 @@ class MemoryStore:
             signature = self._file_signature(stat)
             with self._search_index_lock:
                 cached = self._search_index.get(file_name)
-                if cached is not None and cached[0] == signature:
-                    return cached[1]
+                indexed_cached = cached[1] if cached is not None and cached[0] == signature else None
+            if indexed_cached is not None:
+                if update_hybrid and not self._hybrid_index.document_revision_matches(
+                    file_name, repr(signature)
+                ):
+                    self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
+                return indexed_cached
             # The signature is taken BEFORE the file is read. If a writer
             # changes the file in between, the entry holds newer content under
             # an older signature, so the next search sees a different signature
