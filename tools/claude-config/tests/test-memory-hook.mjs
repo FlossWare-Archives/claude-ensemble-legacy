@@ -444,7 +444,15 @@ try {
         return;
       }
       if (request.query !== 'What install root did we establish as the default for Claude Ensemble?') {
-        res.end(JSON.stringify({ ok: true, results: [] }));
+        res.end(JSON.stringify({
+          ok: true,
+          results: [{
+            file: 'claude-code-deployment-default',
+            section: 'Install root',
+            score: 0.99,
+            content: 'Claude Ensemble default install root: ~/.FlossWare/claude-ensemble.',
+          }],
+        }));
         return;
       }
       const results = Array.from({ length: 10 }, (_, index) => ({
