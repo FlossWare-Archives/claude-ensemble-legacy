@@ -505,6 +505,8 @@ class MemorySearchRegressionTest(unittest.TestCase):
             store = MemoryStore(Path(temp_dir))
             store.write_file("note", "# Note\n\nevent-1234\n")
             path = Path(temp_dir) / "note.md"
+            # Force the exact-identifier path to rebuild this revision.
+            store._search_index.pop("note", None)
             real_chunk = store.chunk_document
             state = {"rewritten": False}
 
