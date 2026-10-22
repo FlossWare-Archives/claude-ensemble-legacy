@@ -1445,6 +1445,13 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         self.assertFalse(readiness["ready"])
         self.assertEqual(readiness["search_index"]["state"], "not_started")
 
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "must not cold-build before startup"}
+        )
+        self.assertEqual(status, 503)
+        self.assertFalse(search["retryable"])
+        self.assertEqual(search["search_index"]["state"], "not_started")
+
         self.service._warm_search_index()
 
         status, readiness = self.get_json("/ready")
@@ -1474,7 +1481,10 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         self.assertTrue(search["retryable"])
         self.assertEqual(search["search_index"]["state"], "warming")
 
-        time.sleep(0.03)
+        # Move the recorded start time across the deadline explicitly;
+        # do not make the test depend on scheduler timing.
+        with self.service._index_status_lock:
+            self.service._index_started_at = time.monotonic() - 1.0
         status, readiness = self.get_json("/ready")
         self.assertEqual(status, 503)
         self.assertEqual(readiness["search_index"]["state"], "timed_out")
@@ -1496,6 +1506,61 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         status, readiness = self.get_json("/ready")
         self.assertEqual(status, 200)
         self.assertTrue(readiness["ready"])
+
+    def test_non_finite_warmup_timeout_is_rejected(self):
+        for value in ("nan", "inf", "-inf", "0", "-1"):
+            with self.subTest(value=value), patch.dict(
+                os.environ, {"ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS": value}
+            ):
+                from memory_service import MemoryService
+
+                with self.assertRaisesRegex(ValueError, "finite positive"):
+                    MemoryService(
+                        Path(self.temp_dir.name) / "invalid.sock",
+                        Path(self.temp_dir.name) / ("memory-" + value.replace("-", "minus")),
+                    )
+
+    def test_index_report_tracks_per_file_failures_and_directory_mutation(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+
+        original = self.service.store._indexed_chunks
+
+        def fail_one(path):
+            if path.name == "one.md":
+                raise OSError("simulated unreadable file")
+            return original(path)
+
+        self.service.store._indexed_chunks = fail_one
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("one.md", report["failed_files"])
+        self.assertIn("two.md", report["indexed_files"])
+
+    def test_warmup_recovers_after_transient_index_failure(self):
+        calls = []
+        original = self.service.store.warm_search_index_report
+
+        def transient_failure(max_passes=3):
+            calls.append(max_passes)
+            if len(calls) == 1:
+                return {
+                    "pass": 1,
+                    "expected_files": [],
+                    "indexed_files": [],
+                    "failed_files": {"temporary.md": "temporary read error"},
+                    "added_files": [],
+                    "removed_files": [],
+                    "complete": False,
+                }
+            return original(max_passes=max_passes)
+
+        self.service.store.warm_search_index_report = transient_failure
+        self.service._warm_search_index()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.service.search_index_status()["state"], "ready")
 
 
 if __name__ == "__main__":
