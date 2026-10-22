@@ -159,6 +159,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 f'{{"artifact_type":"integration.test.learning-memory","run_id":"{run_id}"}}\n'
             )
             service.store.write_file(document_name, content)
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -220,6 +221,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 hashlib.sha256(distractor_content.encode("utf-8")).hexdigest(),
                 {"scope": str(distractor_path.parent)},
             )
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -510,6 +512,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             service = MemoryService(root / "memory.sock", root / "memory")
             for index in range(5):
                 service.store.write_file(f"note-{index}", f"# Note {index}\n\nretrieval contract detail {index}\n")
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -875,6 +878,7 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
+            service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
