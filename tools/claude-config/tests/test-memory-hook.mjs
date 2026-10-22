@@ -468,6 +468,21 @@ try {
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
     assert.ok(context.includes('~/.FlossWare/claude-ensemble'));
     assert.ok(context.indexOf('~/.FlossWare/claude-ensemble') < context.indexOf('Unrelated deployment note'));
+
+    // Two qualifying clauses must not consume all three query slots before
+    // the compact keyword query is attempted.
+    const compoundPrompt = 'The service uses SQLite for persistence. The default install root is under FlossWare. Which directory did we choose for production?';
+    const compound = await runHook({
+      url: `http://127.0.0.1:${retrievalPort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: compoundPrompt },
+    });
+    assert.equal(compound.code, 0, compound.stderr);
+    const compoundQueries = retrievalRequests
+      .filter(request => request.source === 'claude-code')
+      .map(request => request.query);
+    assert.ok(compoundQueries.includes('service uses SQLite persistence default install root under FlossWare directory choose production'),
+      JSON.stringify(compoundQueries));
   } finally {
     await close(retrievalServer);
   }
