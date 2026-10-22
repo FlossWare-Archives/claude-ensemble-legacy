@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify Linux service installers render valid units from a clean checkout."""
 
+import atexit
 import os
 import shlex
 import threading
@@ -10,6 +11,26 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Installer integration tests validate systemd rendering, not package downloads.
+# Supply a disposable placeholder runtime when the checkout has none.
+TEST_VENV = ROOT / ".venv"
+CREATED_TEST_VENV = False
+if not TEST_VENV.exists():
+    (TEST_VENV / "bin").mkdir(parents=True)
+    fake_python = TEST_VENV / "bin" / "python"
+    fake_python.write_text("#!/usr/bin/env bash\\nexit 0\\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    CREATED_TEST_VENV = True
+
+
+def _cleanup_test_venv():
+    if CREATED_TEST_VENV:
+        import shutil
+        shutil.rmtree(TEST_VENV, ignore_errors=True)
+
+
+atexit.register(_cleanup_test_venv)
 
 
 class ReadinessHandler(BaseHTTPRequestHandler):
@@ -80,6 +101,7 @@ exit 0
     env["ENSEMBLE_USER_UNIT_DIR"] = str(unit_dir)
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["SYSTEMCTL_LOG"] = str(Path(tmp) / "systemctl.log")
+    env["ENSEMBLE_SKIP_PYTHON_PROVISION"] = "1"
     env["SYSTEMCTL_BIN"] = str(fake_systemctl)
     env["ENSEMBLE_READINESS_URL"] = f"http://127.0.0.1:{readiness_server.server_port}/api/v1/ready"
     env["ENSEMBLE_READINESS_TIMEOUT_SECONDS"] = "2"
