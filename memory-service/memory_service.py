@@ -724,8 +724,10 @@ class MemoryStore:
                 and entry.get("document", "").startswith("claude-code-")
             }
             allowed_files = set()
+            present_files = set()
             for md_file in self.memory_dir.glob("*.md"):
                 file_name = md_file.stem
+                present_files.add(file_name)
                 is_knowledge = file_name.startswith("claude-code-")
                 if source == "claude-code" and not is_knowledge:
                     continue
@@ -735,8 +737,8 @@ class MemoryStore:
                     continue
                 allowed_files.add(file_name)
                 self._indexed_chunks(md_file)
-            self._prune_search_index(allowed_files)
-            self._hybrid_index.remove_missing(allowed_files)
+            self._prune_search_index(present_files)
+            self._hybrid_index.remove_missing(present_files)
             return self._hybrid_index.search(normalized_query, top_k, allowed_files)
 
         # Load the ingestion index once per search, not once per Knowledge file.
