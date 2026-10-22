@@ -50,7 +50,7 @@ case "$ROOT" in
     exit 1
     ;;
 esac
-[[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\\n' "$ROOT" >&2; exit 1; }
+[[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
 KNOWN_GOOD="$ROOT/known-good.json"
@@ -500,7 +500,7 @@ case "$cmd" in
       [[ -d "$dir" ]] || continue
       version="${dir##*/}"
       if [[ "$version" != "$active" && "$version" != "$previous" ]]; then
-        printf 'Removing old release %s\\n' "$version"
+        printf 'Removing old release %s\n' "$version"
         rm -rf -- "$dir"
       fi
     done
