@@ -1,6 +1,9 @@
+import concurrent.futures
 import math
 import os
+import resource
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -134,6 +137,76 @@ class HybridRetrievalTests(unittest.TestCase):
                 )
                 self.assertTrue(after_restart)
                 self.assertEqual(after_restart[0]["file"], "target")
+
+                # Add a meaningful local corpus in one batch, then exercise the
+                # concurrent query fan-out that the prompt hook creates.
+                index.replace_document(
+                    "corpus-distractors",
+                    "v1",
+                    [
+                        {
+                            "header": f"Topic {number}",
+                            "heading_path": f"Operations > Topic {number}",
+                            "content": (
+                                f"Topic {number} documents routine service operations, "
+                                f"socket lifecycle, routing behavior, and deployment checks. "
+                                f"Unique marker operation-{number:03d}."
+                            ),
+                        }
+                        for number in range(48)
+                    ],
+                )
+                index.warm_corpus({
+                    "target", "lexical-distractor", "model-distractor",
+                    "corpus-distractors",
+                })
+                queries = [
+                    query,
+                    "where are vector representations kept after restarting memory",
+                    "which embedded database persists semantic representations",
+                    "what survives when the process is restarted",
+                    "where are transformer weights loaded from",
+                    "how does the service expose private client requests",
+                ]
+                durations = []
+
+                def run_query(prompt):
+                    started = time.monotonic()
+                    hits = restarted.search(
+                        prompt, 5,
+                        {"target", "lexical-distractor", "model-distractor",
+                         "corpus-distractors"},
+                    )
+                    return time.monotonic() - started, hits
+
+                # Use the restarted index to ensure this is not an in-memory
+                # document-vector warm cache inherited from the first instance.
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(queries)) as pool:
+                    concurrent_results = list(pool.map(run_query, queries))
+                durations = [elapsed for elapsed, _ in concurrent_results]
+                self.assertEqual(concurrent_results[0][1][0]["file"], "target")
+                peak_rss_kib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                latency_budget = float(os.environ.get(
+                    "ENSEMBLE_MEMORY_ACCEPTANCE_LATENCY_SECONDS", "1.5"
+                ))
+                memory_budget_kib = int(os.environ.get(
+                    "ENSEMBLE_MEMORY_ACCEPTANCE_MEMORY_KIB", str(512 * 1024)
+                ))
+                print(
+                    "real-model acceptance metrics: "
+                    f"queries={len(queries)}, max_query_seconds={max(durations):.3f}, "
+                    f"peak_rss_kib={peak_rss_kib}, "
+                    f"latency_budget_seconds={latency_budget:g}, "
+                    f"memory_budget_kib={memory_budget_kib}"
+                )
+                self.assertLessEqual(
+                    max(durations), latency_budget,
+                    "concurrent real-model query fan-out exceeded the configured prompt budget",
+                )
+                self.assertLessEqual(
+                    peak_rss_kib, memory_budget_kib,
+                    "real-model acceptance process exceeded the configured Memory budget",
+                )
         finally:
             self.embedding_patch.start()
             self.model_patch.start()
