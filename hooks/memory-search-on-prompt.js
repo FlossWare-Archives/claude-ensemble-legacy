@@ -355,7 +355,7 @@ function buildKnowledgeQueries(query, maxQueries) {
     'does', 'for', 'from', 'have', 'how', 'i', 'in', 'is', 'it', 'me',
     'of', 'on', 'or', 'our', 'please', 'that', 'the', 'this', 'to', 'was',
     'we', 'were', 'what', 'when', 'where', 'which', 'who', 'why', 'with',
-    'you', 'your', 'establish', 'established',
+    'you', 'your',
   ]);
   const keywords = normalized
     .replace(/[?!.;,]+/g, ' ')
@@ -363,7 +363,7 @@ function buildKnowledgeQueries(query, maxQueries) {
     .filter(word => word && !stopWords.has(word.toLocaleLowerCase()))
     .join(' ');
   const queries = [];
-  for (const candidate of [normalized, ...clauses, keywords]) {
+  for (const candidate of [normalized, keywords, ...clauses]) {
     if (!candidate) continue;
     const key = candidate.toLocaleLowerCase();
     if (queries.some(item => item.toLocaleLowerCase() === key)) continue;
@@ -468,7 +468,7 @@ async function searchKnowledgeContext(query, config) {
       const rightScore = Number.isFinite(right.score) ? right.score : 0;
       return rightScore - leftScore || left._ordinal - right._ordinal;
     })
-    .slice(0, MAX_RESULTS)
+    .slice(0, config.knowledge.max_results)
     .map(({ _ordinal, ...result }) => result);
   return { ok: successful.length > 0, results: ranked };
 }
