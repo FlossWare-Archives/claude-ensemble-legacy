@@ -410,4 +410,67 @@ try {
   }
 }
 
+
+ // Regression: factual Knowledge retrieval must issue a compact keyword query
+ // and rank its strongest result above weaker results from the full prompt.
+{
+  const retrievalRequests = [];
+  const retrievalServer = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const request = JSON.parse(body);
+      if (req.url === '/memory/knowledge/status') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 11 }));
+        return;
+      }
+      retrievalRequests.push(request);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (request.source === 'memory') {
+        res.end(JSON.stringify({ ok: true, results: [] }));
+        return;
+      }
+      if (request.query === 'install root default Claude Ensemble') {
+        res.end(JSON.stringify({
+          ok: true,
+          results: [{
+            file: 'claude-code-deployment-default',
+            section: 'Install root',
+            score: 0.99,
+            content: 'Claude Ensemble default install root: ~/.FlossWare/claude-ensemble.',
+          }],
+        }));
+        return;
+      }
+      const results = Array.from({ length: 10 }, (_, index) => ({
+        file: 'claude-code-unrelated-' + index,
+        section: 'Unrelated',
+        score: 0.95 - index * 0.01,
+        content: 'Unrelated deployment note number ' + index + '.',
+      }));
+      res.end(JSON.stringify({ ok: true, results }));
+    });
+  });
+  const retrievalPort = await listen(retrievalServer);
+  try {
+    const prompt = 'What install root did we establish as the default for Claude Ensemble?';
+    const result = await runHook({
+      url: \`http://127.0.0.1:\${retrievalPort}/\`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt },
+    });
+    assert.equal(result.code, 0);
+    const knowledgeQueries = retrievalRequests
+      .filter(request => request.source === 'claude-code')
+      .map(request => request.query);
+    assert.ok(knowledgeQueries.includes('install root default Claude Ensemble'), JSON.stringify(knowledgeQueries));
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(context.includes('~/.FlossWare/claude-ensemble'));
+    assert.ok(context.indexOf('~/.FlossWare/claude-ensemble') < context.indexOf('Unrelated deployment note'));
+  } finally {
+    await close(retrievalServer);
+  }
+}
+
 console.log('memory hook REST tests passed');
