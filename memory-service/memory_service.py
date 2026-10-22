@@ -610,16 +610,54 @@ class MemoryStore:
             for name in [n for n in self._search_index if n not in present]:
                 del self._search_index[name]
 
+    def warm_search_index_report(self, max_passes: int = 3) -> Dict[str, Any]:
+        """Index a stable file set and report per-file outcomes.
+
+        A pass succeeds only when every file in its initial snapshot indexed
+        successfully and the directory membership did not change during the
+        pass. This avoids treating a coincidental file count as proof that the
+        intended corpus was indexed.
+        """
+        last_report: Dict[str, Any] = {}
+        for pass_number in range(1, max_passes + 1):
+            initial = {
+                path.name: path
+                for path in sorted(self.memory_dir.glob("*.md"))
+                if path.is_file()
+            }
+            indexed: list[str] = []
+            failures: Dict[str, str] = {}
+            for name, path in initial.items():
+                try:
+                    self._indexed_chunks(path)
+                    indexed.append(name)
+                except Exception as exc:
+                    failures[name] = str(exc)
+                    logger.warning("Error indexing %s: %s", path, exc)
+            final_names = {
+                path.name for path in self.memory_dir.glob("*.md") if path.is_file()
+            }
+            added = sorted(final_names - set(initial))
+            removed = sorted(set(initial) - final_names)
+            stable = not added and not removed
+            complete = stable and not failures and len(indexed) == len(initial)
+            last_report = {
+                "pass": pass_number,
+                "expected_files": sorted(initial),
+                "indexed_files": sorted(indexed),
+                "failed_files": failures,
+                "added_files": added,
+                "removed_files": removed,
+                "complete": complete,
+            }
+            if complete:
+                return last_report
+        return last_report
+
     def warm_search_index(self) -> int:
         """Build the search index for every file; returns the file count."""
-        count = 0
-        for md_file in self.memory_dir.glob("*.md"):
-            try:
-                self._indexed_chunks(md_file)
-                count += 1
-            except Exception as e:
-                logger.debug("Error indexing %s: %s", md_file, e)
-        return count
+        report = self.warm_search_index_report()
+        return len(report.get("indexed_files", []))
 
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search memory with exact-phrase priority and local token similarity.
