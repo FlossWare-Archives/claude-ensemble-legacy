@@ -1,3 +1,5 @@
+import math
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,7 +14,11 @@ from hybrid_retrieval import HybridRetrievalIndex, chunk_markdown
 def _test_embeddings(self, texts):
     if not self.embedding_model_name:
         return None
-    return [[float(len(text.split()) or 1), 1.0] for text in texts]
+    vectors = [[float(len(text.split()) or 1), 1.0] for text in texts]
+    return [
+        [component / math.sqrt(sum(value * value for value in vector)) for component in vector]
+        for vector in vectors
+    ]
 
 
 
@@ -33,6 +39,31 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertTrue(any(chunk["heading_path"] == "Notes" for chunk in chunks))
         self.assertTrue(any(chunk["heading_path"] == "Next" for chunk in chunks))
         self.assertTrue(any("café" in chunk["content"] and "🚀" in chunk["content"] for chunk in chunks))
+
+    @unittest.skipUnless(
+        os.environ.get("ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE") == "1",
+        "set ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 with a local model directory",
+    )
+    def test_real_local_model_acceptance(self):
+        model_path = os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+        self.assertTrue(model_path and Path(model_path).is_dir(),
+                        "ENSEMBLE_MEMORY_EMBEDDING_MODEL must point to a local model directory")
+        self.embedding_patch.stop()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3", embedding_model=model_path)
+                index.replace_document("target", "v1", [{
+                    "header": "Architecture",
+                    "heading_path": "Architecture",
+                    "content": "The isolated memory service stores vectors in local SQLite.",
+                }])
+                result = index.search("Where are the memory vectors stored?", 3, {"target"})
+                self.assertTrue(result)
+                self.assertEqual(result[0]["file"], "target")
+                with index._connect() as db:
+                    self.assertTrue(db.execute("SELECT embedding FROM chunks").fetchone()["embedding"])
+        finally:
+            self.embedding_patch.start()
 
     def test_heading_hierarchy_is_preserved(self):
         chunks = chunk_markdown('# Architecture\n\nIntro.\n\n## Install root\n\nThe default deployment root is ~/.FlossWare/claude-ensemble.\n')
