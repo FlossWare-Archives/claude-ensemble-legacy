@@ -237,8 +237,17 @@ class MemoryStore:
             return True
 
     def _clear_ledger_fault_after_reconciliation(self, present: Dict[str, Path]) -> None:
-        """Clear a lost-ledger-write fault only after every live file is indexed."""
-        if "__ledger_error__" not in self._pending_index_faults:
+        """Clear a ledger fault only after every live file is indexed.
+
+        The sentinel may originate from this process's in-memory fault latch or
+        from a malformed/unreadable ledger discovered after service startup.
+        Both sources require the same full-corpus reconciliation before repair.
+        """
+        with self._pending_index_lock:
+            has_memory_fault = "__ledger_error__" in self._pending_index_faults
+            ledger_records = self._pending_index_records()
+            has_persisted_fault = "__ledger_error__" in ledger_records
+        if not has_memory_fault and not has_persisted_fault:
             return
         for name, path in present.items():
             try:
