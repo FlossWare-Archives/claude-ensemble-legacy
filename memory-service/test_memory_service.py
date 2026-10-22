@@ -625,6 +625,8 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(status["files"], [])
             self.assertIn("__ledger_error__", status["errors"])
             with self.assertRaises(ValueError):
+                store._memory_path("__ledger_error__", ".md")
+            with self.assertRaises(ValueError):
                 store._clear_index_pending("../outside", "x")
             with self.assertRaises(ValueError):
                 store._mark_index_pending(outside, RuntimeError("must reject outside path"))
