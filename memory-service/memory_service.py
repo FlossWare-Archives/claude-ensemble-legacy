@@ -263,6 +263,10 @@ class MemoryStore:
 
     def _index_written_file(self, path: Path) -> bool:
         """Index a durable Markdown write or record explicit deferred work."""
+        # Publish the current revision as pending before starting work. This
+        # supersedes stale failures for an older revision and prevents an older
+        # in-flight indexer from clearing a newer writer's recovery marker.
+        self._mark_index_pending(path, RuntimeError("hybrid indexing in progress"))
         try:
             self._indexed_chunks(path)
             # The file may have changed while indexing was in progress. Only
