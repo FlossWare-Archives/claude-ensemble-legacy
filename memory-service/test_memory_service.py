@@ -141,6 +141,18 @@ class MemorySearchRegressionTest(unittest.TestCase):
                     self.assertEqual(results[0]["file"], document_name)
                     self.assertIn(run_id, store.read_file(results[0]["file"]))
 
+    def test_prose_search_does_not_rebuild_or_reembed_documents(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("deployment", "# Deployment\\n\\nThe default deployment root is local.")
+            with patch.object(store, "_indexed_chunks", side_effect=AssertionError("prompt search rebuilt a document")):
+                with patch.object(store._hybrid_index, "replace_document", side_effect=AssertionError("prompt search wrote the hybrid index")):
+                    results = store.search_semantic("What is the default deployment root?", source="memory")
+            self.assertTrue(results)
+            self.assertEqual(results[0]["file"], "deployment")
+
     def test_exact_identifier_match_ranks_ahead_of_related_prose(self):
         from memory_service import MemoryStore
 
