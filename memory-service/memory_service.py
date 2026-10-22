@@ -560,12 +560,10 @@ class MemoryStore:
         return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
 
     def _indexed_chunks(self, md_file: Path, *, update_hybrid: bool = True) -> List[Dict[str, Any]]:
-        """Return search-ready chunks for one file, rebuilt only when it changes.
+        """Return cached chunks, updating SQLite only during warm-up or writes.
 
-        Prompt-time retrieval issues several searches concurrently. Re-reading,
-        re-chunking and re-vectorizing the whole corpus per search is CPU-bound
-        under the GIL, so latency grew linearly with concurrency and callers
-        timed out. The per-file work now happens once per file revision.
+        Exact-identifier fallback may refresh the in-memory lexical cache, but
+        passes update_hybrid=False so prompt-time searches never rewrite vectors.
         """
         file_name = md_file.stem
         signature = self._file_signature(md_file.stat())
@@ -673,7 +671,7 @@ class MemoryStore:
     def warm_search_index(self) -> int:
         """Build the search index for every file; returns the file count."""
         report = self.warm_search_index_report()
-        indexed_files = set(report.get("indexed_files", []))
+        indexed_files = {Path(name).stem for name in report.get("indexed_files", [])}
         if report.get("complete"):
             self._hybrid_index._corpus(indexed_files)
         return len(indexed_files)
@@ -738,10 +736,8 @@ class MemoryStore:
                 and entry.get("document", "").startswith("claude-code-")
             }
             allowed_files = set()
-            present_files = set()
             for md_file in self.memory_dir.glob("*.md"):
                 file_name = md_file.stem
-                present_files.add(file_name)
                 is_knowledge = file_name.startswith("claude-code-")
                 if source == "claude-code" and not is_knowledge:
                     continue
