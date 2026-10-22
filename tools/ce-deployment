@@ -158,6 +158,9 @@ import time
 import urllib.error
 import urllib.request
 
+# Readiness is a local service check. Ignore proxy variables deliberately:
+# offline deployment tests set dead proxies to prove no network provisioning.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 url = os.environ.get("ENSEMBLE_READY_URL", "http://127.0.0.1:8080/api/v1/ready")
 try:
     timeout = float(os.environ.get("ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS", "180"))
@@ -169,7 +172,7 @@ deadline = time.monotonic() + timeout
 last_error = "readiness endpoint did not become ready"
 while time.monotonic() < deadline:
     try:
-        with urllib.request.urlopen(url, timeout=2) as response:
+        with opener.open(url, timeout=2) as response:
             if response.status == 200:
                 raise SystemExit(0)
             last_error = f"HTTP {response.status}"
