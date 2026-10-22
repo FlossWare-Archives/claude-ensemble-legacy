@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import os
 import re
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +120,8 @@ class HybridRetrievalIndex:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.embedding_model_name = embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
         self._embedder = None
+        self._cache_lock = threading.RLock()
+        self._corpus_cache = {}
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS chunks (
                 id INTEGER PRIMARY KEY, file TEXT NOT NULL, ordinal INTEGER NOT NULL,
