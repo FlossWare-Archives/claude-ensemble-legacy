@@ -157,7 +157,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
             (Path(temp_dir) / "deployment.md").write_text(
-                "# Deployment\\n\\nThe deployment root is local.", encoding="utf-8"
+                "# Deployment\n\nThe deployment root is local.", encoding="utf-8"
             )
             with patch.object(
                 store._hybrid_index, "_embed",
