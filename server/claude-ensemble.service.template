@@ -17,7 +17,7 @@ SyslogIdentifier=claude-ensemble-gateway
 EnvironmentFile=-%h/.config/claude-ensemble/environment
 
 # Keep the gateway on loopback; it is the single client-facing REST boundary.
-Environment="PATH=%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
+Environment="PATH=%REPO_PATH%/.venv/bin:%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
 Environment="PYTHONPATH=%REPO_PATH%"
 Environment="PYTHONUNBUFFERED=1"
 Environment="ENSEMBLE_HTTP_HOST=127.0.0.1"
