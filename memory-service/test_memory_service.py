@@ -141,6 +141,23 @@ class MemorySearchRegressionTest(unittest.TestCase):
                     self.assertEqual(results[0]["file"], document_name)
                     self.assertIn(run_id, store.read_file(results[0]["file"]))
 
+    def test_warmup_reports_embedding_failure_as_incomplete(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            (Path(temp_dir) / "deployment.md").write_text(
+                "# Deployment\\n\\nThe deployment root is local.", encoding="utf-8"
+            )
+            with patch.object(
+                store._hybrid_index, "_embed",
+                side_effect=RuntimeError("sentence-transformers is unavailable"),
+            ):
+                report = store.warm_search_index_report(max_passes=1)
+            self.assertFalse(report["complete"])
+            self.assertIn("deployment.md", report["failed_files"])
+            self.assertIn("sentence-transformers is unavailable", report["failed_files"]["deployment.md"])
+
     def test_prose_search_does_not_rebuild_or_reembed_documents(self):
         from memory_service import MemoryStore
 
