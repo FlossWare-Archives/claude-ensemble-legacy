@@ -536,6 +536,19 @@ class MemoryStore:
             return 0.0
         return dot_product / (mag1 * mag2)
 
+    @staticmethod
+    def _file_signature(stat: os.stat_result) -> Tuple[int, int, int, int]:
+        """Revision key for the search index.
+
+        mtime and size alone miss a same-size rewrite whose mtime was restored
+        (for example `cp -p`, `rsync -t`, or `os.utime`). ctime cannot be set
+        by user code and the inode changes on replace-by-rename, so both are
+        included. Limit: a same-size rewrite inside one filesystem timestamp
+        tick still produces an identical signature; restarting the service
+        or any later write to the file refreshes it.
+        """
+        return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
+
     def _indexed_chunks(self, md_file: Path) -> List[Dict[str, Any]]:
         """Return search-ready chunks for one file, rebuilt only when it changes.
 
@@ -545,8 +558,7 @@ class MemoryStore:
         timed out. The per-file work now happens once per file revision.
         """
         file_name = md_file.stem
-        stat = md_file.stat()
-        signature = (stat.st_mtime_ns, stat.st_size)
+        signature = self._file_signature(md_file.stat())
         with self._search_index_lock:
             cached = self._search_index.get(file_name)
             if cached is not None and cached[0] == signature:
@@ -562,11 +574,15 @@ class MemoryStore:
                 with self._search_index_lock:
                     self._search_index.pop(file_name, None)
                 return []
-            signature = (stat.st_mtime_ns, stat.st_size)
+            signature = self._file_signature(stat)
             with self._search_index_lock:
                 cached = self._search_index.get(file_name)
                 if cached is not None and cached[0] == signature:
                     return cached[1]
+            # The signature is taken BEFORE the file is read. If a writer
+            # changes the file in between, the entry holds newer content under
+            # an older signature, so the next search sees a different signature
+            # and rebuilds. The unsafe order (stat after read) is never used.
             chunks = self.chunk_document(file_name)
             if not chunks:
                 with open(md_file, "r", encoding="utf-8") as handle:

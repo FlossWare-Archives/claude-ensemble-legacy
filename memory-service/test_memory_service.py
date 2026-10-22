@@ -394,6 +394,47 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(store.search_semantic("zebrafish migration"), [])
             self.assertNotIn("beta", store._search_index)
 
+    def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
+        """Review finding: (mtime, size) alone served stale vectors here."""
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            path = Path(temp_dir) / "note.md"
+            original = path.stat()
+            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish alpha")], ["note"])
+            # Same length, different words, mtime restored to the original.
+            path.write_text("# Note\n\nplatypus gamma!\n")
+            os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+            self.assertEqual(path.stat().st_size, original.st_size)
+            self.assertEqual(path.stat().st_mtime_ns, original.st_mtime_ns)
+            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
+
+    def test_write_during_index_build_never_leaves_stale_results(self):
+        """Review finding: a write between stat and read must not stick."""
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            path = Path(temp_dir) / "note.md"
+            real_chunk = store.chunk_document
+            state = {"rewritten": False}
+
+            def chunk_after_concurrent_write(name, *args, **kwargs):
+                if not state["rewritten"]:
+                    state["rewritten"] = True
+                    path.write_text("# Note\n\nplatypus gamma with extra words\n")
+                return real_chunk(name, *args, **kwargs)
+
+            with patch.object(store, "chunk_document", side_effect=chunk_after_concurrent_write):
+                store.search_semantic("zebrafish alpha")
+            # The entry was keyed by the pre-write signature, so it is rebuilt.
+            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
+
     def test_concurrent_searches_stay_within_prompt_hook_budget(self):
         from memory_service import MemoryStore
 

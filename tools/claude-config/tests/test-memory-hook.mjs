@@ -338,22 +338,51 @@ try {
   await close(graphServer);
 }
 
-// Regression: the regexes in buildKnowledgeQueries were double-escaped
-// (/\\s+/, [\\n]), so whitespace was never normalized and compound prompts never
-// produced clause queries; Knowledge only ever searched the full prompt.
+// Regression: the regexes in buildKnowledgeQueries were double-escaped, so
+// whitespace was never normalized and compound prompts never produced clause
+// queries; Knowledge only ever searched the full prompt. Exercise the real
+// hook and inspect the Knowledge requests it sends.
 {
-  const hookSource = fs.readFileSync(new URL('../../../hooks/memory-search-on-prompt.js', import.meta.url), 'utf8');
-  const fnSource = hookSource.match(/function buildKnowledgeQueries[\s\S]*?\n}\n/)[0];
-  const buildKnowledgeQueries = new Function(fnSource + '; return buildKnowledgeQueries;')();
-  const compound = 'What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?';
-  const queries = buildKnowledgeQueries(compound, 3);
-  assert.equal(queries[0], compound);
-  assert.ok(queries.includes('What did we decide about the memory service boundary'), JSON.stringify(queries));
-  assert.ok(queries.includes('and how does the installer handle the acceptance profile'), JSON.stringify(queries));
-  assert.equal(buildKnowledgeQueries(compound, 1).length, 1);
-  // Whitespace and newlines collapse, and the letter "n" must not split clauses.
-  assert.deepEqual(buildKnowledgeQueries('  one   spaced\tquery  ', 3), ['one spaced query']);
-  assert.deepEqual(buildKnowledgeQueries('connection pooling configuration notes', 3), ['connection pooling configuration notes']);
+  const clauseRequests = [];
+  const clauseServer = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url === '/memory/knowledge/status') {
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 1 }));
+        return;
+      }
+      clauseRequests.push(JSON.parse(body));
+      res.end(JSON.stringify({ ok: true, results: [] }));
+    });
+  });
+  const clausePort = await listen(clauseServer);
+  const knowledgeQueriesFor = async prompt => {
+    clauseRequests.length = 0;
+    const result = await runHook({
+      url: `http://127.0.0.1:${clausePort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt },
+    });
+    assert.equal(result.code, 0);
+    return clauseRequests.filter(request => request.source === 'claude-code').map(request => request.query);
+  };
+  try {
+    const compound = await knowledgeQueriesFor(
+      'What did we decide about the memory service boundary,   and how does the installer handle the acceptance profile?'
+    );
+    assert.ok(compound.includes('What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?'), JSON.stringify(compound));
+    assert.ok(compound.includes('What did we decide about the memory service boundary'), JSON.stringify(compound));
+    assert.ok(compound.includes('and how does the installer handle the acceptance profile'), JSON.stringify(compound));
+    assert.ok(compound.length <= 3, JSON.stringify(compound));
+
+    // The letter "n" must not split a prompt that has no clause boundary.
+    const plain = await knowledgeQueriesFor('connection pooling configuration notes');
+    assert.deepEqual([...new Set(plain)], ['connection pooling configuration notes']);
+  } finally {
+    await close(clauseServer);
+  }
 }
 
 // A service slower than the hook's budget must be reported as a timeout, not as
