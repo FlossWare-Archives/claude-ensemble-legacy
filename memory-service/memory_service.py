@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Allow execution from the repository without requiring package installation.
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -92,6 +92,14 @@ class MemoryStore:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
+        # Search index keyed by file name. Each entry is validated against the
+        # file's (mtime_ns, size) on every search, so external edits are seen.
+        self._search_index: Dict[str, Tuple[Tuple[int, int], List[Dict[str, Any]]]] = {}
+        self._search_index_lock = threading.Lock()
+        # Per-file locks make cache population single-flight without serializing
+        # independent files. Locks are retained for deleted names to avoid a
+        # second lock being created while an older builder is still active.
+        self._file_index_locks: Dict[str, threading.Lock] = {}
 
     def _memory_path(self, name: str, suffix: str) -> Path:
         """Build a validated memory path."""
@@ -528,6 +536,90 @@ class MemoryStore:
             return 0.0
         return dot_product / (mag1 * mag2)
 
+    @staticmethod
+    def _file_signature(stat: os.stat_result) -> Tuple[int, int, int, int]:
+        """Revision key for the search index.
+
+        mtime and size alone miss a same-size rewrite whose mtime was restored
+        (for example `cp -p`, `rsync -t`, or `os.utime`). ctime cannot be set
+        by user code and the inode changes on replace-by-rename, so both are
+        included. Limit: a same-size rewrite inside one filesystem timestamp
+        tick still produces an identical signature; restarting the service
+        or any later write to the file refreshes it.
+        """
+        return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
+
+    def _indexed_chunks(self, md_file: Path) -> List[Dict[str, Any]]:
+        """Return search-ready chunks for one file, rebuilt only when it changes.
+
+        Prompt-time retrieval issues several searches concurrently. Re-reading,
+        re-chunking and re-vectorizing the whole corpus per search is CPU-bound
+        under the GIL, so latency grew linearly with concurrency and callers
+        timed out. The per-file work now happens once per file revision.
+        """
+        file_name = md_file.stem
+        signature = self._file_signature(md_file.stat())
+        with self._search_index_lock:
+            cached = self._search_index.get(file_name)
+            if cached is not None and cached[0] == signature:
+                return cached[1]
+            file_lock = self._file_index_locks.setdefault(file_name, threading.Lock())
+
+        # Recheck after acquiring the per-file lock: another search or the
+        # background warm-up may have populated this revision while we waited.
+        with file_lock:
+            try:
+                stat = md_file.stat()
+            except FileNotFoundError:
+                with self._search_index_lock:
+                    self._search_index.pop(file_name, None)
+                return []
+            signature = self._file_signature(stat)
+            with self._search_index_lock:
+                cached = self._search_index.get(file_name)
+                if cached is not None and cached[0] == signature:
+                    return cached[1]
+            # The signature is taken BEFORE the file is read. If a writer
+            # changes the file in between, the entry holds newer content under
+            # an older signature, so the next search sees a different signature
+            # and rebuilds. The unsafe order (stat after read) is never used.
+            chunks = self.chunk_document(file_name)
+            if not chunks:
+                with open(md_file, "r", encoding="utf-8") as handle:
+                    chunks = [{"content": handle.read(), "header": "full"}]
+            indexed = []
+            for chunk in chunks:
+                content = chunk.get("content", "")
+                vector = self.vectorize_text(content)
+                indexed.append(
+                    {
+                        "header": chunk.get("header", ""),
+                        "size_bytes": len(content),
+                        "folded": content.casefold(),
+                        "vector": vector,
+                        "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
+                    }
+                )
+            with self._search_index_lock:
+                self._search_index[file_name] = (signature, indexed)
+            return indexed
+
+    def _prune_search_index(self, present: set) -> None:
+        with self._search_index_lock:
+            for name in [n for n in self._search_index if n not in present]:
+                del self._search_index[name]
+
+    def warm_search_index(self) -> int:
+        """Build the search index for every file; returns the file count."""
+        count = 0
+        for md_file in self.memory_dir.glob("*.md"):
+            try:
+                self._indexed_chunks(md_file)
+                count += 1
+            except Exception as e:
+                logger.debug("Error indexing %s: %s", md_file, e)
+        return count
+
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search memory with exact-phrase priority and local token similarity.
 
@@ -591,10 +683,13 @@ class MemoryStore:
             and entry.get("document", "").startswith("claude-code-")
         }
 
+        query_magnitude = math.sqrt(sum(v**2 for v in query_vector.values()))
         results = []
+        present = set()
         for md_file in self.memory_dir.glob("*.md"):
             try:
                 file_name = md_file.stem
+                present.add(file_name)
                 is_knowledge = file_name.startswith("claude-code-")
                 if source == "claude-code" and not is_knowledge:
                     continue
@@ -602,15 +697,8 @@ class MemoryStore:
                     continue
                 if is_knowledge and file_name not in active_knowledge_documents:
                     continue
-                chunks = self.chunk_document(file_name)
-                if not chunks:
-                    with open(md_file, "r", encoding="utf-8") as handle:
-                        content = handle.read()
-                    chunks = [{"content": content, "header": "full"}]
-                for chunk in chunks:
-                    content = chunk.get("content", "")
-                    header = chunk.get("header", "")
-                    normalized_content = content.casefold()
+                for chunk in self._indexed_chunks(md_file):
+                    normalized_content = chunk["folded"]
                     exact_match = (
                         bool(identifier_pattern.search(normalized_content))
                         if identifier_query
@@ -618,23 +706,29 @@ class MemoryStore:
                     )
                     if identifier_query and not exact_match:
                         continue
-                    chunk_vector = self.vectorize_text(content)
-                    similarity = (
-                        1.0
-                        if exact_match
-                        else self.cosine_similarity(query_vector, chunk_vector)
-                    )
+                    if exact_match:
+                        similarity = 1.0
+                    else:
+                        chunk_vector = chunk["vector"]
+                        # Terms absent from the query contribute zero to the dot product.
+                        dot_product = sum(
+                            weight * chunk_vector.get(term, 0)
+                            for term, weight in query_vector.items()
+                        )
+                        denominator = query_magnitude * chunk["magnitude"]
+                        similarity = dot_product / denominator if denominator else 0.0
                     if exact_match or similarity > 0.1:
                         results.append(
                             {
                                 "file": file_name,
-                                "section": header,
+                                "section": chunk["header"],
                                 "score": similarity,
-                                "size_bytes": len(content),
+                                "size_bytes": chunk["size_bytes"],
                             }
                         )
             except Exception as e:
-                logger.debug(f"Error searching %s: %s", md_file, e)
+                logger.debug("Error searching %s: %s", md_file, e)
+        self._prune_search_index(present)
         return sorted(
             results,
             key=lambda item: (-item["score"], item["file"], item["section"]),
@@ -809,7 +903,9 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, **result})
                 return
             requested_source = None
-            requested_limit = body.get("limit", 10)
+            # REST callers use `limit`; `top_k` is the MemoryStore name and is
+            # accepted as an alias. It was previously overwritten silently.
+            requested_limit = body.get("limit", body.get("top_k", 10))
             if operation=="search_semantic":
                 requested_source = body.get("source")
                 if requested_source not in (None, "memory", "claude-code"):
@@ -904,6 +1000,13 @@ class MemoryService:
             )
         self.socket_path.unlink()
 
+    def _warm_search_index(self) -> None:
+        try:
+            count = self.store.warm_search_index()
+            logger.info("Search index warmed for %d memory files", count)
+        except Exception:
+            logger.exception("Search index warm-up failed")
+
     def start(self):
         """Start the service."""
         logger.info("Starting Claude Ensemble memory service")
@@ -929,6 +1032,9 @@ class MemoryService:
         self.http_thread=threading.Thread(target=self.http_server.serve_forever,daemon=True)
         self.http_thread.start()
         logger.info(f"Memory REST service listening on http://{http_host}:{self.http_port}")
+        # Build the search index off the request path so the first prompt-time
+        # search after a restart does not pay the full corpus cost.
+        threading.Thread(target=self._warm_search_index, daemon=True).start()
 
         try:
             while True:

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtemp, rm, cp } from 'node:fs/promises';
+import fs from 'node:fs';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -335,6 +336,78 @@ try {
 } finally {
   await close(server);
   await close(graphServer);
+}
+
+// Regression: the regexes in buildKnowledgeQueries were double-escaped, so
+// whitespace was never normalized and compound prompts never produced clause
+// queries; Knowledge only ever searched the full prompt. Exercise the real
+// hook and inspect the Knowledge requests it sends.
+{
+  const clauseRequests = [];
+  const clauseServer = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url === '/memory/knowledge/status') {
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 1 }));
+        return;
+      }
+      clauseRequests.push(JSON.parse(body));
+      res.end(JSON.stringify({ ok: true, results: [] }));
+    });
+  });
+  const clausePort = await listen(clauseServer);
+  const knowledgeQueriesFor = async prompt => {
+    clauseRequests.length = 0;
+    const result = await runHook({
+      url: `http://127.0.0.1:${clausePort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt },
+    });
+    assert.equal(result.code, 0);
+    return clauseRequests.filter(request => request.source === 'claude-code').map(request => request.query);
+  };
+  try {
+    const compound = await knowledgeQueriesFor(
+      'What did we decide about the memory service boundary,   and how does the installer handle the acceptance profile?'
+    );
+    assert.ok(compound.includes('What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?'), JSON.stringify(compound));
+    assert.ok(compound.includes('What did we decide about the memory service boundary'), JSON.stringify(compound));
+    assert.ok(compound.includes('and how does the installer handle the acceptance profile'), JSON.stringify(compound));
+    assert.ok(compound.length <= 3, JSON.stringify(compound));
+
+    // The letter "n" must not split a prompt that has no clause boundary.
+    const plain = await knowledgeQueriesFor('connection pooling configuration notes');
+    assert.deepEqual([...new Set(plain)], ['connection pooling configuration notes']);
+  } finally {
+    await close(clauseServer);
+  }
+}
+
+// A service slower than the hook's budget must be reported as a timeout, not as
+// the opaque fetch message "This operation was aborted".
+{
+  const slowSockets = new Set();
+  const slowServer = http.createServer(() => {});
+  slowServer.on('connection', socket => { slowSockets.add(socket); socket.on('close', () => slowSockets.delete(socket)); });
+  const slowPort = await listen(slowServer);
+  try {
+    const slow = await runHook({
+      url: 'http://127.0.0.1:' + slowPort + '/',
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'slow memory service' },
+      env: { FLOSSWARE_MEMORY_TIMEOUT_MS: '150' },
+    });
+    assert.equal(slow.code, 0);
+    assert.equal(slow.stdout, '');
+    assert.match(slow.stderr, /Memory search request timed out after 150ms/);
+    assert.match(slow.stderr, /Knowledge search request timed out after 150ms/);
+    assert.doesNotMatch(slow.stderr, /operation was aborted/);
+  } finally {
+    for (const socket of slowSockets) socket.destroy();
+    await close(slowServer);
+  }
 }
 
 console.log('memory hook REST tests passed');

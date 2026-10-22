@@ -230,6 +230,15 @@ async function readHookEvent() {
   }
 }
 
+function timeoutAware(error, label, timeoutMs) {
+  // fetch() reports an expired AbortController as the opaque "This operation
+  // was aborted". Name the real cause so slow services are diagnosable.
+  if (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+    return new Error(`${label} timed out after ${timeoutMs}ms`);
+  }
+  return error;
+}
+
 async function graphRequest(route, payload, config) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.graph.timeout_ms);
@@ -244,6 +253,8 @@ async function graphRequest(route, payload, config) {
     if (!response.ok) throw new Error(`Graph service returned HTTP ${response.status}`);
     const result = await response.json();
     return result && result.ok === true ? result : null;
+  } catch (error) {
+    throw timeoutAware(error, 'Graph request ' + route, config.graph.timeout_ms);
   } finally {
     clearTimeout(timer);
   }
@@ -320,22 +331,24 @@ async function searchContext(query, source, config) {
     }
 
     return await response.json();
+  } catch (error) {
+    throw timeoutAware(error, (source === 'claude-code' ? 'Knowledge' : 'Memory') + ' search request', section.timeout_ms);
   } finally {
     clearTimeout(timer);
   }
 }
 
 function buildKnowledgeQueries(query, maxQueries) {
-  const normalized = query.replace(/\\s+/g, ' ').trim();
+  const normalized = query.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
 
   // The Memory service currently uses lexical similarity rather than embeddings.
   // Keep the complete prompt first, then add a small number of meaningful clauses
   // so compound questions can retrieve documents about each requested concept.
   const clauses = normalized
-    .split(/(?:[.!?;\\n]+|,\\s+(?=(?:and|but|while|whereas|versus|vs\\.? )\\b))/i)
+    .split(/(?:[.!?;\n]+|,\s+(?=(?:and|but|while|whereas|versus|vs\.? )\b))/i)
     .map(part => part.trim())
-    .filter(part => part.split(/\\s+/).length >= 4 && part.length >= 20);
+    .filter(part => part.split(/\s+/).length >= 4 && part.length >= 20);
   const queries = [];
   for (const candidate of [normalized, ...clauses]) {
     const key = candidate.toLocaleLowerCase();
@@ -439,6 +452,8 @@ async function searchKnowledgeStatus(config) {
       throw new Error('Knowledge status response did not satisfy the source contract');
     }
     return result;
+  } catch (error) {
+    throw timeoutAware(error, 'Knowledge status request', config.knowledge.timeout_ms);
   } finally {
     clearTimeout(timer);
   }
