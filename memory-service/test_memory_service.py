@@ -23,6 +23,19 @@ sys.path.insert(0, str(SERVICE_DIR))
 from execution.context import ExecutionContext, ExecutionResult, ExecutionStatus  # noqa: E402
 from memory_client import MemoryClient  # noqa: E402
 
+from hybrid_retrieval import HybridRetrievalIndex  # noqa: E402
+
+
+# Keep service tests offline and deterministic. Real model download/inference is
+# covered by installation/runtime acceptance; focused tests verify hybrid ranking.
+def _test_embeddings(self, texts):
+    if not self.embedding_model_name:
+        return None
+    return [[float(len(text.split()) or 1), 1.0] for text in texts]
+
+
+HybridRetrievalIndex._embed = _test_embeddings
+
 
 SERVICE = Path(__file__).with_name("memory_service.py")
 
