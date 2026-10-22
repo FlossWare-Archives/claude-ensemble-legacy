@@ -138,6 +138,22 @@ class HybridRetrievalTests(unittest.TestCase):
             self.embedding_patch.start()
             self.model_patch.start()
 
+    def test_search_rejects_stale_model_identity_instead_of_truncating_vectors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3")
+            index.replace_document("target", "rev1", [{
+                "header": "Persistence",
+                "heading_path": "Persistence",
+                "content": "The service stores semantic vectors in SQLite.",
+            }])
+            with index._connect() as db:
+                db.execute(
+                    "UPDATE chunks SET embedding_model=? WHERE file=?",
+                    ("previous-local-model", "target"),
+                )
+            with self.assertRaisesRegex(RuntimeError, "different model"):
+                index.search("Where are semantic vectors stored?", 3, {"target"})
+
     def test_heading_hierarchy_is_preserved(self):
         chunks = chunk_markdown('# Architecture\n\nIntro.\n\n## Install root\n\nThe default deployment root is ~/.FlossWare/claude-ensemble.\n')
         target = next(item for item in chunks if 'default deployment root' in item['content'])
