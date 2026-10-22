@@ -274,6 +274,16 @@ if [[ "$STAGING_ONLY" == "1" ]]; then
   printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
   exit 0
 fi
+# Provision the release's complete Python runtime before activation. The standard
+# requirements include Sentence Transformers; preload the default local model so
+# the first prompt does not trigger dependency setup or a model download.
+if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
+  python3 -m venv "$RELEASE/.venv"
+fi
+"$RELEASE/.venv/bin/python" -m pip install --upgrade pip
+"$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
+"$RELEASE/.venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
+
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
   printf 'ERROR: Activation failed. The release was retained for diagnosis and retry.\n' >&2
   exit 1
