@@ -309,14 +309,20 @@ class HybridRetrievalIndex:
 
     def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
         with self._connect() as db:
-            row = db.execute(
-                "SELECT signature, embedding, embedding_model FROM chunks WHERE file=? LIMIT 1",
+            rows = db.execute(
+                "SELECT signature, embedding, embedding_model FROM chunks WHERE file=?",
                 (file,),
-            ).fetchone()
-            if row and row["signature"] == signature:
+            ).fetchall()
+            if rows and all(row["signature"] == signature for row in rows):
                 if not self.embedding_model_name:
                     return
-                if row["embedding"] and row["embedding_model"] == self.embedding_model_name:
+                # Repair partial backfills too: one valid first chunk must not
+                # hide missing vectors on later chunks of the same document.
+                if all(
+                    row["embedding"] is not None
+                    and row["embedding_model"] == self.embedding_model_name
+                    for row in rows
+                ):
                     return
         texts = [str(chunk.get("content", "")) for chunk in chunks]
         embeddings = self._embed(texts)
