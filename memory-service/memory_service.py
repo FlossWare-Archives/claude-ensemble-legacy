@@ -439,6 +439,25 @@ class MemoryStore:
                 "stale": False,
             }
             self._save_ingest_index(index)
+        # Ingestion writes the Markdown file directly rather than going through
+        # write_file(), so explicitly keep the persistent hybrid index in sync.
+        # This work happens on the ingestion/write path, never during prompt search.
+        try:
+            self._indexed_chunks(path)
+            present_stems = {
+                item.stem for item in self.memory_dir.glob("*.md") if item.is_file()
+            }
+            if (
+                self._hybrid_index._full_corpus_key is None
+                or present_stems != set(self._hybrid_index._full_corpus_key)
+            ):
+                self._hybrid_index.warm_corpus(present_stems)
+        except Exception as index_error:
+            logger.warning(
+                "Knowledge %s was ingested but hybrid indexing is deferred: %s",
+                document_key,
+                index_error,
+            )
         logger.info("Ingested Claude Code memory: %s", source_path)
         return {"status": "ingested", "source_path": source_path, "sha256": sha256, "document": document_key}
 
