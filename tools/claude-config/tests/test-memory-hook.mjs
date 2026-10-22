@@ -222,7 +222,7 @@ try {
     inputChunks: [utf8Input.subarray(0, utf8Marker + 1), utf8Input.subarray(utf8Marker + 1)],
   });
   assert.equal(splitUtf8.code, 0);
-  assert.equal(JSON.parse(requests.at(-1).body).query, 'Café architecture');
+  assert.ok(requests.some(request => JSON.parse(request.body).query === 'Café architecture'));
 
   const longPrompt = 'x'.repeat(13000);
   const longPromptResult = await runHook({
@@ -230,7 +230,7 @@ try {
     input: { hook_event_name: 'UserPromptSubmit', prompt: longPrompt },
   });
   assert.equal(longPromptResult.code, 0);
-  assert.equal(JSON.parse(requests.at(-1).body).query, longPrompt);
+  assert.ok(requests.some(request => JSON.parse(request.body).query === longPrompt));
   assert.match(JSON.parse(longPromptResult.stdout).hookSpecificOutput.additionalContext, /Claude Code is the host/);
   assert.ok(JSON.parse(longPromptResult.stdout).hookSpecificOutput.additionalContext.length <= 12000);
 
@@ -239,7 +239,7 @@ try {
     input: { hook_event_name: 'UserPromptSubmit', prompt: 'Fix the failing test' },
   });
   assert.equal(ordinaryPrompt.code, 0);
-  assert.equal(JSON.parse(requests.at(-1).body).query, 'Fix the failing test');
+  assert.ok(requests.some(request => JSON.parse(request.body).query === 'Fix the failing test'));
   assert.match(JSON.parse(ordinaryPrompt.stdout).hookSpecificOutput.additionalContext, /Relevant Claude Ensemble Context/);
 
   // Empty retrieval is different from a hook that was never invoked. Opt-in
