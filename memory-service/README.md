@@ -70,12 +70,13 @@ Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/cla
 ### Liveness, readiness, and index warm-up
 
 - `GET /health` is liveness. It reports that the Memory process is responding and remains HTTP 200 while the search index warms.
-- `GET /ready` is readiness. It returns HTTP 200 only after the initial search index is usable; while warming or after a warm-up failure/timeout it returns HTTP 503 with the index state and indexed/expected file counts.
-- `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` controls the warm-up readiness budget and defaults to 30 seconds. Exceeding it reports `timed_out`; the service remains live, and readiness can recover if the warm-up later completes successfully.
-- Semantic and hybrid search requests received while the index is warming, timed out, or degraded return HTTP 503 with `error_code: index_not_ready` and `retryable: true`. This avoids spending the prompt hook's full timeout building the corpus on the request path.
+- `GET /ready` is readiness. It returns HTTP 200 only after a complete index pass over a stable snapshot of the Markdown files; while warming or after an incomplete pass it returns HTTP 503 with per-file outcomes and index diagnostics.
+- `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` controls the warm-up readiness budget and defaults to 30 seconds. It must be finite and greater than zero. Exceeding it reports `timed_out` and logs a warning once; the service remains live, and readiness can recover if the active warm-up later completes.
+- Startup warm-up retries incomplete or failed passes up to three times with bounded delays. If all attempts fail, Memory remains not-ready. The terminal `degraded`/`failed` state returns `retryable: false`; restart the Memory service after correcting the underlying problem. Requests never trigger an unbounded cold rebuild.
+- Semantic and hybrid search requests in `not_started`, `warming`, `timed_out`, `degraded`, or `failed` state return HTTP 503 with `error_code: index_not_ready`. Only `warming` and `timed_out` responses are marked `retryable: true`, because the active warm-up can still complete.
 - The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
 
-The first search after a restart may still perform on-demand work for files changed or created after warm-up. Readiness describes completion of the initial index pass, not a guarantee that every later query has a fixed latency.
+Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files added or changed after startup are indexed on demand; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
 
 ### Ping
 ```json
