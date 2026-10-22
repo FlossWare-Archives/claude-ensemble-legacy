@@ -246,13 +246,11 @@ install_managed_copy() {
     fi
 }
 
-# Step 4: Install toolkit initialization and configuration links
+# Step 4: Install toolkit initialization
 echo ""
 echo "4. Installing toolkit scripts..."
 INIT_SOURCE="$REPO_PATH/scripts/ensemble-init.sh"
-CONFIG_SOURCE="$REPO_PATH/scripts/config.sh"
 install_managed_copy "$CLAUDE_HOME/ensemble-init.sh" "$INIT_SOURCE" "ensemble-init.sh"
-install_managed_copy "$CLAUDE_HOME/config.sh" "$CONFIG_SOURCE" "config.sh"
 
 # Step 4c: Install ensemble practices guide
 echo ""
