@@ -149,30 +149,82 @@ class MemoryStore:
             logger.error(f"Error writing {name}: {e}")
             return False
 
+    @staticmethod
+    def _ledger_error(message: str) -> Dict[str, Dict[str, str]]:
+        """Return a fail-closed ledger representation without trusting its keys."""
+        return {"__ledger_error__": {"error": message}}
+
     def _pending_index_records(self) -> Dict[str, Dict[str, str]]:
-        """Read the durable retry ledger for files not yet reflected in SQLite."""
+        """Read and validate the durable retry ledger before using any key as a path."""
         try:
             value = json.loads(self._pending_index_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
         except (OSError, json.JSONDecodeError) as exc:
             logger.error("Cannot read hybrid-index retry ledger: %s", exc)
-            return {"__ledger_error__": {"error": str(exc)}}
-        return value if isinstance(value, dict) else {
-            "__ledger_error__": {"error": "retry ledger is not a JSON object"}
-        }
+            return self._ledger_error(str(exc))
+
+        if not isinstance(value, dict):
+            return self._ledger_error("retry ledger is not a JSON object")
+
+        validated: Dict[str, Dict[str, str]] = {}
+        for name, record in value.items():
+            if name == "__ledger_error__":
+                if not isinstance(record, dict) or not isinstance(record.get("error"), str):
+                    return self._ledger_error("retry ledger has an invalid __ledger_error__ record")
+                validated[name] = {"error": record["error"]}
+                continue
+            try:
+                validate_memory_name(name)
+            except (TypeError, ValueError):
+                logger.error("Retry ledger contains an invalid memory name")
+                return self._ledger_error("retry ledger contains an invalid memory name")
+            if (
+                not isinstance(record, dict)
+                or not isinstance(record.get("signature"), str)
+                or not isinstance(record.get("error"), str)
+            ):
+                logger.error("Retry ledger contains a malformed record for %s", name)
+                return self._ledger_error("retry ledger contains a malformed record")
+            validated[name] = {
+                "signature": record["signature"],
+                "error": record["error"],
+            }
+        return validated
 
     def pending_index_status(self) -> Dict[str, Any]:
         with self._pending_index_lock:
             records = self._pending_index_records()
             # In-memory faults are authoritative if persistence failed or a
-            # concurrent ledger update has not yet become durable.
-            records.update(self._pending_index_faults)
+            # concurrent ledger update has not yet become durable. Validate
+            # these keys too: status must never turn corrupt state into a path.
+            for name, record in self._pending_index_faults.items():
+                if name == "__ledger_error__":
+                    if isinstance(record, dict) and isinstance(record.get("error"), str):
+                        records[name] = {"error": record["error"]}
+                    else:
+                        records = self._ledger_error("in-memory ledger fault is malformed")
+                    continue
+                try:
+                    validate_memory_name(name)
+                except (TypeError, ValueError):
+                    records = self._ledger_error("in-memory retry ledger contains an invalid memory name")
+                    continue
+                if (
+                    not isinstance(record, dict)
+                    or not isinstance(record.get("signature"), str)
+                    or not isinstance(record.get("error"), str)
+                ):
+                    records = self._ledger_error("in-memory retry ledger contains a malformed record")
+                    continue
+                records[name] = {"signature": record["signature"], "error": record["error"]}
         return {
             "count": len(records),
             "files": sorted(name for name in records if name != "__ledger_error__"),
-            "errors": {name: record.get("error", "indexing pending")
-                       for name, record in records.items()},
+            "errors": {
+                name: record.get("error", "indexing pending")
+                for name, record in records.items()
+            },
         }
 
     def _write_pending_index_records(self, records: Dict[str, Dict[str, str]]) -> None:
@@ -181,16 +233,23 @@ class MemoryStore:
         os.replace(temporary, self._pending_index_path)
 
     def _mark_index_pending(self, path: Path, error: Exception) -> None:
+        # Do not accept an arbitrary Path as authority for a ledger key or
+        # filesystem target. It must be exactly the validated Markdown path.
+        name = validate_memory_name(path.stem)
+        safe_path = self._memory_path(name, ".md")
+        if path.resolve() != safe_path.resolve():
+            raise ValueError("Pending-index path is outside the configured memory directory")
+        path = safe_path
         try:
             signature = repr(self._file_signature(path.stat())) if path.exists() else "missing"
         except OSError:
             signature = "unknown"
         record = {"signature": signature, "error": str(error)}
         with self._pending_index_lock:
-            self._pending_index_faults[path.stem] = record
+            self._pending_index_faults[name] = record
             try:
                 records = self._pending_index_records()
-                records[path.stem] = record
+                records[name] = record
                 self._write_pending_index_records(records)
                 self._pending_index_faults.pop("__ledger_error__", None)
             except OSError as ledger_error:
@@ -205,7 +264,8 @@ class MemoryStore:
         # Successful indexing of revision A must never clear pending revision B.
         # For a missing-file cleanup, callers omit signature and we only clear
         # after confirming the source file no longer exists.
-        path = self.memory_dir / f"{file_name}.md"
+        file_name = validate_memory_name(file_name)
+        path = self._memory_path(file_name, ".md")
         if signature is None:
             if path.exists():
                 return False
