@@ -89,6 +89,14 @@ def run():
     sys.path.insert(0, str(root_repo/"learning"))
     from graph_service import create_server as graph_server
     from memory_service import MemoryService
+
+    from hybrid_retrieval import HybridRetrievalIndex
+
+    # Keep REST timeout tests independent of first-run model downloads. The
+    # memory-service suite validates hybrid behavior using deterministic vectors.
+    HybridRetrievalIndex._embed = lambda self, texts: (
+        [[1.0, 0.0] for _ in texts] if self.embedding_model_name else None
+    )
     from server.ensemble_server import create_server as gateway_server, _forward
     from learning.arbitration_advisor import ArbitrationAdvisor
     with tempfile.TemporaryDirectory() as tmp:
