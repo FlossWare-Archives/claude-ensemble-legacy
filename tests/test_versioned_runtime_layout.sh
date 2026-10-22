@@ -133,7 +133,7 @@ create_release 0.1
 create_release 0.2
 
 echo "=== Activate first release without network access ==="
-bash "$ROOT/releases/0.1/tools/ce-deployment" activate 0.1 > "$WORK/activate-01.log" 2>&1 || {
+ENSEMBLE_READY_URL="$ENSEMBLE_READY_URL" bash "$ROOT/releases/0.1/tools/ce-deployment" activate 0.1 > "$WORK/activate-01.log" 2>&1 || {
   cat "$WORK/activate-01.log" >&2
   exit 1
 }
@@ -141,7 +141,7 @@ grep -q "Using the pre-provisioned standalone release runtime" "$WORK/activate-0
 [[ "$(readlink "$ROOT/current")" == "releases/0.1" ]]
 
 echo "=== Activate second release without network access ==="
-bash "$ROOT/current/tools/ce-deployment" activate 0.2 > "$WORK/activate-02.log" 2>&1 || {
+ENSEMBLE_READY_URL="$ENSEMBLE_READY_URL" bash "$ROOT/current/tools/ce-deployment" activate 0.2 > "$WORK/activate-02.log" 2>&1 || {
   cat "$WORK/activate-02.log" >&2
   exit 1
 }
@@ -149,7 +149,7 @@ grep -q "Using the pre-provisioned standalone release runtime" "$WORK/activate-0
 [[ "$(readlink "$ROOT/current")" == "releases/0.2" ]]
 
 echo "=== Roll back to the prior release without network access ==="
-bash "$ROOT/current/tools/ce-deployment" rollback > "$WORK/rollback.log" 2>&1 || {
+ENSEMBLE_READY_URL="$ENSEMBLE_READY_URL" bash "$ROOT/current/tools/ce-deployment" rollback > "$WORK/rollback.log" 2>&1 || {
   cat "$WORK/rollback.log" >&2
   exit 1
 }
