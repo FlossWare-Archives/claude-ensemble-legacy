@@ -49,6 +49,16 @@ case "$command" in
 esac
 MOCK
 chmod +x "$WORK/bin/systemctl"
+
+# Activation renders units through the release installer, which checks for the
+# Claude Code CLI as a prerequisite. This test validates CE release lifecycle,
+# not Claude Code itself, so provide a harmless command-presence fixture.
+cat > "$WORK/bin/claude" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+chmod +x "$WORK/bin/claude"
+
 export PATH="$WORK/bin:$PATH"
 export SYSTEMCTL_BIN="$WORK/bin/systemctl"
 export ENSEMBLE_SYSTEMCTL_BIN="$WORK/bin/systemctl"
