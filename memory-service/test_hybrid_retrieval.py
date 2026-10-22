@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import sys
 
@@ -14,10 +15,25 @@ def _test_embeddings(self, texts):
     return [[float(len(text.split()) or 1), 1.0] for text in texts]
 
 
-HybridRetrievalIndex._embed = _test_embeddings
-
 
 class HybridRetrievalTests(unittest.TestCase):
+    def setUp(self):
+        self.embedding_patch = patch.object(HybridRetrievalIndex, "_embed", _test_embeddings)
+        self.embedding_patch.start()
+
+    def tearDown(self):
+        self.embedding_patch.stop()
+
+    def test_chunks_respect_character_limit_and_track_oversized_paragraph_lines(self):
+        text = "# Notes\n\n" + ("alpha beta gamma delta\n" * 260) + "\n# Next\n\n" + ("Unicode café 漢字 🚀. " * 180)
+        chunks = chunk_markdown(text, max_chars=180, overlap_chars=24)
+        self.assertTrue(chunks)
+        self.assertTrue(all(len(chunk["content"]) <= 180 for chunk in chunks))
+        self.assertTrue(all(chunk["start_line"] <= chunk["end_line"] for chunk in chunks))
+        self.assertTrue(any(chunk["heading_path"] == "Notes" for chunk in chunks))
+        self.assertTrue(any(chunk["heading_path"] == "Next" for chunk in chunks))
+        self.assertTrue(any("café" in chunk["content"] and "🚀" in chunk["content"] for chunk in chunks))
+
     def test_heading_hierarchy_is_preserved(self):
         chunks = chunk_markdown('# Architecture\n\nIntro.\n\n## Install root\n\nThe default deployment root is ~/.FlossWare/claude-ensemble.\n')
         target = next(item for item in chunks if 'default deployment root' in item['content'])
