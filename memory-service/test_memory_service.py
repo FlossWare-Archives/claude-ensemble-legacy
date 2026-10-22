@@ -642,7 +642,13 @@ class MemorySearchRegressionTest(unittest.TestCase):
     def test_pending_ledger_rejects_non_object_records_and_recovers(self):
         from memory_service import MemoryService
 
-        for malformed_record in (None, [], "not-an-object", {"signature": "x", "error": "bad", "extra": True}):
+        malformed_records = (
+            None,
+            [],
+            "not-an-object",
+            {"signature": "x", "error": "bad", "extra": True},
+        )
+        for malformed_record in malformed_records:
             with self.subTest(record=malformed_record), tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
                 memory_dir = root / "memory"
