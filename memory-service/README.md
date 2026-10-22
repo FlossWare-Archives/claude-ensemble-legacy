@@ -25,40 +25,32 @@ Central memory authority for all Claude Code sessions. Runs as a systemd user se
 
 ## Hybrid retrieval
 
-Natural-language searches use a SQLite-backed BM25 index. SQLite is an embedded
-file, not another service; the index is stored beside the memory documents as
+Natural-language searches use hybrid retrieval by default: SQLite-backed BM25
+plus local semantic embeddings. SQLite is an embedded file, not another service;
+the index is stored beside the memory documents as
 `.hybrid-retrieval.sqlite3` and is rebuilt incrementally as documents change.
 Markdown is chunked at heading and paragraph boundaries, with heading paths
 retained as retrieval metadata. Structured identifiers continue through the
 existing exact-identifier path.
 
-Local semantic embeddings are optional and disabled by default. To enable them,
-install the optional dependencies:
+The default local embedding model is
+`sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU. The standard Claude
+Ensemble dependency installation includes Sentence Transformers, and the model
+weights are acquired automatically on first use if they are not already cached.
+Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to override the default
+model or point to a preinstalled local model directory. Normal operation does
+not require that setting.
 
-```bash
-python3 -m pip install -r memory-service/requirements-embeddings.txt
-```
+Existing lexical indexes are backfilled as documents are indexed, and the
+operator-controlled reindex command can rebuild the entire corpus or migrate
+vectors after a model change. Vectors and model identity are stored with each
+chunk in SQLite. The first model load and initial backfill take longer; later
+searches reuse stored vectors.
 
-Then set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` in the Memory service environment to
-a locally available Sentence Transformers model name or model directory. For
-a small general-purpose starting point, use
-`sentence-transformers/all-MiniLM-L6-v2`. The model runs on CPU and may
-download weights on first use if it is not already present locally. For an
-offline setup, pre-download the approved model and configure its local directory
-instead of a remote model name.
-
-When embeddings are enabled, the service stores each vector and the model
-identity beside the chunk in SQLite. If embeddings are enabled after a lexical
-index already exists, the next indexing pass backfills missing vectors. Changing
-the configured model causes vectors to be regenerated, rather than mixing vectors
-from different models. The first indexing pass and first query may be slower
-while the model loads and vectors are generated; later searches reuse stored
-vectors.
-
-Do not enable this for work data unless local model execution and model
-acquisition are approved for the environment. Without that setting, retrieval
-uses BM25 and exact-match ranking only; it makes no embedding provider calls and
-downloads no model weights.
+The model is local inference. Memory content is not sent to an external
+embedding API. For disconnected environments, provision the model weights in the
+local model cache as part of installation so startup does not depend on network
+access.
 
 ## Installation
 
