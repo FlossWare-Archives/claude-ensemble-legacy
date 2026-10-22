@@ -132,8 +132,14 @@ class MemoryStore:
         path = self._memory_path(name, ".md")
         try:
             with self.lock:
-                with open(path, "w") as f:
+                with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
+            # Keep the persistent hybrid index current at write time. Prompt-time
+            # retrieval must not rebuild document vectors or mutate the index.
+            try:
+                self._indexed_chunks(path)
+            except Exception as index_error:
+                logger.warning("Memory %s was written but indexing is deferred: %s", name, index_error)
             logger.info(f"Wrote memory: {name}")
             return True
         except Exception as e:
@@ -553,7 +559,7 @@ class MemoryStore:
         """
         return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
 
-    def _indexed_chunks(self, md_file: Path) -> List[Dict[str, Any]]:
+    def _indexed_chunks(self, md_file: Path, *, update_hybrid: bool = True) -> List[Dict[str, Any]]:
         """Return search-ready chunks for one file, rebuilt only when it changes.
 
         Prompt-time retrieval issues several searches concurrently. Re-reading,
@@ -606,7 +612,8 @@ class MemoryStore:
                         "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
                     }
                 )
-            self._hybrid_index.replace_document(file_name, repr(signature), indexed)
+            if update_hybrid:
+                self._hybrid_index.replace_document(file_name, repr(signature), indexed)
             with self._search_index_lock:
                 self._search_index[file_name] = (signature, indexed)
             return indexed
@@ -657,6 +664,9 @@ class MemoryStore:
                 "complete": complete,
             }
             if complete:
+                present_stems = {Path(name).stem for name in final_names}
+                self._hybrid_index.remove_missing(present_stems)
+                self._prune_search_index(present_stems)
                 return last_report
         return last_report
 
@@ -669,11 +679,11 @@ class MemoryStore:
         return len(indexed_files)
 
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Search memory with exact-phrase priority and local token similarity.
+        """Search using SQLite hybrid retrieval for prose and exact matching for identifiers.
 
-        This is a lightweight lexical search, not embedding-based semantic
-        search. Exact identifiers such as run IDs and event IDs must remain
-        discoverable even when their length makes cosine similarity low.
+        Document chunking and embedding writes happen during warm-up or file
+        writes, never on this prompt-time search path. Exact identifiers such
+        as run IDs and event IDs retain their boundary-aware lexical path.
         """
         if not isinstance(query, str) or not query.strip():
             return []
@@ -740,9 +750,6 @@ class MemoryStore:
                 if is_knowledge and file_name not in active_knowledge_documents:
                     continue
                 allowed_files.add(file_name)
-                self._indexed_chunks(md_file)
-            self._prune_search_index(present_files)
-            self._hybrid_index.remove_missing(present_files)
             return self._hybrid_index.search(normalized_query, top_k, allowed_files)
 
         # Load the ingestion index once per search, not once per Knowledge file.
@@ -773,7 +780,7 @@ class MemoryStore:
                     continue
                 if is_knowledge and file_name not in active_knowledge_documents:
                     continue
-                for chunk in self._indexed_chunks(md_file):
+                for chunk in self._indexed_chunks(md_file, update_hybrid=False):
                     normalized_content = chunk["folded"]
                     exact_match = (
                         bool(identifier_pattern.search(normalized_content))
