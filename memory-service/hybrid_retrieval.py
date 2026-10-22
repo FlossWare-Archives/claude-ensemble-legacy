@@ -75,7 +75,7 @@ def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -
                 "header": header,
                 "heading_path": heading_path,
                 "start_line": line_at(start),
-                "end_line": line_at(start) + content.count("\n"),
+                "end_line": line_at(max(start, end - 1)),
                 "content": content,
             })
             if end >= len(section_text):
