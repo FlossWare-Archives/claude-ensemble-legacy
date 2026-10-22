@@ -662,7 +662,10 @@ class MemoryStore:
     def warm_search_index(self) -> int:
         """Build the search index for every file; returns the file count."""
         report = self.warm_search_index_report()
-        return len(report.get("indexed_files", []))
+        indexed_files = set(report.get("indexed_files", []))
+        if report.get("complete"):
+            self._hybrid_index._corpus(indexed_files)
+        return len(indexed_files)
 
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search memory with exact-phrase priority and local token similarity.
