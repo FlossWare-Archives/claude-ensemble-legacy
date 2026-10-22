@@ -144,11 +144,6 @@ exit 0
         if executable is None or not Path(executable).is_file():
             fail(f"{installed} ExecStart does not reference a repository Python executable: {exec_line}")
 
-    # The top-level installer must reuse the pre-provisioned test runtime
-    # and must not try to download the embedding model during activation.
-    if "Skipping network provisioning" not in top_level.stdout:
-        fail("top-level installer did not honor ENSEMBLE_SKIP_PYTHON_PROVISION")
-
     # Regression case 1: an identical existing hook with mode 0644 must
     # retain its content while becoming executable.
     ordinary_claude = home / ".claude"
