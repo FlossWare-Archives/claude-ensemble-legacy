@@ -274,16 +274,15 @@ if [[ "$STAGING_ONLY" == "1" ]]; then
   printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
   exit 0
 fi
-# Provision the release's complete Python runtime before activation. The standard
-# requirements include Sentence Transformers; preload the default local model so
-# the first prompt does not trigger dependency setup or a model download.
+# Provision the immutable release runtime once, before activation. Activation,
+# recovery, and rollback reuse it without package/model network access.
 if [[ -f "$RELEASE/requirements.txt" ]]; then
   if [[ "${ENSEMBLE_SKIP_PYTHON_PROVISION:-0}" == "1" ]]; then
     [[ -x "$RELEASE/.venv/bin/python" ]] || {
-      printf 'ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires a pre-provisioned release .venv/bin/python.\n' >&2
+      printf 'ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires a pre-provisioned release .venv/bin/python.\\n' >&2
       exit 1
     }
-    printf 'Using pre-provisioned Python runtime; package installation skipped.\n'
+    printf 'Using pre-provisioned Python runtime; package installation skipped.\\n'
   else
     if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
       python3 -m venv --copies "$RELEASE/.venv"
@@ -292,13 +291,13 @@ if [[ -f "$RELEASE/requirements.txt" ]]; then
     "$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
   fi
   if [[ "${ENSEMBLE_SKIP_MODEL_PROVISION:-0}" == "1" ]]; then
-    printf 'Skipping model preload; ensure the configured local model is already cached for offline use.\n'
+    printf 'Skipping model preload; ensure the configured local model is already cached for offline use.\\n'
   else
-    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \\
       "$RELEASE/.venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
   fi
 else
-  printf 'Skipping Python runtime provisioning for minimal deployment fixture (no requirements.txt).\n'
+  printf 'Skipping Python runtime provisioning for minimal deployment fixture (no requirements.txt).\\n'
 fi
 
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
