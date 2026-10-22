@@ -278,6 +278,10 @@ def _forward(
     remote_ensemble = _ensemble_target(base)
     if remote_ensemble:
         target_path = f"{API_PREFIX}{path}"
+    elif path == "/memory/ready":
+        # Memory readiness includes initial search-index warm-up; liveness
+        # remains available independently at /memory/health.
+        target_path = "/ready"
     elif path in {"/graph/health", "/memory/health", "/learning/health", "/thompson/health"}:
         # Public gateway health paths are service-scoped; concrete services
         # expose their health endpoint at the root.
@@ -427,10 +431,11 @@ class EnsembleApplication:
         dependencies: dict[str, dict[str, Any]] = {}
         for service in ("graph", "memory"):
             try:
+                health_path = f"/{service}/ready" if service == "memory" else f"/{service}/health"
                 status, raw = _forward(
                     self.service_urls.get(service),
                     "GET",
-                    f"/{service}/health",
+                    health_path,
                     None,
                     handler,
                 )
