@@ -480,6 +480,37 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertNotIn("beta", store._search_index)
 
+    def test_warmup_reconciles_hybrid_after_identifier_refresh_of_external_edit(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file(
+                "revision-note",
+                "# Revision\n\nartifact_id: revision-1234\nold deployment content",
+            )
+            path = Path(temp_dir) / "revision-note.md"
+            path.write_text(
+                "# Revision\n\nartifact_id: revision-5678\nnew deployment content",
+                encoding="utf-8",
+            )
+
+            # Exact identifier lookup updates only the lexical cache by design.
+            self.assertEqual(store.search_semantic("revision-5678"), [])
+            report = store.warm_search_index_report()
+            self.assertTrue(report["complete"], report)
+
+            with store._hybrid_index._connect() as db:
+                rows = db.execute(
+                    "SELECT signature, content FROM chunks WHERE file=?",
+                    ("revision-note",),
+                ).fetchall()
+            self.assertTrue(rows)
+            self.assertTrue(all("revision-5678" in row["content"] for row in rows))
+            self.assertFalse(any("revision-1234" in row["content"] for row in rows))
+            results = store.search_semantic("new deployment content")
+            self.assertTrue(any(result["file"] == "revision-note" for result in results))
+
     def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
         """Exact identifier lookup detects out-of-band same-size rewrites."""
         from memory_service import MemoryStore
