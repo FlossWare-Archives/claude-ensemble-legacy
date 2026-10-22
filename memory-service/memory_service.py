@@ -165,7 +165,7 @@ class MemoryStore:
             value = json.loads(self._pending_index_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             logger.error("Cannot read hybrid-index retry ledger: %s", exc)
             return self._ledger_error(str(exc))
 
@@ -210,7 +210,7 @@ class MemoryStore:
             # these keys too: status must never turn corrupt state into a path.
             for name, record in self._pending_index_faults.items():
                 if name == "__ledger_error__":
-                    if isinstance(record, dict) and isinstance(record.get("error"), str):
+                    if isinstance(record, dict) and set(record) == {"error"} and isinstance(record.get("error"), str):
                         records[name] = {"error": record["error"]}
                     else:
                         records = self._ledger_error("in-memory ledger fault is malformed")
