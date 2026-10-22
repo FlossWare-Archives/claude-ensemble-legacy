@@ -234,7 +234,14 @@ class HybridRetrievalIndex:
                 )
 
     def warm_corpus(self, all_files: set[str]):
-        """Build and register the full persistent corpus cache before readiness."""
+        """Load the local model and register the corpus cache before readiness.
+
+        Readiness must not be reported while the first prompt could still trigger
+        a model download/load. Indexing document chunks normally loads the model,
+        but an empty memory directory needs the explicit preload below too.
+        """
+        if self.embedding_model_name:
+            self._model()
         key = frozenset(all_files)
         with self._cache_lock:
             self._full_corpus_key = key
