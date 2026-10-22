@@ -1,0 +1,247 @@
+"""Persistent hybrid retrieval for the CE Memory service.
+
+SQLite is embedded storage, not a server. Sentence-transformers is optional and
+loaded only when ENSEMBLE_MEMORY_EMBEDDING_MODEL is explicitly configured.
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import re
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+TOKEN_RE = re.compile(r"[^\W_]+(?:[._:-][^\W_]+)*", re.UNICODE)
+
+
+def tokenize(text: str) -> list[str]:
+    terms: list[str] = []
+    for token in TOKEN_RE.findall(text.casefold()):
+        if len(token) > 2:
+            terms.append(token)
+        terms.extend(part for part in re.split(r"[._:-]+", token) if len(part) > 2)
+    return terms
+
+
+def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -> list[dict[str, Any]]:
+    """Split Markdown by heading hierarchy and paragraph boundaries with overlap."""
+    lines = text.splitlines(keepends=True)
+    chunks: list[dict[str, Any]] = []
+    heading_stack: list[tuple[int, str]] = []
+    section_lines: list[tuple[int, str]] = []
+    section_start = 1
+
+    def emit_section() -> None:
+        nonlocal section_lines, section_start
+        if not section_lines:
+            return
+        heading_path = " > ".join(label for _, label in heading_stack) or "Introduction"
+        header = heading_stack[-1][1] if heading_stack else "Introduction"
+        paragraphs: list[tuple[int, str]] = []
+        buf: list[str] = []
+        buf_start = section_start
+        for line_no, line in section_lines:
+            if not line.strip() and buf:
+                paragraphs.append((buf_start, "".join(buf)))
+                buf = []
+            else:
+                if not buf:
+                    buf_start = line_no
+                buf.append(line)
+        if buf:
+            paragraphs.append((buf_start, "".join(buf)))
+
+        current: list[tuple[int, str]] = []
+        current_size = 0
+        for p_start, paragraph in paragraphs:
+            pieces = [paragraph]
+            if len(paragraph) > max_chars:
+                pieces = []
+                remaining = paragraph
+                while len(remaining) > max_chars:
+                    cut = remaining.rfind("\n", 0, max_chars)
+                    if cut < max_chars // 2:
+                        cut = max_chars
+                    pieces.append(remaining[:cut])
+                    remaining = remaining[max(0, cut - overlap_chars):]
+                if remaining:
+                    pieces.append(remaining)
+            for piece in pieces:
+                if current and current_size + len(piece) > max_chars:
+                    content = "".join(part for _, part in current)
+                    chunks.append({
+                        "header": header, "heading_path": heading_path,
+                        "start_line": current[0][0],
+                        "end_line": current[-1][0] + current[-1][1].count("\n"),
+                        "content": content,
+                    })
+                    overlap = content[-overlap_chars:] if overlap_chars else ""
+                    current = [(max(1, current[-1][0]), overlap)] if overlap else []
+                    current_size = len(overlap)
+                current.append((p_start, piece))
+                current_size += len(piece)
+        if current:
+            content = "".join(part for _, part in current)
+            chunks.append({
+                "header": header, "heading_path": heading_path,
+                "start_line": current[0][0],
+                "end_line": current[-1][0] + current[-1][1].count("\n"),
+                "content": content,
+            })
+        section_lines = []
+
+    for line_no, line in enumerate(lines, start=1):
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if match:
+            emit_section()
+            level = len(match.group(1))
+            heading = match.group(2).strip()
+            heading_stack[:] = [(depth, label) for depth, label in heading_stack if depth < level]
+            heading_stack.append((level, heading))
+            section_start = line_no
+            section_lines = [(line_no, line)]
+        else:
+            if not section_lines:
+                section_start = line_no
+            section_lines.append((line_no, line))
+    emit_section()
+    return chunks
+
+
+class HybridRetrievalIndex:
+    """SQLite-backed BM25 + optional local embedding cosine similarity."""
+
+    def __init__(self, path: Path, embedding_model: str | None = None):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.embedding_model_name = embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+        self._embedder = None
+        with self._connect() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS chunks (
+                id INTEGER PRIMARY KEY, file TEXT NOT NULL, ordinal INTEGER NOT NULL,
+                signature TEXT NOT NULL, header TEXT NOT NULL, heading_path TEXT NOT NULL,
+                content TEXT NOT NULL, size_bytes INTEGER NOT NULL, tokens TEXT NOT NULL,
+                embedding TEXT, UNIQUE(file, ordinal))""")
+            db.execute("CREATE INDEX IF NOT EXISTS chunks_file_idx ON chunks(file)")
+
+    def _connect(self):
+        db = sqlite3.connect(self.path, timeout=10)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=10000")
+        return db
+
+    def _model(self):
+        if not self.embedding_model_name:
+            return None
+        if self._embedder is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Embeddings are configured but sentence-transformers is not installed; "
+                    "install memory-service/requirements-embeddings.txt"
+                ) from exc
+            self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
+        return self._embedder
+
+    def _embed(self, texts: list[str]) -> list[list[float]] | None:
+        model = self._model()
+        if model is None:
+            return None
+        vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        return [vector.astype(float).tolist() for vector in vectors]
+
+    def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT signature FROM chunks WHERE file=? LIMIT 1", (file,)
+            ).fetchone()
+            if row and row["signature"] == signature:
+                return
+        texts = [str(chunk.get("content", "")) for chunk in chunks]
+        embeddings = self._embed(texts)
+        with self._connect() as db:
+            db.execute("DELETE FROM chunks WHERE file=?", (file,))
+            for ordinal, chunk in enumerate(chunks):
+                content = texts[ordinal]
+                db.execute(
+                    """INSERT INTO chunks
+                    (file, ordinal, signature, header, heading_path, content, size_bytes, tokens, embedding)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (file, ordinal, signature, str(chunk.get("header", "")),
+                     str(chunk.get("heading_path", chunk.get("header", ""))), content,
+                     len(content.encode("utf-8")), json.dumps(tokenize(content)),
+                     json.dumps(embeddings[ordinal]) if embeddings else None),
+                )
+
+    def remove_missing(self, present_files: set[str]) -> None:
+        with self._connect() as db:
+            indexed = {row["file"] for row in db.execute("SELECT DISTINCT file FROM chunks")}
+            for file in indexed - present_files:
+                db.execute("DELETE FROM chunks WHERE file=?", (file,))
+
+    def search(self, query: str, top_k: int, allowed_files: set[str]) -> list[dict[str, Any]]:
+        query_tokens = tokenize(query)
+        if not query_tokens or not allowed_files:
+            return []
+        query_vector = None
+        if self.embedding_model_name:
+            encoded = self._embed([query])
+            query_vector = encoded[0] if encoded else None
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM chunks").fetchall()
+        rows = [row for row in rows if row["file"] in allowed_files]
+        corpus_tokens = [json.loads(row["tokens"]) for row in rows]
+        n_docs = len(rows)
+        avg_len = sum(len(tokens) for tokens in corpus_tokens) / max(n_docs, 1)
+        doc_freq: dict[str, int] = {}
+        for tokens in corpus_tokens:
+            for term in set(tokens):
+                doc_freq[term] = doc_freq.get(term, 0) + 1
+        scored = []
+        qset = set(query_tokens)
+        for row, tokens in zip(rows, corpus_tokens):
+            freq: dict[str, int] = {}
+            for token in tokens:
+                freq[token] = freq.get(token, 0) + 1
+            length = len(tokens)
+            bm25 = 0.0
+            for term in qset:
+                tf = freq.get(term, 0)
+                if not tf:
+                    continue
+                idf = math.log(1 + (n_docs - doc_freq.get(term, 0) + 0.5) / (doc_freq.get(term, 0) + 0.5))
+                bm25 += idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * length / max(avg_len, 1)))
+            folded = row["content"].casefold()
+            phrase = query.casefold().strip()
+            exact = bool(phrase and phrase in folded)
+            semantic = 0.0
+            if query_vector and row["embedding"]:
+                candidate = json.loads(row["embedding"])
+                semantic = max(0.0, sum(a * b for a, b in zip(query_vector, candidate)))
+            scored.append((row, bm25, semantic, exact))
+        max_bm25 = max((entry[1] for entry in scored), default=0.0)
+        results = []
+        for row, bm25, semantic, exact in scored:
+            lexical = bm25 / max_bm25 if max_bm25 else 0.0
+            if query_vector:
+                score = 0.42 * lexical + 0.58 * semantic
+            else:
+                score = lexical
+            if exact:
+                score = max(score, 1.0)
+            if score > 0:
+                results.append({
+                    "file": row["file"], "section": row["header"],
+                    "heading_path": row["heading_path"], "score": score,
+                    "size_bytes": row["size_bytes"], "retrieval": (
+                        "exact+hybrid" if exact and query_vector else
+                        "exact+bm25" if exact else
+                        "hybrid" if query_vector else "bm25"
+                    ),
+                })
+        results.sort(key=lambda item: (-item["score"], item["file"], item["section"]))
+        return results[:top_k]
