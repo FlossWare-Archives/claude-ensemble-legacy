@@ -477,6 +477,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             (Path(temp_dir) / "beta.md").unlink()
             self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertNotIn("beta", store._search_index)
+
     def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
         """Exact identifier lookup detects out-of-band same-size rewrites."""
         from memory_service import MemoryStore
@@ -493,6 +494,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(path.stat().st_mtime_ns, original.st_mtime_ns)
             self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
+
     def test_write_during_index_build_never_leaves_stale_results(self):
         """A write between stat and read must not leave a stale identifier result."""
         from memory_service import MemoryStore
@@ -514,6 +516,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 store.search_semantic("event-1234")
             self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
+
     def test_concurrent_searches_stay_within_prompt_hook_budget(self):
         from memory_service import MemoryStore
 
@@ -538,6 +541,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(len(durations), 6)
             # The hook allows 1500ms per request; require a wide safety margin.
             self.assertLess(max(durations), 0.75)
+
 
     def test_concurrent_searches_use_warm_hybrid_index_without_revectorizing_files(self):
         from memory_service import MemoryStore
@@ -574,6 +578,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             # Hybrid search encodes each query once and reads stored vectors from SQLite.
             self.assertEqual(vectorize.call_count, worker_count)
             self.assertEqual(len(store._search_index), file_count)
+
     def test_rest_search_accepts_limit_and_top_k_alias(self):
         from memory_service import MemoryService, create_http_server
 
