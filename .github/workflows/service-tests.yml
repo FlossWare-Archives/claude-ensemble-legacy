@@ -80,6 +80,7 @@ jobs:
             providers/test_claude_code.py \
             providers/test_registry.py \
             memory-service/test_memory_service.py \
+            memory-service/test_hybrid_retrieval.py \
             alert_service/test_alert_service.py \
             graph-service/test_graph_service.py \
             session-messaging/test_messenger.py \
