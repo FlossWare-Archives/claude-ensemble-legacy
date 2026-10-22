@@ -1478,8 +1478,11 @@ def run_reindex(mode: str, source: str = "all", dry_run: bool = False) -> Dict[s
                         "SELECT signature FROM chunks WHERE file=? LIMIT 1", (path.stem,)
                     ).fetchone()
                 changed = row is None or row["signature"] != signature
-            if mode == "full" or mode == "embeddings":
+            if mode == "full":
                 needs_work = True
+            elif mode == "embeddings":
+                # Preserve existing chunk boundaries during vector-only backfill.
+                needs_work = old["chunks"] == 0 or old["valid_embeddings"] < old["chunks"]
             else:
                 needs_work = changed or (
                     bool(index.embedding_model_name)
@@ -1498,7 +1501,11 @@ def run_reindex(mode: str, source: str = "all", dry_run: bool = False) -> Dict[s
         if "error" in plan or not plan["needs_work"]:
             continue
         if index.embedding_model_name:
-            embedding_work += len(plan["chunks"])
+            embedding_work += (
+                plan["old_chunks"]
+                if mode == "embeddings" and plan["old_chunks"] > 0
+                else len(plan["chunks"])
+            )
 
     report = {
         "mode": mode,
@@ -1532,17 +1539,21 @@ def run_reindex(mode: str, source: str = "all", dry_run: bool = False) -> Dict[s
             skipped += 1
             continue
         try:
-            index.replace_document(
-                plan["name"],
-                plan["signature"],
-                plan["chunks"],
-                force=(mode in {"full", "embeddings"}),
-            )
+            if mode == "embeddings" and plan["old_chunks"] > 0:
+                chunk_count = index.reembed_document(plan["name"])
+            else:
+                index.replace_document(
+                    plan["name"],
+                    plan["signature"],
+                    plan["chunks"],
+                    force=(mode == "full"),
+                )
+                chunk_count = len(plan["chunks"])
             processed += 1
             print(json.dumps({
                 "event": "document_reindexed",
                 "file": plan["name"],
-                "chunks": len(plan["chunks"]),
+                "chunks": chunk_count,
                 "processed": processed,
                 "total": report["documents_to_process"],
             }), flush=True)
