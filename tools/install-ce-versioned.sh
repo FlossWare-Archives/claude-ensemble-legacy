@@ -278,12 +278,25 @@ fi
 # requirements include Sentence Transformers; preload the default local model so
 # the first prompt does not trigger dependency setup or a model download.
 if [[ -f "$RELEASE/requirements.txt" ]]; then
-  if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
-    python3 -m venv "$RELEASE/.venv"
+  if [[ "${ENSEMBLE_SKIP_PYTHON_PROVISION:-0}" == "1" ]]; then
+    [[ -x "$RELEASE/.venv/bin/python" ]] || {
+      printf 'ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires a pre-provisioned release .venv/bin/python.\n' >&2
+      exit 1
+    }
+    printf 'Using pre-provisioned Python runtime; package installation skipped.\n'
+  else
+    if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
+      python3 -m venv --copies "$RELEASE/.venv"
+    fi
+    "$RELEASE/.venv/bin/python" -m pip install --upgrade pip
+    "$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
   fi
-  "$RELEASE/.venv/bin/python" -m pip install --upgrade pip
-  "$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
-  "$RELEASE/.venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
+  if [[ "${ENSEMBLE_SKIP_MODEL_PROVISION:-0}" == "1" ]]; then
+    printf 'Skipping model preload; ensure the configured local model is already cached for offline use.\n'
+  else
+    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+      "$RELEASE/.venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
+  fi
 else
   printf 'Skipping Python runtime provisioning for minimal deployment fixture (no requirements.txt).\n'
 fi
