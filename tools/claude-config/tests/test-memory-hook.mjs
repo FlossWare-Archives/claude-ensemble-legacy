@@ -443,6 +443,10 @@ try {
         }));
         return;
       }
+      if (request.query !== 'What install root did we establish as the default for Claude Ensemble?') {
+        res.end(JSON.stringify({ ok: true, results: [] }));
+        return;
+      }
       const results = Array.from({ length: 10 }, (_, index) => ({
         file: 'claude-code-unrelated-' + index,
         section: 'Unrelated',
@@ -560,7 +564,7 @@ try {
         res.end(JSON.stringify({ ok: true, results: [] }));
         return;
       }
-      const results = request.query.toLowerCase().startsWith('alpha question about memory')
+      const results = request.query === 'Alpha question about memory. Beta details about memory?'
         ? [
           { file: 'claude-code-alpha', section: 'Alpha', score: 0.99, content: 'Alpha is a one-off high score.' },
           { file: 'claude-code-beta', section: 'Beta', score: 0.18, content: 'Beta is corroborated by a focused query.' },
