@@ -34,7 +34,21 @@ def _test_embeddings(self, texts):
     return [[float(len(text.split()) or 1), 1.0] for text in texts]
 
 
-HybridRetrievalIndex._embed = _test_embeddings
+
+# Keep the deterministic embedding substitute scoped to this test module;
+# do not alter production behavior during pytest collection or later modules.
+_embedding_patch = None
+
+
+def setUpModule():
+    global _embedding_patch
+    _embedding_patch = patch.object(HybridRetrievalIndex, "_embed", _test_embeddings)
+    _embedding_patch.start()
+
+
+def tearDownModule():
+    if _embedding_patch is not None:
+        _embedding_patch.stop()
 
 
 SERVICE = Path(__file__).with_name("memory_service.py")
