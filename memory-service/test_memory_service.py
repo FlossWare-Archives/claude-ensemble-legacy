@@ -557,6 +557,47 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(service.store.pending_index_status()["count"], 0)
             self.assertEqual(service.search_index_status()["state"], "ready")
 
+    def test_pending_index_clear_cannot_remove_a_newer_revision(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("revision-note", "# Note\n\nrevision alpha")
+            path = Path(temp_dir) / "revision-note.md"
+            stale_signature = repr(store._file_signature(path.stat()))
+            path.write_text("# Note\n\nrevision beta", encoding="utf-8")
+            store._mark_index_pending(path, RuntimeError("new revision failed indexing"))
+            current_signature = repr(store._file_signature(path.stat()))
+
+            self.assertNotEqual(stale_signature, current_signature)
+            self.assertFalse(store._clear_index_pending("revision-note", stale_signature))
+            pending = store.pending_index_status()
+            self.assertIn("revision-note", pending["files"])
+            self.assertEqual(
+                pending["errors"]["revision-note"],
+                "new revision failed indexing",
+            )
+
+    def test_pending_ledger_write_failure_keeps_readiness_degraded(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            path = root / "memory" / "note.md"
+            path.write_text("# Note\n\nledger failure", encoding="utf-8")
+            with patch.object(
+                service.store, "_write_pending_index_records",
+                side_effect=OSError("read-only ledger"),
+            ):
+                service.store._mark_index_pending(path, RuntimeError("SQLite unavailable"))
+            pending = service.store.pending_index_status()
+            self.assertIn("note", pending["files"])
+            self.assertIn("__ledger_error__", pending["errors"])
+            with service._index_status_lock:
+                service._index_state = "ready"
+            self.assertEqual(service.search_index_status()["state"], "degraded")
+
     def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
         """Exact identifier lookup detects out-of-band same-size rewrites."""
         from memory_service import MemoryStore
