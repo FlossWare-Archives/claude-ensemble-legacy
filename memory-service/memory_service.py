@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from execution.context import ExecutionContext
 from shared.runtime_config import log_dir, memory_dir, runtime_dir, socket_path
+from hybrid_retrieval import HybridRetrievalIndex, chunk_markdown
 
 
 RUNTIME_SUBDIR = "claude-ensemble"
@@ -93,6 +94,7 @@ class MemoryStore:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
+        self._hybrid_index = HybridRetrievalIndex(self.memory_dir / ".hybrid-retrieval.sqlite3")
         # Search index keyed by file name. Each entry is validated against the
         # file's (mtime_ns, size) on every search, so external edits are seen.
         self._search_index: Dict[str, Tuple[Tuple[int, int], List[Dict[str, Any]]]] = {}
@@ -595,12 +597,15 @@ class MemoryStore:
                 indexed.append(
                     {
                         "header": chunk.get("header", ""),
-                        "size_bytes": len(content),
+                        "heading_path": chunk.get("heading_path", chunk.get("header", "")),
+                        "content": content,
+                        "size_bytes": len(content.encode("utf-8")),
                         "folded": content.casefold(),
                         "vector": vector,
                         "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
                     }
                 )
+            self._hybrid_index.replace_document(file_name, repr(signature), indexed)
             with self._search_index_lock:
                 self._search_index[file_name] = (signature, indexed)
             return indexed
@@ -708,6 +713,32 @@ class MemoryStore:
             re.UNICODE,
         )
 
+        if not identifier_query:
+            ingest_index = self._load_ingest_index() if source != "memory" else {}
+            active_knowledge_documents = {
+                entry.get("document")
+                for entry in ingest_index.values()
+                if isinstance(entry, dict)
+                and not entry.get("stale", False)
+                and isinstance(entry.get("document"), str)
+                and entry.get("document", "").startswith("claude-code-")
+            }
+            allowed_files = set()
+            for md_file in self.memory_dir.glob("*.md"):
+                file_name = md_file.stem
+                is_knowledge = file_name.startswith("claude-code-")
+                if source == "claude-code" and not is_knowledge:
+                    continue
+                if source == "memory" and is_knowledge:
+                    continue
+                if is_knowledge and file_name not in active_knowledge_documents:
+                    continue
+                allowed_files.add(file_name)
+                self._indexed_chunks(md_file)
+            self._prune_search_index(allowed_files)
+            self._hybrid_index.remove_missing(allowed_files)
+            return self._hybrid_index.search(normalized_query, top_k, allowed_files)
+
         # Load the ingestion index once per search, not once per Knowledge file.
         # _active_ingest_entry() reads and parses the entire JSON index on every
         # call; invoking it inside this loop turns a search into repeated disk I/O
@@ -774,57 +805,14 @@ class MemoryStore:
         )[:top_k]
 
     def chunk_document(self, name: str) -> List[Dict[str, Any]]:
-        """Chunk a document by headers (semantic chunking)."""
+        """Chunk Markdown by heading hierarchy and paragraph boundaries."""
         file_path = self._memory_path(name, ".md")
         if not file_path.exists():
             return []
         try:
-            with open(file_path, "r") as f:
-                lines = f.readlines()
-            chunks = []
-            current_chunk = []
-            current_header = "intro"
-            max_chunk_size = 2000
-            for i, line in enumerate(lines):
-                if line.startswith("#"):
-                    if current_chunk:
-                        chunks.append(
-                            {
-                                "header": current_header,
-                                "start_line": i - len(current_chunk),
-                                "end_line": i,
-                                "content": "".join(current_chunk),
-                                "size": sum(len(l) for l in current_chunk),
-                            }
-                        )
-                    current_header = line.lstrip("#").strip()
-                    current_chunk = [line]
-                else:
-                    current_chunk.append(line)
-                    if sum(len(l) for l in current_chunk) > max_chunk_size:
-                        chunks.append(
-                            {
-                                "header": current_header,
-                                "start_line": i - len(current_chunk) + 1,
-                                "end_line": i + 1,
-                                "content": "".join(current_chunk),
-                                "size": sum(len(l) for l in current_chunk),
-                            }
-                        )
-                        current_chunk = []
-            if current_chunk:
-                chunks.append(
-                    {
-                        "header": current_header,
-                        "start_line": len(lines) - len(current_chunk),
-                        "end_line": len(lines),
-                        "content": "".join(current_chunk),
-                        "size": sum(len(l) for l in current_chunk),
-                    }
-                )
-            return chunks
-        except Exception as e:
-            logger.debug(f"Error chunking {name}: {e}")
+            return chunk_markdown(file_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug("Error chunking %s: %s", name, exc)
             return []
 
     def search(self, keywords: List[str]) -> List[Dict[str, Any]]:
