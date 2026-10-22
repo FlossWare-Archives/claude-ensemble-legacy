@@ -25,16 +25,26 @@ def _test_embeddings(self, texts):
 class HybridRetrievalTests(unittest.TestCase):
     def setUp(self):
         self.embedding_patch = patch.object(HybridRetrievalIndex, "_embed", _test_embeddings)
+        self.model_patch = patch.object(HybridRetrievalIndex, "_model", return_value=object())
         self.embedding_patch.start()
+        self.model_patch.start()
 
     def tearDown(self):
         self.embedding_patch.stop()
+        self.model_patch.stop()
+
+    def test_warm_corpus_preloads_model_before_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3")
+            with patch.object(index, "_model") as preload:
+                index.warm_corpus(set())
+            preload.assert_called_once_with()
 
     def test_chunks_respect_character_limit_and_track_oversized_paragraph_lines(self):
-        notes = "# Notes\\n\\n" + "".join(
-            f"entry-{number:04d} alpha beta gamma delta\\n" for number in range(260)
+        notes = "# Notes\n\n" + "".join(
+            f"entry-{number:04d} alpha beta gamma delta\n" for number in range(260)
         )
-        text = notes + "\\n# Next\\n\\n" + ("Unicode café 漢字 🚀. " * 180)
+        text = notes + "\n# Next\n\n" + ("Unicode café 漢字 🚀. " * 180)
         chunks = chunk_markdown(text, max_chars=180, overlap_chars=24)
         self.assertTrue(chunks)
         self.assertTrue(all(len(chunk["content"]) <= 180 for chunk in chunks))
@@ -44,8 +54,8 @@ class HybridRetrievalTests(unittest.TestCase):
         for chunk in chunks:
             offset = text.find(chunk["content"])
             self.assertGreaterEqual(offset, 0)
-            expected_start = text[:offset].count("\\n") + 1
-            expected_end = text[:offset + len(chunk["content"]) - 1].count("\\n") + 1
+            expected_start = text[:offset].count("\n") + 1
+            expected_end = text[:offset + len(chunk["content"]) - 1].count("\n") + 1
             self.assertEqual(chunk["start_line"], expected_start)
             self.assertEqual(chunk["end_line"], expected_end)
 
@@ -58,6 +68,7 @@ class HybridRetrievalTests(unittest.TestCase):
         self.assertTrue(model_path and Path(model_path).is_dir(),
                         "ENSEMBLE_MEMORY_EMBEDDING_MODEL must point to a local model directory")
         self.embedding_patch.stop()
+        self.model_patch.stop()
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3", embedding_model=model_path)
@@ -73,6 +84,7 @@ class HybridRetrievalTests(unittest.TestCase):
                     self.assertTrue(db.execute("SELECT embedding FROM chunks").fetchone()["embedding"])
         finally:
             self.embedding_patch.start()
+            self.model_patch.start()
 
     def test_heading_hierarchy_is_preserved(self):
         chunks = chunk_markdown('# Architecture\n\nIntro.\n\n## Install root\n\nThe default deployment root is ~/.FlossWare/claude-ensemble.\n')
