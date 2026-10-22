@@ -103,7 +103,12 @@ class HybridRetrievalIndex:
     def __init__(self, path: Path, embedding_model: str | None = None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.embedding_model_name = (embedding_model or os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL") or "sentence-transformers/all-MiniLM-L6-v2")
+        self.embedding_model_name = (
+            embedding_model
+            if embedding_model is not None
+            else os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+            or "sentence-transformers/all-MiniLM-L6-v2"
+        )
         self._embedder = None
         self._model_lock = threading.Lock()
         self._cache_lock = threading.RLock()
