@@ -557,6 +557,51 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertEqual(service.store.pending_index_status()["count"], 0)
             self.assertEqual(service.search_index_status()["state"], "ready")
 
+    def test_malformed_pending_ledger_recovers_after_full_reconciliation(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            (memory_dir / "note.md").write_text(
+                "# Note\n\nA durable note for index recovery.", encoding="utf-8"
+            )
+            (memory_dir / ".hybrid-index-pending.json").write_text(
+                "{ malformed json", encoding="utf-8"
+            )
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(
+                json.loads((memory_dir / ".hybrid-index-pending.json").read_text(encoding="utf-8")),
+                {},
+            )
+
+    def test_persisted_pending_ledger_error_recovers_after_full_reconciliation(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            (memory_dir / "note.md").write_text(
+                "# Note\n\nA durable note for index recovery.", encoding="utf-8"
+            )
+            (memory_dir / ".hybrid-index-pending.json").write_text(
+                json.dumps({"__ledger_error__": {"error": "previous read failure"}}),
+                encoding="utf-8",
+            )
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(
+                json.loads((memory_dir / ".hybrid-index-pending.json").read_text(encoding="utf-8")),
+                {},
+            )
+
     def test_pending_index_clear_cannot_remove_a_newer_revision(self):
         from memory_service import MemoryStore
 
