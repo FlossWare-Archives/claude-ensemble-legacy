@@ -120,6 +120,32 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertTrue(all(row["embedding_model"] == "test-model" for row in rows))
 
 
+    def test_embedding_backfill_preserves_chunks_across_model_migration(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[float(len(self.embedding_model_name)), 1.0] for _ in texts]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            old = FakeEmbeddingIndex(path, embedding_model="old-model")
+            chunks = [
+                {"header": "Root", "heading_path": "Architecture > Root", "content": "keep this exact chunk"}
+            ]
+            old.replace_document("notes", "signature", chunks)
+            new = FakeEmbeddingIndex(path, embedding_model="new-model")
+            count = new.reembed_document("notes")
+            with new._connect() as db:
+                row = db.execute(
+                    "SELECT header, heading_path, content, embedding_model, embedding FROM chunks WHERE file='notes'"
+                ).fetchone()
+            self.assertEqual(count, 1)
+            self.assertEqual(row["header"], "Root")
+            self.assertEqual(row["heading_path"], "Architecture > Root")
+            self.assertEqual(row["content"], "keep this exact chunk")
+            self.assertEqual(row["embedding_model"], "new-model")
+            self.assertEqual(row["embedding"], "[9.0, 1.0]")
+
+
 
 if __name__ == '__main__':
     unittest.main()
