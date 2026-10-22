@@ -113,6 +113,7 @@ class HybridRetrievalIndex:
         self._model_lock = threading.Lock()
         self._cache_lock = threading.RLock()
         self._corpus_cache = {}
+        self._full_corpus_key: frozenset[str] | None = None
         with self._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS chunks (
                 id INTEGER PRIMARY KEY, file TEXT NOT NULL, ordinal INTEGER NOT NULL,
@@ -165,6 +166,79 @@ class HybridRetrievalIndex:
     def _invalidate_cache(self) -> None:
         with self._cache_lock:
             self._corpus_cache.clear()
+            self._full_corpus_key = None
+
+    def _rows_to_documents(self, rows) -> list[dict[str, Any]]:
+        docs = []
+        for row in rows:
+            tokens = json.loads(row["tokens"])
+            freq = {}
+            for term in tokens:
+                freq[term] = freq.get(term, 0) + 1
+            docs.append({
+                "file": row["file"], "section": row["header"],
+                "heading_path": row["heading_path"], "content": row["content"],
+                "size_bytes": row["size_bytes"], "frequencies": freq,
+                "length": len(tokens), "embedding": row["embedding"],
+            })
+        return docs
+
+    def _refresh_cached_document(self, file: str) -> None:
+        """Update existing corpus caches incrementally after a document write."""
+        with self._cache_lock:
+            if not self._corpus_cache:
+                return
+            with self._connect() as db:
+                rows = db.execute("SELECT * FROM chunks WHERE file=?", (file,)).fetchall()
+            new_docs = self._rows_to_documents(rows)
+            old_full_key = self._full_corpus_key
+            if old_full_key is not None:
+                updated_files = set(old_full_key)
+                if new_docs:
+                    updated_files.add(file)
+                else:
+                    updated_files.discard(file)
+                new_full_key = frozenset(updated_files)
+                if new_full_key != old_full_key:
+                    cached_full = self._corpus_cache.pop(old_full_key, None)
+                    if cached_full is not None:
+                        self._corpus_cache[new_full_key] = cached_full
+                    self._full_corpus_key = new_full_key
+
+            full_key = self._full_corpus_key
+            for key in list(self._corpus_cache):
+                if file not in key and key != full_key:
+                    continue
+                docs, _average_length, doc_freq = self._corpus_cache[key]
+                total_tokens = sum(doc["length"] for doc in docs)
+                retained = []
+                for doc in docs:
+                    if doc["file"] != file:
+                        retained.append(doc)
+                        continue
+                    total_tokens -= doc["length"]
+                    for term in doc["frequencies"]:
+                        remaining = doc_freq.get(term, 0) - 1
+                        if remaining > 0:
+                            doc_freq[term] = remaining
+                        else:
+                            doc_freq.pop(term, None)
+                if file in key:
+                    retained.extend(new_docs)
+                    for doc in new_docs:
+                        total_tokens += doc["length"]
+                        for term in doc["frequencies"]:
+                            doc_freq[term] = doc_freq.get(term, 0) + 1
+                self._corpus_cache[key] = (
+                    retained, total_tokens / max(len(retained), 1), doc_freq
+                )
+
+    def warm_corpus(self, all_files: set[str]):
+        """Build and register the full persistent corpus cache before readiness."""
+        key = frozenset(all_files)
+        with self._cache_lock:
+            self._full_corpus_key = key
+            return self._corpus(all_files)
 
     def _corpus(self, allowed_files: set[str]):
         key = frozenset(allowed_files)
@@ -192,20 +266,13 @@ class HybridRetrievalIndex:
                     return result
             with self._connect() as db:
                 rows = db.execute("SELECT * FROM chunks").fetchall()
-            docs = []
+            docs = self._rows_to_documents(row for row in rows if row["file"] in allowed_files)
             df = {}
             total = 0
-            for row in rows:
-                if row["file"] not in allowed_files:
-                    continue
-                tokens = json.loads(row["tokens"])
-                freq = {}
-                for term in tokens:
-                    freq[term] = freq.get(term, 0) + 1
-                for term in freq:
+            for doc in docs:
+                total += doc["length"]
+                for term in doc["frequencies"]:
                     df[term] = df.get(term, 0) + 1
-                total += len(tokens)
-                docs.append({"file": row["file"], "section": row["header"], "heading_path": row["heading_path"], "content": row["content"], "size_bytes": row["size_bytes"], "frequencies": freq, "length": len(tokens), "embedding": row["embedding"]})
             result = (docs, total / max(len(docs), 1), df)
             self._corpus_cache[key] = result
             return result
@@ -238,7 +305,7 @@ class HybridRetrievalIndex:
                      self.embedding_model_name if embeddings else None),
                 )
 
-        self._invalidate_cache()
+        self._refresh_cached_document(file)
 
     def remove_missing(self, present_files: set[str]) -> None:
         with self._connect() as db:
