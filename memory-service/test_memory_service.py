@@ -168,6 +168,22 @@ class MemorySearchRegressionTest(unittest.TestCase):
             self.assertIn("deployment.md", report["failed_files"])
             self.assertIn("sentence-transformers is unavailable", report["failed_files"]["deployment.md"])
 
+    def test_empty_corpus_model_load_failure_never_reports_ready(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            with patch.object(
+                service.store._hybrid_index,
+                "_model",
+                side_effect=RuntimeError("local model is unavailable"),
+            ):
+                service._warm_search_index()
+            status = service.search_index_status()
+            self.assertEqual(status["state"], "failed")
+            self.assertIn("local model is unavailable", status["error"])
+
     def test_prose_search_does_not_rebuild_or_reembed_documents(self):
         from memory_service import MemoryStore
 
