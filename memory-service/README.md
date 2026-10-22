@@ -23,6 +23,30 @@ Central memory authority for all Claude Code sessions. Runs as a systemd user se
 - **Restricted permissions:** Runtime directory is `0700`; socket is `0600`
 - **Validated names:** Memory names allow only letters, numbers, `.`, `_`, and `-`
 
+## Hybrid retrieval
+
+Natural-language searches use a SQLite-backed BM25 index. SQLite is an embedded
+file, not another service; the index is stored beside the memory documents as
+`.hybrid-retrieval.sqlite3` and is rebuilt incrementally as documents change.
+Markdown is chunked at heading and paragraph boundaries, with heading paths
+retained as retrieval metadata. Structured identifiers continue through the
+existing exact-identifier path.
+
+Local semantic embeddings are optional and disabled by default. To enable them,
+install the optional dependencies:
+
+```bash
+python3 -m pip install -r memory-service/requirements-embeddings.txt
+```
+
+Then set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` in the Memory service environment to
+a locally available Sentence Transformers model name or model directory. The
+model runs on CPU and may download weights on first use if a model name is not
+already present locally. Do not enable this for work data unless local model
+execution and model acquisition are approved for the environment. Without that
+setting, retrieval uses BM25 and exact-match ranking only; it makes no embedding
+provider calls and downloads no model weights.
+
 ## Installation
 
 ```bash
