@@ -19,7 +19,7 @@ CREATED_TEST_VENV = False
 if not TEST_VENV.exists():
     (TEST_VENV / "bin").mkdir(parents=True)
     fake_python = TEST_VENV / "bin" / "python"
-    fake_python.write_text("#!/usr/bin/env bash\\nexit 0\\n", encoding="utf-8")
+    fake_python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     fake_python.chmod(0o755)
     CREATED_TEST_VENV = True
 
