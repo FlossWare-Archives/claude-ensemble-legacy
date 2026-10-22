@@ -156,10 +156,16 @@ class HybridRetrievalTests(unittest.TestCase):
                         for number in range(48)
                     ],
                 )
-                index.warm_corpus({
+                all_files = {
                     "target", "lexical-distractor", "model-distractor",
                     "corpus-distractors",
-                })
+                }
+                # New instance after the complete corpus is persisted: warm-up
+                # must rebuild only its in-memory BM25 statistics, not vectors.
+                acceptance_restart = HybridRetrievalIndex(
+                    database, embedding_model=model_path
+                )
+                acceptance_restart.warm_corpus(all_files)
                 queries = [
                     query,
                     "where are vector representations kept after restarting memory",
@@ -172,11 +178,7 @@ class HybridRetrievalTests(unittest.TestCase):
 
                 def run_query(prompt):
                     started = time.monotonic()
-                    hits = restarted.search(
-                        prompt, 5,
-                        {"target", "lexical-distractor", "model-distractor",
-                         "corpus-distractors"},
-                    )
+                    hits = acceptance_restart.search(prompt, 5, all_files)
                     return time.monotonic() - started, hits
 
                 # Use the restarted index to ensure this is not an in-memory
