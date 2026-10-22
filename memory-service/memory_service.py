@@ -102,6 +102,10 @@ class MemoryStore:
         self._search_index_lock = threading.Lock()
         self._pending_index_lock = threading.Lock()
         self._pending_index_path = self.memory_dir / ".hybrid-index-pending.json"
+        # A failed ledger write must still fail readiness closed for this process.
+        # Entries are revision-specific and disappear only after that revision is
+        # confirmed present in the persistent hybrid index.
+        self._pending_index_faults: Dict[str, Dict[str, str]] = {}
         # Per-file locks make cache population single-flight without serializing
         # independent files. Locks are retained for deleted names to avoid a
         # second lock being created while an older builder is still active.
@@ -161,6 +165,9 @@ class MemoryStore:
     def pending_index_status(self) -> Dict[str, Any]:
         with self._pending_index_lock:
             records = self._pending_index_records()
+            # In-memory faults are authoritative if persistence failed or a
+            # concurrent ledger update has not yet become durable.
+            records.update(self._pending_index_faults)
         return {
             "count": len(records),
             "files": sorted(name for name in records if name != "__ledger_error__"),
@@ -175,36 +182,75 @@ class MemoryStore:
 
     def _mark_index_pending(self, path: Path, error: Exception) -> None:
         try:
-            with self._pending_index_lock:
+            signature = repr(self._file_signature(path.stat())) if path.exists() else "missing"
+        except OSError:
+            signature = "unknown"
+        record = {"signature": signature, "error": str(error)}
+        with self._pending_index_lock:
+            self._pending_index_faults[path.stem] = record
+            try:
                 records = self._pending_index_records()
-                records[path.stem] = {
-                    "signature": repr(self._file_signature(path.stat())) if path.exists() else "missing",
-                    "error": str(error),
-                }
+                records[path.stem] = record
                 self._write_pending_index_records(records)
-        except OSError as ledger_error:
-            logger.exception("Could not persist hybrid-index retry record for %s: %s", path, ledger_error)
+                self._pending_index_faults.pop("__ledger_error__", None)
+            except OSError as ledger_error:
+                # Keep a durable-write/index failure visible even if its retry
+                # ledger cannot be written. Readiness must not silently recover.
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not persist retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not persist hybrid-index retry record for %s: %s", path, ledger_error)
 
-    def _clear_index_pending(self, file_name: str) -> None:
+    def _clear_index_pending(self, file_name: str, signature: str | None = None) -> bool:
+        # Successful indexing of revision A must never clear pending revision B.
+        # For a missing-file cleanup, callers omit signature and we only clear
+        # after confirming the source file no longer exists.
+        path = self.memory_dir / f"{file_name}.md"
+        if signature is None:
+            if path.exists():
+                return False
+        elif not self._hybrid_index.document_revision_matches(file_name, signature):
+            return False
+
         with self._pending_index_lock:
             records = self._pending_index_records()
-            if file_name in records:
-                records.pop(file_name, None)
+            record = records.get(file_name)
+            fault = self._pending_index_faults.get(file_name)
+            if signature is not None:
+                if record and record.get("signature") not in (None, signature):
+                    return False
+                if fault and fault.get("signature") not in (None, signature):
+                    return False
+            records.pop(file_name, None)
+            self._pending_index_faults.pop(file_name, None)
+            try:
+                records.pop("__ledger_error__", None)
                 self._write_pending_index_records(records)
-            if "__ledger_error__" in records and len(records) == 1:
-                self._write_pending_index_records({})
+                self._pending_index_faults.pop("__ledger_error__", None)
+            except OSError as ledger_error:
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not update retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not clear hybrid-index retry record for %s: %s", file_name, ledger_error)
+                return False
+            return True
 
     def _index_written_file(self, path: Path) -> bool:
         """Index a durable Markdown write or record explicit deferred work."""
         try:
             self._indexed_chunks(path)
+            # The file may have changed while indexing was in progress. Only
+            # report success if SQLite contains the exact latest durable revision.
+            signature = repr(self._file_signature(path.stat()))
+            if not self._hybrid_index.document_revision_matches(path.stem, signature):
+                raise RuntimeError("file changed during hybrid indexing; retry required")
             present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
             if (
                 self._hybrid_index._full_corpus_key is None
                 or present_stems != set(self._hybrid_index._full_corpus_key)
             ):
                 self._hybrid_index.warm_corpus(present_stems)
-            self._clear_index_pending(path.stem)
+            self._clear_index_pending(path.stem, signature)
             return True
         except Exception as index_error:
             self._mark_index_pending(path, index_error)
@@ -646,7 +692,7 @@ class MemoryStore:
             if update_hybrid:
                 if not self._hybrid_index.document_revision_matches(file_name, repr(signature)):
                     self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
-                self._clear_index_pending(file_name)
+                self._clear_index_pending(file_name, repr(signature))
             return indexed_cached
 
         # Recheck after acquiring the per-file lock: another search or the
@@ -666,7 +712,7 @@ class MemoryStore:
                 if update_hybrid:
                     if not self._hybrid_index.document_revision_matches(file_name, repr(signature)):
                         self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
-                    self._clear_index_pending(file_name)
+                    self._clear_index_pending(file_name, repr(signature))
                 return indexed_cached
             # The signature is taken BEFORE the file is read. If a writer
             # changes the file in between, the entry holds newer content under
@@ -696,7 +742,7 @@ class MemoryStore:
             with self._search_index_lock:
                 self._search_index[file_name] = (signature, indexed)
             if update_hybrid:
-                self._clear_index_pending(file_name)
+                self._clear_index_pending(file_name, repr(signature))
             return indexed
 
     def _prune_search_index(self, present: set) -> None:
