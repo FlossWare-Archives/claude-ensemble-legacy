@@ -79,12 +79,31 @@ done
 install_python_runtime() {
     local venv="$REPO_PATH/.venv"
     echo "Installing Claude Ensemble Python dependencies (including Sentence Transformers)..."
-    python3 -m venv "$venv"
+    python3 -m venv --copies "$venv"
     "$venv/bin/python" -m pip install --upgrade pip
     "$venv/bin/python" -m pip install -r "$REPO_PATH/requirements.txt"
-    echo "Provisioning the default local embedding model..."
-    "$venv/bin/python" -c 'from sentence_transformers import SentenceTransformer; SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")'
+    echo "Provisioning the configured local embedding model..."
+    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+        "$venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
 }
+
+# Versioned deployment provisions its immutable release before activation. Do not
+# mutate that runtime during activation, recovery, or rollback.
+if [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" == "1" ]]; then
+    [[ -x "$REPO_PATH/.venv/bin/python" ]] || {
+        echo "ERROR: Standalone release runtime was not provisioned before activation." >&2
+        exit 1
+    }
+    echo "Using the pre-provisioned standalone release runtime."
+elif [[ "${ENSEMBLE_SKIP_PYTHON_PROVISION:-0}" == "1" ]]; then
+    [[ -x "$REPO_PATH/.venv/bin/python" ]] || {
+        echo "ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires an existing .venv/bin/python runtime." >&2
+        exit 1
+    }
+    echo "Skipping network provisioning; using the pre-provisioned local runtime."
+else
+    install_python_runtime
+fi
 
 # Snapshot the selected profile, existing CE deployment state, and managed units
 # before the first configuration or service mutation. If backup fails, stop here.
@@ -495,7 +514,7 @@ echo "1. Edit $CLAUDE_HOME/.mcp.json with your credentials"
 echo "2. Ensure API tokens are set in environment"
 echo "3. Exit and restart your terminal"
 echo "4. Run: $CLAUDE_HOME/ensemble-init.sh (should be automatic at shell start)"
-echo "5. To reconfigure tools/features: $CLAUDE_HOME/config.sh"
+echo "5. Feature defaults are enabled; edit settings in $CLAUDE_HOME/.mcp.json and the service environment."
 echo ""
 echo "Verify installation:"
 echo "  cost-dashboard.py (view cost tracking)"
