@@ -204,13 +204,26 @@ class HybridRetrievalIndex:
             self._corpus_cache[key] = result
             return result
 
-    def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
+    def replace_document(
+        self,
+        file: str,
+        signature: str,
+        chunks: list[dict[str, Any]],
+        *,
+        force: bool = False,
+    ) -> None:
+        """Atomically replace one document's chunks.
+
+        force deliberately rebuilds unchanged documents for maintenance
+        operations after chunking or metadata logic changes. The replacement
+        remains transactional, so a failed insert preserves the prior index.
+        """
         with self._connect() as db:
             row = db.execute(
                 "SELECT signature, embedding, embedding_model FROM chunks WHERE file=? LIMIT 1",
                 (file,),
             ).fetchone()
-            if row and row["signature"] == signature:
+            if not force and row and row["signature"] == signature:
                 if not self.embedding_model_name:
                     return
                 if row["embedding"] and row["embedding_model"] == self.embedding_model_name:
