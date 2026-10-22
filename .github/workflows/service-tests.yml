@@ -118,6 +118,9 @@ jobs:
       - name: Run isolated top-level installer end-to-end test
         run: python test/test_top_level_install.py
 
+      - name: Validate versioned release with a real offline virtualenv
+        run: bash tests/test_versioned_runtime_layout.sh
+
       - name: Run isolated full-stack acceptance test
         shell: bash
         run: bash scripts/test-isolated-stack.sh
