@@ -92,6 +92,28 @@ def test_concrete_graph_and_memory_health_return_their_own_identity(tmp_path, mo
         stop(memory, memory_thread)
 
 
+def test_memory_readiness_route_reaches_concrete_ready_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
+    memory_paths = []
+    memory = ThreadingHTTPServer(
+        ("127.0.0.1", 0), service_handler("memory", memory_paths)
+    )
+    memory_thread = start(memory)
+    gateway = create_server(
+        "127.0.0.1", 0, memory_url=f"http://127.0.0.1:{memory.server_port}"
+    )
+    gateway_thread = start(gateway)
+    try:
+        status, body = get_json(gateway, "/api/v1/memory/ready")
+        assert status == 200
+        assert body == {"ok": True, "service": "memory", "path": "/ready"}
+        assert "/ready" in memory_paths
+        assert "/api/v1/memory/ready" not in memory_paths
+    finally:
+        stop(gateway, gateway_thread)
+        stop(memory, memory_thread)
+
+
 def test_nested_gateway_health_route_reaches_the_concrete_service(tmp_path, monkeypatch):
     monkeypatch.setenv("ENSEMBLE_METRICS_FILE", str(tmp_path / "metrics.jsonl"))
     graph_paths = []
