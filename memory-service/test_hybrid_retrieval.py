@@ -86,17 +86,54 @@ class HybridRetrievalTests(unittest.TestCase):
         self.model_patch.stop()
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3", embedding_model=model_path)
+                database = Path(tmp) / "index.sqlite3"
+                index = HybridRetrievalIndex(database, embedding_model=model_path)
                 index.replace_document("target", "v1", [{
-                    "header": "Architecture",
-                    "heading_path": "Architecture",
-                    "content": "The isolated memory service stores vectors in local SQLite.",
+                    "header": "Persistence",
+                    "heading_path": "Architecture > Persistence",
+                    "content": (
+                        "Dense representations are persisted locally in the embedded "
+                        "SQLite database owned by the memory service."
+                    ),
                 }])
-                result = index.search("Where are the memory vectors stored?", 3, {"target"})
+                index.replace_document("lexical-distractor", "v1", [{
+                    "header": "Networking",
+                    "heading_path": "Operations > Networking",
+                    "content": (
+                        "The service exposes a loopback HTTP endpoint and a private "
+                        "Unix domain socket for client requests."
+                    ),
+                }])
+                index.replace_document("model-distractor", "v1", [{
+                    "header": "Inference",
+                    "heading_path": "Architecture > Inference",
+                    "content": (
+                        "The local transformer executes CPU inference and loads model "
+                        "weights from the host cache during startup."
+                    ),
+                }])
+                query = "Where does memory keep semantic vectors after a restart?"
+                result = index.search(query, 3, {"target", "lexical-distractor", "model-distractor"})
                 self.assertTrue(result)
-                self.assertEqual(result[0]["file"], "target")
+                self.assertEqual(
+                    result[0]["file"], "target",
+                    "the real model should rank the semantic persistence target above distractors",
+                )
                 with index._connect() as db:
-                    self.assertTrue(db.execute("SELECT embedding FROM chunks").fetchone()["embedding"])
+                    stored = db.execute(
+                        "SELECT embedding, embedding_model FROM chunks WHERE file='target'"
+                    ).fetchone()
+                    self.assertTrue(stored["embedding"])
+                    self.assertEqual(stored["embedding_model"], model_path)
+
+                # A fresh index instance must reuse persisted vectors and remain searchable.
+                restarted = HybridRetrievalIndex(database, embedding_model=model_path)
+                restarted.warm_corpus({"target", "lexical-distractor", "model-distractor"})
+                after_restart = restarted.search(
+                    query, 3, {"target", "lexical-distractor", "model-distractor"}
+                )
+                self.assertTrue(after_restart)
+                self.assertEqual(after_restart[0]["file"], "target")
         finally:
             self.embedding_patch.start()
             self.model_patch.start()
