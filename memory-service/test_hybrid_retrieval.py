@@ -31,14 +31,23 @@ class HybridRetrievalTests(unittest.TestCase):
         self.embedding_patch.stop()
 
     def test_chunks_respect_character_limit_and_track_oversized_paragraph_lines(self):
-        text = "# Notes\n\n" + ("alpha beta gamma delta\n" * 260) + "\n# Next\n\n" + ("Unicode café 漢字 🚀. " * 180)
+        notes = "# Notes\\n\\n" + "".join(
+            f"entry-{number:04d} alpha beta gamma delta\\n" for number in range(260)
+        )
+        text = notes + "\\n# Next\\n\\n" + ("Unicode café 漢字 🚀. " * 180)
         chunks = chunk_markdown(text, max_chars=180, overlap_chars=24)
         self.assertTrue(chunks)
         self.assertTrue(all(len(chunk["content"]) <= 180 for chunk in chunks))
-        self.assertTrue(all(chunk["start_line"] <= chunk["end_line"] for chunk in chunks))
         self.assertTrue(any(chunk["heading_path"] == "Notes" for chunk in chunks))
         self.assertTrue(any(chunk["heading_path"] == "Next" for chunk in chunks))
         self.assertTrue(any("café" in chunk["content"] and "🚀" in chunk["content"] for chunk in chunks))
+        for chunk in chunks:
+            offset = text.find(chunk["content"])
+            self.assertGreaterEqual(offset, 0)
+            expected_start = text[:offset].count("\\n") + 1
+            expected_end = text[:offset + len(chunk["content"]) - 1].count("\\n") + 1
+            self.assertEqual(chunk["start_line"], expected_start)
+            self.assertEqual(chunk["end_line"], expected_end)
 
     @unittest.skipUnless(
         os.environ.get("ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE") == "1",
