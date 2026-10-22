@@ -1553,6 +1553,68 @@ class MemoryIndexReadinessTest(unittest.TestCase):
         self.assertIn("one.md", report["failed_files"])
         self.assertIn("two.md", report["indexed_files"])
 
+    def test_index_report_detects_addition_during_failed_pass(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+        original = self.service.store._indexed_chunks
+
+        def mutate_and_fail(path):
+            if path.name == "one.md":
+                (memory_dir / "three.md").write_text("three", encoding="utf-8")
+                raise OSError("simulated unreadable file")
+            return original(path)
+
+        self.service.store._indexed_chunks = mutate_and_fail
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("one.md", report["failed_files"])
+        self.assertIn("three.md", report["added_files"])
+
+    def test_index_report_detects_removal_during_pass(self):
+        memory_dir = self.service.store.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "one.md").write_text("one", encoding="utf-8")
+        (memory_dir / "two.md").write_text("two", encoding="utf-8")
+        original = self.service.store._indexed_chunks
+
+        def remove_during_index(path):
+            if path.name == "one.md":
+                (memory_dir / "two.md").unlink()
+            return original(path)
+
+        self.service.store._indexed_chunks = remove_during_index
+        report = self.service.store.warm_search_index_report(max_passes=1)
+        self.assertFalse(report["complete"])
+        self.assertIn("two.md", report["removed_files"])
+
+    def test_exhausted_warmup_retries_return_non_retryable_search_error(self):
+        calls = []
+        def incomplete_report(max_passes=3):
+            calls.append(max_passes)
+            return {
+                "pass": len(calls),
+                "expected_files": ["broken.md"],
+                "indexed_files": [],
+                "failed_files": {"broken.md": "simulated read error"},
+                "added_files": [],
+                "removed_files": [],
+                "complete": False,
+            }
+
+        self.service.store.warm_search_index_report = incomplete_report
+        self.service._warm_search_index()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(self.service.search_index_status()["state"], "degraded")
+
+        status, search = self.post_json(
+            "/memory/search-semantic", {"query": "must not retry terminal failure"}
+        )
+        self.assertEqual(status, 503)
+        self.assertFalse(search["retryable"])
+        self.assertEqual(search["search_index"]["state"], "degraded")
+
     def test_warmup_recovers_after_transient_index_failure(self):
         calls = []
         original = self.service.store.warm_search_index_report
