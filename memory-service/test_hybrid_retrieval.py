@@ -208,6 +208,39 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertEqual(results[0]["file"], "installation")
             self.assertEqual(results[0]["retrieval"], "hybrid")
 
+    def test_partial_document_embedding_backfill_repairs_later_chunks(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def __init__(self, path, embedding_model):
+                super().__init__(path, embedding_model=embedding_model)
+                self.embed_calls = 0
+
+            def _embed(self, texts):
+                self.embed_calls += 1
+                return [[1.0, 0.0] for _ in texts]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            index = FakeEmbeddingIndex(path, embedding_model="test-model")
+            chunks = [
+                {"header": "One", "heading_path": "One", "content": "First chunk content."},
+                {"header": "Two", "heading_path": "One > Two", "content": "Second chunk content."},
+            ]
+            index.replace_document("multi", "rev1", chunks)
+            with index._connect() as db:
+                db.execute(
+                    "UPDATE chunks SET embedding=NULL WHERE file=? AND ordinal=1",
+                    ("multi",),
+                )
+            calls_before = index.embed_calls
+            index.replace_document("multi", "rev1", chunks)
+            self.assertEqual(index.embed_calls, calls_before + 1)
+            with index._connect() as db:
+                rows = db.execute(
+                    "SELECT embedding FROM chunks WHERE file=? ORDER BY ordinal", ("multi",)
+                ).fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(row["embedding"] for row in rows))
+
     def test_enabling_embeddings_backfills_existing_lexical_index(self):
         class FakeEmbeddingIndex(HybridRetrievalIndex):
             def _embed(self, texts):
