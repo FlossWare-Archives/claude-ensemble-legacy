@@ -456,7 +456,7 @@ try {
   try {
     const prompt = 'What install root did we establish as the default for Claude Ensemble?';
     const result = await runHook({
-      url: \`http://127.0.0.1:\${retrievalPort}/\`,
+      url: `http://127.0.0.1:${retrievalPort}/`,
       graphUrl: 'http://127.0.0.1:1/',
       input: { hook_event_name: 'UserPromptSubmit', prompt },
     });
