@@ -180,6 +180,7 @@ class HybridRetrievalIndex:
                 "heading_path": row["heading_path"], "content": row["content"],
                 "size_bytes": row["size_bytes"], "frequencies": freq,
                 "length": len(tokens), "embedding": row["embedding"],
+                "embedding_model": row["embedding_model"],
             })
         return docs
 
