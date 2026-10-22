@@ -43,17 +43,22 @@ def _test_embeddings(self, texts):
 # Keep the deterministic embedding substitute scoped to this test module;
 # do not alter production behavior during pytest collection or later modules.
 _embedding_patch = None
+_model_patch = None
 
 
 def setUpModule():
-    global _embedding_patch
+    global _embedding_patch, _model_patch
     _embedding_patch = patch.object(HybridRetrievalIndex, "_embed", _test_embeddings)
+    _model_patch = patch.object(HybridRetrievalIndex, "_model", return_value=object())
     _embedding_patch.start()
+    _model_patch.start()
 
 
 def tearDownModule():
     if _embedding_patch is not None:
         _embedding_patch.stop()
+    if _model_patch is not None:
+        _model_patch.stop()
 
 
 SERVICE = Path(__file__).with_name("memory_service.py")
