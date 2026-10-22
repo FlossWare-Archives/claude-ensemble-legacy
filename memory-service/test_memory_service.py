@@ -511,6 +511,52 @@ class MemorySearchRegressionTest(unittest.TestCase):
             results = store.search_semantic("new deployment content")
             self.assertTrue(any(result["file"] == "revision-note" for result in results))
 
+    def test_failed_indexing_is_durable_and_identical_ingest_retries(self):
+        from memory_service import MemoryService, MemoryStore
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            store = MemoryStore(root / "memory")
+            content = "# Durable write\n\nretryable index marker"
+            with patch.object(
+                store._hybrid_index, "replace_document",
+                side_effect=RuntimeError("temporary SQLite failure"),
+            ):
+                self.assertTrue(store.write_file("durable-note", content))
+            pending = store.pending_index_status()
+            self.assertEqual(pending["files"], ["durable-note"])
+            self.assertIn("temporary SQLite failure", pending["errors"]["durable-note"])
+
+            # A repeat write is the bounded recovery path for a durable memory.
+            self.assertTrue(store.write_file("durable-note", content))
+            self.assertEqual(store.pending_index_status()["count"], 0)
+
+            service = MemoryService(root / "memory.sock", root / "memory")
+            source_path = str(root / "project" / "CLAUDE.md")
+            scope = str(root / "project")
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            with patch.object(
+                service.store._hybrid_index, "replace_document",
+                side_effect=RuntimeError("temporary ingest index failure"),
+            ):
+                first = service.store.ingest_claude_markdown(
+                    source_path, content, digest, {"scope": scope}
+                )
+            self.assertEqual(first["status"], "ingested")
+            self.assertEqual(service.store.pending_index_status()["count"], 1)
+            with service._index_status_lock:
+                service._index_state = "ready"
+            self.assertEqual(service.search_index_status()["state"], "degraded")
+
+            # The unchanged-ingest fast path must retry indexing, not return early.
+            second = service.store.ingest_claude_markdown(
+                source_path, content, digest, {"scope": scope}
+            )
+            self.assertEqual(second["status"], "unchanged")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(service.search_index_status()["state"], "ready")
+
     def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
         """Exact identifier lookup detects out-of-band same-size rewrites."""
         from memory_service import MemoryStore
