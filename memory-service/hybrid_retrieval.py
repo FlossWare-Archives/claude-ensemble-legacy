@@ -307,13 +307,21 @@ class HybridRetrievalIndex:
             for row in rows
         )
 
-    def replace_document(self, file: str, signature: str, chunks: list[dict[str, Any]]) -> None:
+    def replace_document(
+        self,
+        file: str,
+        signature: str,
+        chunks: list[dict[str, Any]],
+        *,
+        force: bool = False,
+    ) -> None:
+        """Atomically replace a document's chunks, optionally rebuilding unchanged revisions."""
         with self._connect() as db:
             rows = db.execute(
                 "SELECT signature, embedding, embedding_model FROM chunks WHERE file=?",
                 (file,),
             ).fetchall()
-            if rows and all(row["signature"] == signature for row in rows):
+            if not force and rows and all(row["signature"] == signature for row in rows):
                 if not self.embedding_model_name:
                     return
                 # Repair partial backfills too: one valid first chunk must not
@@ -342,6 +350,28 @@ class HybridRetrievalIndex:
                 )
 
         self._refresh_cached_document(file)
+
+    def reembed_document(self, file: str) -> int:
+        """Regenerate vectors for existing chunks without changing their boundaries."""
+        if not self.embedding_model_name:
+            raise RuntimeError("Embedding backfill requires a configured local embedding model")
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT id, content FROM chunks WHERE file=? ORDER BY ordinal", (file,)
+            ).fetchall()
+        if not rows:
+            return 0
+        embeddings = self._embed([row["content"] for row in rows])
+        if embeddings is None or len(embeddings) != len(rows):
+            raise RuntimeError("Embedding provider returned an incomplete vector batch")
+        with self._connect() as db:
+            for row, embedding in zip(rows, embeddings):
+                db.execute(
+                    "UPDATE chunks SET embedding=?, embedding_model=? WHERE id=?",
+                    (json.dumps(embedding), self.embedding_model_name, row["id"]),
+                )
+        self._invalidate_cache()
+        return len(rows)
 
     def remove_missing(self, present_files: set[str]) -> None:
         with self._connect() as db:
