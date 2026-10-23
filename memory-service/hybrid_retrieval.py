@@ -166,13 +166,11 @@ class HybridRetrievalIndex:
                         "Embeddings are configured but sentence-transformers is not installed; "
                         "install the root requirements.txt"
                     ) from exc
-                # ONNX Runtime reduces resident memory under the Memory service's
-                # 512 MiB limit; PyTorch exceeds that budget in real-model tests.
-                model = SentenceTransformer(
-                    self.embedding_model_name,
-                    device="cpu",
-                    backend=os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_BACKEND", "onnx"),
-                )
+                # FastEmbed uses quantized ONNX Runtime without importing PyTorch,
+                # keeping model startup within the Memory service's 512 MiB budget.
+                from fastembed import TextEmbedding
+
+                model = TextEmbedding(model_name=self.embedding_model_name)
                 self._MODEL_CACHE[self.embedding_model_name] = model
             self._embedder = model
         return self._embedder
@@ -181,8 +179,15 @@ class HybridRetrievalIndex:
         model = self._model()
         if model is None:
             return None
-        vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
-        return [vector.astype(float).tolist() for vector in vectors]
+        vectors = list(model.embed(texts))
+        normalized: list[list[float]] = []
+        for vector in vectors:
+            values = [float(component) for component in vector]
+            norm = math.sqrt(sum(component * component for component in values))
+            normalized.append(
+                [component / norm for component in values] if norm else values
+            )
+        return normalized
 
     def _invalidate_cache(self) -> None:
         with self._cache_lock:
