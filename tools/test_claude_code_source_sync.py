@@ -60,6 +60,25 @@ class ClaudeCodeSourceSyncTests(unittest.TestCase):
             self.assertEqual(len(unmapped), 1)
             self.assertIn("prevent cross-project leakage", unmapped[0]["reason"])
 
+    def test_colliding_encoded_project_keys_are_excluded_as_ambiguous(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            claude_home = root / ".claude"
+            first = root / "a-b" / "c"
+            second = root / "a" / "b-c"
+            first.mkdir(parents=True)
+            second.mkdir(parents=True)
+            self.assertEqual(sync.encode_project_root(first.resolve()), sync.encode_project_root(second.resolve()))
+
+            memory = claude_home / "projects" / sync.encode_project_root(first.resolve()) / "memory"
+            memory.mkdir(parents=True)
+            (memory / "MEMORY.md").write_text("# Ambiguous\n", encoding="utf-8")
+
+            sources, _, unmapped = sync.discover_sources(claude_home, [first, second])
+            self.assertFalse(any(item.kind == "auto-memory" for item in sources))
+            self.assertEqual(len(unmapped), 1)
+            self.assertIn("attribution is ambiguous", unmapped[0]["reason"])
+
     def test_source_archive_keeps_content_addressed_revisions_and_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
