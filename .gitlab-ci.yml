@@ -38,6 +38,14 @@ test:
     - npm test
   <<: *default_rules
 
+test-claude-code-source-sync:
+  stage: test
+  image: python:3.12
+  script:
+    - python -m py_compile memory-service/memory_service.py tools/claude-code-source-sync.py
+    - python -m unittest discover -s tools -p 'test_claude_code_source_sync.py' -v
+  <<: *default_rules
+
 test-postgres-integration:
   stage: test
   <<: *node_image
