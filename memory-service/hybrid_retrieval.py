@@ -98,7 +98,16 @@ def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -
     return chunks
 
 class HybridRetrievalIndex:
-    """SQLite-backed BM25 + default-on local embedding cosine similarity."""
+    """SQLite-backed BM25 + default-on local embedding cosine similarity.
+
+    SentenceTransformer instances are shared per model name within a process.
+    The Memory daemon and maintenance/test helpers can construct multiple index
+    objects; loading duplicate PyTorch models wastes hundreds of MiB and can
+    exceed the service's 512 MiB memory limit.
+    """
+
+    _MODEL_CACHE: dict[str, Any] = {}
+    _MODEL_CACHE_LOCK = threading.Lock()
 
     def __init__(self, path: Path, embedding_model: str | None = None):
         self.path = Path(path)
@@ -143,17 +152,23 @@ class HybridRetrievalIndex:
     def _model(self):
         if not self.embedding_model_name:
             return None
-        if self._embedder is None:
-            with self._model_lock:
-                if self._embedder is None:
-                    try:
-                        from sentence_transformers import SentenceTransformer
-                    except ImportError as exc:
-                        raise RuntimeError(
-                            "Embeddings are configured but sentence-transformers is not installed; "
-                            "install the root requirements.txt"
-                        ) from exc
-                    self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
+        if self._embedder is not None:
+            return self._embedder
+        # Cache by exact model identity so separate index instances in one
+        # daemon do not load duplicate copies of the same transformer weights.
+        with self._MODEL_CACHE_LOCK:
+            model = self._MODEL_CACHE.get(self.embedding_model_name)
+            if model is None:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "Embeddings are configured but sentence-transformers is not installed; "
+                        "install the root requirements.txt"
+                    ) from exc
+                model = SentenceTransformer(self.embedding_model_name, device="cpu")
+                self._MODEL_CACHE[self.embedding_model_name] = model
+            self._embedder = model
         return self._embedder
 
     def _embed(self, texts: list[str]) -> list[list[float]] | None:
