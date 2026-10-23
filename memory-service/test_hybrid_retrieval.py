@@ -146,7 +146,7 @@ class HybridRetrievalTests(unittest.TestCase):
                         "SELECT embedding, embedding_model FROM chunks WHERE file='target'"
                     ).fetchone()
                     self.assertTrue(stored["embedding"])
-                    self.assertEqual(stored["embedding_model"], model_path)
+                    self.assertEqual(stored["embedding_model"], f"fastembed:{model_path}")
 
                 # Add a meaningful local corpus in one batch, then exercise the
                 # concurrent query fan-out that the prompt hook creates.
@@ -292,7 +292,7 @@ class HybridRetrievalTests(unittest.TestCase):
             with index._connect() as db:
                 row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
             self.assertIsNotNone(row["embedding"])
-            self.assertEqual(row["embedding_model"], "test-model")
+            self.assertEqual(row["embedding_model"], "fastembed:test-model")
             results = index.search("What install root did we establish as the default for Claude Ensemble?", 5, {"installation", "unrelated"})
             self.assertEqual(results[0]["file"], "installation")
             self.assertEqual(results[0]["retrieval"], "hybrid")
