@@ -350,7 +350,7 @@ class HybridRetrievalIndex:
                 # hide missing vectors on later chunks of the same document.
                 if all(
                     row["embedding"] is not None
-                    and row["embedding_model"] == self.embedding_model_name
+                    and row["embedding_model"] == self.embedding_model_identity
                     for row in rows
                 ):
                     return
