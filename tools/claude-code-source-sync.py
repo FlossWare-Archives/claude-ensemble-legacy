@@ -94,16 +94,18 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
         )
         reconcile_scopes.add(scope_path)
 
-    # Global instructions are shared across projects.
+    # Only reconcile global sources when the configured Claude home exists.
+    # A typo in --claude-home must not stale a previously ingested corpus.
     global_file = claude_home / "CLAUDE.md"
-    reconcile_scopes.add(claude_home.resolve(strict=False))
-    if global_file.is_file():
-        add(global_file, claude_home, "claude-md", "global")
-
     global_rules = claude_home / "rules"
-    reconcile_scopes.add(global_rules.resolve(strict=False))
-    for path in _markdown_files(global_rules):
-        add(path, global_rules, "claude-rule", "global")
+    if claude_home.is_dir():
+        reconcile_scopes.add(claude_home.resolve(strict=True))
+        if global_file.is_file():
+            add(global_file, claude_home, "claude-md", "global")
+        # If rules were removed, reconcile the former rules scope to mark them stale.
+        reconcile_scopes.add(global_rules.resolve(strict=False))
+        for path in _markdown_files(global_rules):
+            add(path, global_rules, "claude-rule", "global")
 
     normalized_roots: list[Path] = []
     project_map: dict[str, Path] = {}
@@ -136,7 +138,6 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
                 continue
             project_key = project_dir.name
             project_root = project_map.get(project_key)
-            reconcile_scopes.add(memory_root.resolve(strict=False))
             if project_root is None:
                 unmapped_auto_memory.append({
                     "project_key": project_key,
@@ -144,6 +145,7 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
                     "reason": "no matching --project-root supplied; excluded from import to prevent cross-project leakage",
                 })
                 continue
+            reconcile_scopes.add(memory_root.resolve(strict=True))
             for path in _markdown_files(memory_root):
                 add(path, memory_root, "auto-memory", "project", project_root, project_key)
 
@@ -212,6 +214,32 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
         temporary = revision_path.with_suffix(".tmp")
         temporary.write_text(record["content"], encoding="utf-8")
         os.replace(temporary, revision_path)
+
+    revision_metadata_path = revision_path.with_suffix(".json")
+    revision_metadata = {
+        "schema_version": 1,
+        "original_path": record["path"],
+        "source_kind": source.kind,
+        "scope": record["scope"],
+        "scope_type": source.scope_type,
+        "project_root": source.project_root,
+        "project_key": source.project_key,
+        "sha256": record["sha256"],
+        "mtime_ns": record["mtime_ns"],
+        "bytes": record["bytes"],
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if revision_metadata_path.exists():
+        try:
+            existing_metadata = json.loads(revision_metadata_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"cannot read revision metadata {revision_metadata_path}: {exc}") from exc
+        if existing_metadata.get("original_path") != record["path"] or existing_metadata.get("sha256") != record["sha256"]:
+            raise RuntimeError(f"revision metadata collision at {revision_metadata_path}")
+    else:
+        revision_metadata_path.write_text(
+            json.dumps(revision_metadata, indent=2, sort_keys=True) + "\\n", encoding="utf-8"
+        )
 
     manifest: dict[str, Any] = {}
     if manifest_path.exists():
@@ -334,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         "sources": inventory,
         "unmapped_auto_memory": unmapped,
         "inventory_errors": errors,
+        "ok": not errors,
     }
     if args.apply:
         if errors:
