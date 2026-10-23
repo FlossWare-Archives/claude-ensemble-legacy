@@ -133,3 +133,72 @@ The first retrieval cleanup should be a behavior-preserving consolidation, not i
 5. Only after behavior is pinned should the lexical scorer, index ownership, and ranking/fusion policy be separated behind capability interfaces.
 
 This is the clearest initial refactoring seam: two lexical/ranking paths currently coexist, while the shared index and ranking responsibilities have not yet been made explicit contracts.
+
+
+## Retrieval contract draft (based on current callers)
+
+This section records a proposed logical contract for review. It does not change the HTTP API or imply that each operation must be a separate process.
+
+### Canonical operation
+
+Treat `POST /memory/search` as the canonical compatibility entry point because the prompt hook uses it. Keep `/memory/search-semantic` as a documented alias during migration unless caller inventory proves it can be removed. Do not preserve the name `/memory/search-hybrid` as if it were equivalent: its current implementation is a separate legacy fusion algorithm.
+
+The canonical logical operation is **retrieve candidates under an explicit source and scope, then rank them under one policy**. The current implementation can continue to serve that contract while internal interfaces are introduced.
+
+### Request semantics to preserve
+
+| Field | Contract |
+|---|---|
+| `query` | Required non-empty string. Preserve internal separators for machine identifiers; only terminal prose punctuation may be normalized for identifier classification. |
+| `limit` | Preferred result bound. `top_k` remains a compatibility alias; if both are supplied, `limit` wins, matching current REST handling. Validate the bound rather than silently coercing invalid values. |
+| `source` | Optional enum: omitted (all eligible sources), `memory`, or `claude-code` (durable Knowledge documents). Apply this filter before candidate ranking, not after unrelated sources have consumed the result budget. |
+| `project_root` | Optional Knowledge scope constraint. It must be applied when determining eligible Knowledge documents, before retrieval and ranking. It must not broaden scope when absent or invalid. |
+| transport | HTTP and the existing private socket are adapters to the same domain operation; transport details must not fork retrieval semantics. |
+
+### Result semantics to preserve and make explicit
+
+A result should have a stable candidate identity and carry enough evidence for downstream composition without rereading unrelated sources. The proposed logical fields are:
+
+- `id`: stable identity for the indexed chunk, not its rank or current score.
+- `source`: `memory`, `claude-code`, or another explicitly supported source when added.
+- `document_id` / `file`: stable document identity, retaining the current file field as a compatibility alias where needed.
+- `section`, `heading_path`, and source location/provenance when available.
+- `content`: the retrieved chunk content, not an unrelated whole-document payload unless a caller explicitly requests that representation.
+- `scores`: separate evidence such as lexical, vector, exact-identifier, and optional graph scores. Scores from different strategies must not be assumed comparable without an explicit normalization/fusion policy.
+- `ranking_policy` or equivalent metadata: identifies the policy/version that produced the order.
+- `metadata`: source scope, document revision, chunker/index version, and embedding model identity where relevant.
+
+This is a target logical shape, not a mandate to break the existing response JSON immediately. Existing hook consumers currently expect `file`, `section`, `content`, and `score`; migration should preserve those fields until callers are updated together.
+
+### Error and readiness semantics
+
+- A not-ready index must not return a misleading successful empty result. Preserve the current explicit 503 response with `error_code=index_not_ready`, `retryable`, and index status.
+- Distinguish invalid request/source/scope input from internal indexing or model failures.
+- Embedding model identity and vector dimension mismatches are consistency failures requiring a clear error and operator action, not silent score degradation.
+- The hook may fail open at the Claude Code integration boundary, but service errors must remain observable in logs/diagnostics. Fail-open behavior must not be used to disguise a broken index as “no memories found.”
+- Index writes and deletes need durable retry/reconciliation semantics. Readiness should reflect pending index work rather than only whether the process is alive.
+
+### Exact identifiers are a retrieval mode, not just another score
+
+Structured keys (UUIDs, run/event IDs, dotted artifact types) currently use boundary-aware matching and should not be diluted by semantic similarity or matched as prefixes/substrings of other identifiers. Keep this as an explicit candidate-retrieval strategy selected by query classification. The classification rule itself needs tests and a versioned contract because changing it can silently alter which path a query takes.
+
+### Candidate service boundaries after this trace
+
+1. **Index service: strong candidate.** It owns canonical document/chunk revisions, chunk identities, index readiness, corpus statistics, source metadata, and durable maintenance/recovery. It is the natural single authority for the data that lexical and vector retrieval both consume. SQLite may remain the initial implementation; a service boundary is a contract/ownership decision, not a requirement to replace SQLite with a database server.
+2. **Ranking service: strong candidate, but only after the contract is stable.** It owns candidate fusion, score semantics, policy/version identity, deterministic tie-breaking, and optional reranking. It should accept candidates plus evidence and return ranked candidates; it should not own corpus/index state.
+3. **Retrieval capability: required; separate service is not yet proven.** Exact, lexical, and vector candidate generation need explicit interfaces and shared scope enforcement. Whether this is hosted by Index or a distinct Retrieval service depends on independent consumers and operational requirements. Do not create a third daemon by reflex.
+4. **Knowledge: currently a Memory-owned capability, not a proven independent service.** Current REST routes, file naming, ingestion ledger, and status operation distinguish durable Knowledge, but it is still stored and served through Memory. Split it only if the review establishes independently owned write/lifecycle/access-policy semantics, not merely because Memory's name is too narrow.
+5. **Embedding: capability with a versioned model/vector contract.** A separate service is justified only if CE has multiple consumers that need shared model lifecycle, independent scaling, or resource isolation.
+6. **Chunking and tokenization: versioned capabilities.** Their outputs and compatibility rules matter to the index, but the algorithms do not need independent network endpoints by default.
+
+### Safe implementation order
+
+1. Add/confirm contract tests for source filtering, project scope, exact identifier boundaries, limit precedence, deterministic ties, provenance, index-not-ready errors, and failed-index recovery.
+2. Inventory all production callers and mark `/memory/search-hybrid` as legacy or retain it only with an explicit distinct contract. Do not silently change its result semantics.
+3. Introduce internal candidate/result and retrieval interfaces behind the existing endpoint.
+4. Route all supported search entry points through one ranking policy; keep the old fusion path only during a measured compatibility migration.
+5. Extract index ownership behind an interface and verify restart/recovery and stale-revision behavior.
+6. Extract Ranking as a managed service only after its contract and independent operational need are established.
+7. Reassess Knowledge ownership against actual domain write and lifecycle rules.
+
+No runtime code is changed by this document. In particular, this draft does not authorize immediate endpoint removal, result schema changes, or deployment of new daemons.
