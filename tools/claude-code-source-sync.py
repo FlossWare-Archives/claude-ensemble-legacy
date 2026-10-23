@@ -200,6 +200,8 @@ def source_revision_path(source: Source, destination_root: Path, digest: str) ->
 def persist_source_copy(record: dict[str, Any], source: Source, destination_root: Path) -> Path:
     """Persist an immutable content-addressed source revision and update its manifest."""
     destination_root = destination_root.expanduser().absolute()
+    destination_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(destination_root, 0o700)
     source_dir = destination_root / source.kind / source_identity(record["path"])
     revisions_dir = source_dir / "revisions"
     revision_path = revisions_dir / f'{record["sha256"]}.md'
@@ -210,10 +212,14 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
         if existing != record["sha256"]:
             raise RuntimeError(f"existing revision has unexpected content: {revision_path}")
     else:
-        revisions_dir.mkdir(parents=True, exist_ok=True)
+        revisions_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(source_dir, 0o700)
+        os.chmod(revisions_dir, 0o700)
         temporary = revision_path.with_suffix(".tmp")
         temporary.write_text(record["content"], encoding="utf-8")
+        os.chmod(temporary, 0o600)
         os.replace(temporary, revision_path)
+    os.chmod(revision_path, 0o600)
 
     revision_metadata_path = revision_path.with_suffix(".json")
     revision_metadata = {
@@ -240,6 +246,7 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
         revision_metadata_path.write_text(
             json.dumps(revision_metadata, indent=2, sort_keys=True) + "\\n", encoding="utf-8"
         )
+        os.chmod(revision_metadata_path, 0o600)
 
     manifest: dict[str, Any] = {}
     if manifest_path.exists():
@@ -271,7 +278,9 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
     }
     temporary_manifest = manifest_path.with_suffix(".tmp")
     temporary_manifest.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    os.chmod(temporary_manifest, 0o600)
     os.replace(temporary_manifest, manifest_path)
+    os.chmod(manifest_path, 0o600)
     return revision_path
 
 
