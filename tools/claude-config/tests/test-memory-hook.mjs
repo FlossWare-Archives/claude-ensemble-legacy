@@ -30,7 +30,10 @@ function runHook({ url, graphUrl, input, inputChunks, env = {}, hookPath = hook,
       for (const chunk of inputChunks) child.stdin.write(chunk);
       child.stdin.end();
     } else {
-      child.stdin.end(JSON.stringify(input));
+      const hookInput = input && typeof input === 'object' && !Array.isArray(input)
+      ? { cwd, ...input }
+      : input;
+    child.stdin.end(JSON.stringify(hookInput));
     }
   });
 }
