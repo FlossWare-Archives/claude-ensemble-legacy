@@ -349,6 +349,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
     def test_ingest_rejects_mismatched_expected_memory_dir(self):
         import hashlib
+        from memory_service import MemoryService, create_http_server
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
