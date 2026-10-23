@@ -201,8 +201,11 @@ def _request(base_url: str, route: str, payload: dict[str, Any], timeout: float)
 
 def archive_transcript(path: Path, identity: dict[str, Any], destination: Path) -> Path:
     """Persist immutable raw revisions and provenance manifests before indexing."""
+    destination_root = destination.expanduser().absolute()
+    destination_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(destination_root, 0o700)
     source_id = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()
-    source_dir = destination.expanduser().absolute() / source_id
+    source_dir = destination_root / source_id
     revisions = source_dir / "revisions"
     revisions.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(source_dir, 0o700)
