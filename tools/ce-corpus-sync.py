@@ -155,7 +155,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--timeout must be positive")
     if args.apply and not args.project_root:
         parser.error("--apply requires one or more explicit --project-root arguments")
-    roots = [root.expanduser().resolve(strict=True) for root in args.project_root]
+    roots = (
+        [root.expanduser().resolve(strict=True) for root in args.project_root]
+        if args.project_root
+        else [Path.cwd().resolve(strict=True)]
+    )
     try:
         result = run_sync(
             repo_root=args.repo_root.expanduser().resolve(strict=True),
