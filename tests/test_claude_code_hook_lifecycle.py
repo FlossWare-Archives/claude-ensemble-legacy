@@ -186,7 +186,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
     def test_prompt_hook_returns_deduplicated_memory_and_knowledge_context(self) -> None:
         result = self.run_hook(
             "memory-search-on-prompt.js",
-            {"hook_event_name": "UserPromptSubmit", "session_id": "session-1", "prompt": "How did we decide the service boundary?"},
+            {"hook_event_name": "UserPromptSubmit", "session_id": "session-1", "cwd": "/tmp/demo-repo", "prompt": "How did we decide the service boundary?"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         output = json.loads(result.stdout)
@@ -254,7 +254,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
                         "path": "/tmp/project/ARCH.md",
                         "content": knowledge_content,
                         "sha256": knowledge_sha,
-                        "metadata": {"scope": "/tmp/project"},
+                        "metadata": {"scope": "/tmp/project", "scope_type": "project", "project_root": "/tmp/project"},
                     }).encode(),
                     headers={"Content-Type": "application/json"},
                     method="POST",
@@ -290,6 +290,7 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
                     input=json.dumps({
                         "hook_event_name": "UserPromptSubmit",
                         "session_id": "real-memory-test-session",
+                        "cwd": "/tmp/project",
                         "prompt": "What do we use for Memory retrieval in REST contracts?",
                     }),
                     text=True,
