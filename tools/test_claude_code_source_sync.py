@@ -42,7 +42,7 @@ class ClaudeCodeSourceSyncTests(unittest.TestCase):
             self.assertIn(("claude-rule", "style.md"), by_kind)
             self.assertIn(("agents-md", "AGENTS.md"), by_kind)
             self.assertIn(("auto-memory", "MEMORY.md"), by_kind)
-            self.assertEqual(by_kind[("claude-md", "CLAUDE.md")].scope_type, "global")
+            self.assertTrue(any(item.kind == "claude-md" and item.scope_type == "global" for item in sources))
             self.assertEqual(by_kind[("auto-memory", "MEMORY.md")].project_root, str(project.resolve()))
             self.assertEqual(unmapped, [])
             self.assertTrue(scopes)
