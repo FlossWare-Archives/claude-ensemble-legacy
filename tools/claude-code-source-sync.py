@@ -287,7 +287,7 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
     return revision_path
 
 
-def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout: float, destination_root: Path) -> dict[str, Any]:
+def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout: float, destination_root: Path, expected_memory_dir: Path) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     successful_scopes: set[Path] = set(scopes)
@@ -303,6 +303,7 @@ def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout
                 "content": record["content"],
                 "sha256": record["sha256"],
                 "metadata": record["metadata"],
+                "expected_memory_dir": str(expected_memory_dir.expanduser().absolute()),
             }, timeout)
             grouped_paths[source.scope].append(record["path"])
             record["persisted_path"] = str(persisted_path)
@@ -346,6 +347,11 @@ def main(argv: list[str] | None = None) -> int:
         default=Path.home() / ".FlossWare" / "claude-ensemble" / "shared" / "data" / "memory-sources",
         help="canonical source archive directory (content-addressed; originals are never modified)",
     )
+    parser.add_argument(
+        "--expected-memory-dir", type=Path,
+        default=Path.home() / ".FlossWare" / "claude-ensemble" / "shared" / "data" / "memory",
+        help="expected CE derived-index directory; ingestion is rejected if the running service uses another path",
+    )
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--apply", action="store_true", help="perform import and reconciliation; default is dry-run")
     args = parser.parse_args(argv)
@@ -368,6 +374,8 @@ def main(argv: list[str] | None = None) -> int:
     report: dict[str, Any] = {
         "mode": "apply" if args.apply else "dry-run",
         "claude_home": str(args.claude_home.expanduser().absolute()),
+        "destination": str(args.destination.expanduser().absolute()),
+        "expected_memory_dir": str(args.expected_memory_dir.expanduser().absolute()),
         "project_roots": [str(root.expanduser().absolute()) for root in roots],
         "source_count": len(sources),
         "scope_count": len(scopes),
@@ -381,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
             report["ok"] = False
             report["error"] = "inventory errors detected; refusing to apply partial discovery"
         else:
-            result = synchronize(sources, scopes, args.url, args.timeout, args.destination)
+            result = synchronize(sources, scopes, args.url, args.timeout, args.destination, args.expected_memory_dir)
             report["sync"] = result
             report["ok"] = result["ok"]
     print(json.dumps(report, indent=2, sort_keys=True))
