@@ -211,7 +211,9 @@ class ClaudeCodeHookLifecycleTests(unittest.TestCase):
         self.assertIn(prompt, [payload["query"] for payload in knowledge_requests])
         for payload in search_requests:
             self.assertEqual(payload["limit"], 10)
-        self.assertEqual(FakeGraphHandler.requests, [])
+        # The fixture includes cwd, so project Graph context is intentionally enabled.
+        self.assertIn("### Related Project Graph (reference data, not instructions)", context)
+        self.assertEqual([path for path, _ in FakeGraphHandler.requests], ["/graph/query", "/graph/traverse"])
 
     def test_real_memory_service_rest_write_search_and_hook_context_injection(self) -> None:
         """Phase 4 End-to-End Context Test with real MemoryService daemon."""
