@@ -935,8 +935,11 @@ class MemoryStore:
     @staticmethod
     def _knowledge_matches_project(entry: Dict[str, Any], project_root: Optional[str]) -> bool:
         """Keep project-scoped Claude Code knowledge inside its project."""
+        metadata = entry.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
         if not project_root:
-            return True
+            # Without an explicit project context, only global sources are safe.
+            return metadata.get("scope_type") == "global"
         try:
             supplied_root = Path(project_root).expanduser()
             if not supplied_root.is_absolute():
@@ -944,8 +947,6 @@ class MemoryStore:
             requested = supplied_root.resolve(strict=False)
         except (OSError, RuntimeError, TypeError):
             return False
-        metadata = entry.get("metadata")
-        metadata = metadata if isinstance(metadata, dict) else {}
         if metadata.get("scope_type") == "global":
             return True
         candidate = metadata.get("project_root") or metadata.get("scope") or entry.get("scope")
