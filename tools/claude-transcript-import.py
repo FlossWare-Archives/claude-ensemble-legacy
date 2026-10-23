@@ -117,6 +117,8 @@ def normalized_markdown(path: Path) -> tuple[str, dict[str, Any]]:
             item["text"],
             "",
         ])
+    if events == 0:
+        raise ValueError(f"{path}: transcript contains no supported message events")
     identity["events"] = events
     identity["session_ids"] = sorted(session_ids)
     return "\n".join(sections).rstrip() + "\n", identity
