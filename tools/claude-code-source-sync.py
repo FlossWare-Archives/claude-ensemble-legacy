@@ -206,15 +206,15 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
     revisions_dir = source_dir / "revisions"
     revision_path = revisions_dir / f'{record["sha256"]}.md'
     manifest_path = source_dir / "source.json"
+    revisions_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(source_dir, 0o700)
+    os.chmod(revisions_dir, 0o700)
 
     if revision_path.exists():
         existing = hashlib.sha256(revision_path.read_bytes()).hexdigest()
         if existing != record["sha256"]:
             raise RuntimeError(f"existing revision has unexpected content: {revision_path}")
     else:
-        revisions_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(source_dir, 0o700)
-        os.chmod(revisions_dir, 0o700)
         temporary = revision_path.with_suffix(".tmp")
         temporary.write_text(record["content"], encoding="utf-8")
         os.chmod(temporary, 0o600)
