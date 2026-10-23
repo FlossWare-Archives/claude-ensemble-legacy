@@ -13,6 +13,27 @@ Scope: Claude Ensemble (CE) only. This document maps CE's current responsibiliti
 
 A capability may warrant a service boundary even if its implementation is small. Service extraction should be based on ownership, independent consumers, lifecycle/resource isolation, consistency needs, and operational value, not source-file size.
 
+## Revised architectural principle: contract-first services
+
+The target should be a complete inventory of CE service-level capabilities, with an explicit REST contract for each. Do not decide that a capability is “not a service initially” merely because its first implementation can run in-process.
+
+For every service-level capability, document:
+- its owned responsibility and domain invariants;
+- a versioned request/response contract and REST endpoint;
+- error taxonomy, validation, deadlines/timeouts, cancellation, retryability, and readiness expectations where applicable;
+- data and provenance ownership;
+- known consumers and authorization/scope rules;
+- contract tests and compatibility requirements;
+- implementation/deployment mode, recorded separately from the contract.
+
+**A REST endpoint does not require a separate process.** A service may be hosted in the existing CE runtime initially and still expose the same REST contract. The contract must be callable independently; the implementation can use an in-process adapter where that is operationally appropriate. This preserves independent addressability and substitution without forcing every internal call through a network hop.
+
+The inventory must distinguish service-level capabilities from implementation strategies. BM25, cosine similarity, tokenization, score normalization, and chunking algorithms are not automatically independent services simply because they are named or replaceable. They belong behind the appropriate service/capability contract unless CE has a separate domain responsibility and consumers that justify their own service API.
+
+The architecture review must therefore answer two separate questions for each item:
+1. **What is the contract/service boundary?** This is part of the target architecture inventory.
+2. **Where does the implementation run?** This is a deployment decision and must not be used to erase or blur the contract boundary.
+
 ## Existing managed runtime
 
 The current `SERVICES_GUIDE.md` defines the supported runtime as the gateway plus four application services.
