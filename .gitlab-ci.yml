@@ -43,6 +43,7 @@ test-claude-code-source-sync:
   image: python:3.12
   script:
     - python -m py_compile memory-service/memory_service.py tools/claude-code-source-sync.py
+    - python -m unittest discover -s memory-service -p 'test_memory_service.py' -v
     - python -m unittest discover -s tools -p 'test_claude_code_source_sync.py' -v
   <<: *default_rules
 
