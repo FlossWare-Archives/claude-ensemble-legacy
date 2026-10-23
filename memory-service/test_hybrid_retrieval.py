@@ -50,9 +50,7 @@ class HybridRetrievalTests(unittest.TestCase):
                     second = HybridRetrievalIndex(Path(tmp) / "two.sqlite3", embedding_model="cache-test-model")
                     self.assertIs(first._model(), model)
                     self.assertIs(second._model(), model)
-                    constructor.assert_called_once_with(
-                        "cache-test-model", model_name="cache-test-model"
-                    )
+                    constructor.assert_called_once_with(model_name="cache-test-model")
         finally:
             HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
             self.model_patch.start()
