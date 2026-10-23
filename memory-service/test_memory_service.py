@@ -942,6 +942,41 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_rest_search_rejects_invalid_limit_values(self):
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            service.store.write_file("note", "# Note\\n\\nretrieval contract detail\\n")
+            service._warm_search_index()
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            invalid_values = (-1, 0, True, None, "3", 1.5, 101)
+            try:
+                for path in ("/memory/search", "/memory/search-semantic", "/memory/search-hybrid"):
+                    for value in invalid_values:
+                        with self.subTest(path=path, limit=value):
+                            payload = {"query": "retrieval contract", "limit": value}
+                            request = urllib.request.Request(
+                                f"http://127.0.0.1:{server.server_address[1]}{path}",
+                                data=json.dumps(payload).encode("utf-8"),
+                                headers={"Content-Type": "application/json"},
+                                method="POST",
+                            )
+                            with self.assertRaises(urllib.error.HTTPError) as raised:
+                                urllib.request.urlopen(request, timeout=3)
+                            self.assertEqual(raised.exception.code, 400)
+                            body = json.loads(raised.exception.read().decode("utf-8"))
+                            self.assertFalse(body["ok"])
+                            self.assertIn("limit", body["error"].lower())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+
 
 class MemoryServiceIdempotencyTest(unittest.TestCase):
 
