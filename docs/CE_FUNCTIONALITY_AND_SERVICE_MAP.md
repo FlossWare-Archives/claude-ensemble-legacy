@@ -109,3 +109,27 @@ These are logical responsibilities, not a commitment to nine separate processes.
 - Do not confuse Thompson's model/workflow selection with document relevance ranking.
 - Do not introduce a new service until its owner, contract, consumers, failure semantics, and operational reason are explicit.
 - Keep this work scoped to CE. This document is a working map, not an ADR and not authorization to split services before the boundaries are reviewed.
+
+
+## Route and caller trace findings
+
+A first caller trace confirms that the route names currently obscure the actual implementation:
+
+- `hooks/memory-search-on-prompt.js` calls `POST /memory/search`; hook tests assert this route.
+- The HTTP handler maps both `/memory/search` and `/memory/search-semantic` to the `search_semantic` operation. That operation uses the persistent `HybridRetrievalIndex.search()` for prose queries and a separate in-memory exact-identifier path for structured keys.
+- `/memory/search-hybrid` takes a different, older path: it calls the legacy `MemoryStore.search()` keyword scorer, calls `search_semantic()`, and merges their results with a second fixed 0.4/0.6 weighting policy.
+- Therefore `/memory/search` already reaches hybrid BM25/vector retrieval for prose. The name `/memory/search-hybrid` does not identify the canonical hybrid index; it invokes a second hybridization path built around the legacy keyword search.
+- `MemoryStore.search()` rescans Markdown files to calculate document frequency, chunks documents, and computes a separate TF/IDF-like score. That is a second lexical ranking implementation alongside the BM25 scoring in `HybridRetrievalIndex.search()`.
+- The current production hook contract and tests make `/memory/search` the compatibility-critical entry point. Do not switch the hook to `/memory/search-hybrid` merely because the latter sounds more accurate.
+
+### Consequence
+
+The first retrieval cleanup should be a behavior-preserving consolidation, not immediate service extraction:
+
+1. Define one canonical retrieval operation and a versioned result contract.
+2. Preserve exact-identifier behavior, Memory/Knowledge source filtering, project scoping, stable candidate identity, and provenance.
+3. Establish regression coverage for hook callers and both current search paths.
+4. Decide whether `/memory/search-semantic` remains an alias and whether `/memory/search-hybrid` is deprecated, redefined, or kept as a distinct explicit contract.
+5. Only after behavior is pinned should the lexical scorer, index ownership, and ranking/fusion policy be separated behind capability interfaces.
+
+This is the clearest initial refactoring seam: two lexical/ranking paths currently coexist, while the shared index and ranking responsibilities have not yet been made explicit contracts.
