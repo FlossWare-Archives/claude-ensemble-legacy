@@ -78,14 +78,14 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertEqual(chunk["start_line"], expected_start)
             self.assertEqual(chunk["end_line"], expected_end)
 
-    @unittest.skipUnless(
-        os.environ.get("ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE") == "1",
-        "set ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 with a local model directory",
-    )
     def test_real_local_model_acceptance(self):
-        model_path = os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
-        self.assertTrue(model_path and Path(model_path).is_dir(),
-                        "ENSEMBLE_MEMORY_EMBEDDING_MODEL must point to a local model directory")
+        # This is a required integration test, not an opt-in smoke test. Use a
+        # pre-provisioned local directory when configured; otherwise provision
+        # the same default model used by CE runtime.
+        model_path = (
+            os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+            or "sentence-transformers/all-MiniLM-L6-v2"
+        )
         self.embedding_patch.stop()
         self.model_patch.stop()
         try:
