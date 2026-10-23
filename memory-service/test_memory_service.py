@@ -325,7 +325,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                         return json.loads(response.read().decode("utf-8"))
 
                 memory = search("memory")
-                knowledge = search("claude-code")
+                knowledge = search("claude-code", root / "project")
                 self.assertTrue(memory["ok"])
                 self.assertTrue(knowledge["ok"])
                 self.assertTrue(memory["results"])
@@ -407,6 +407,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 results = store.search_semantic(
                     "architecture decisions durable knowledge",
                     source="claude-code",
+                    project_root=str(Path(temp_dir) / "project-0"),
                 )
 
             self.assertTrue(results)
