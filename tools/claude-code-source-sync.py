@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -186,7 +187,67 @@ def source_record(source: Source) -> dict[str, Any]:
     }
 
 
-def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout: float) -> dict[str, Any]:
+def source_identity(source_path: str) -> str:
+    return hashlib.sha256(source_path.encode("utf-8")).hexdigest()
+
+
+def source_revision_path(source: Source, destination_root: Path, digest: str) -> Path:
+    return destination_root / source.kind / source_identity(str(source.path)) / "revisions" / f"{digest}.md"
+
+
+def persist_source_copy(record: dict[str, Any], source: Source, destination_root: Path) -> Path:
+    """Persist an immutable content-addressed source revision and update its manifest."""
+    destination_root = destination_root.expanduser().absolute()
+    source_dir = destination_root / source.kind / source_identity(record["path"])
+    revisions_dir = source_dir / "revisions"
+    revision_path = revisions_dir / f'{record["sha256"]}.md'
+    manifest_path = source_dir / "source.json"
+
+    if revision_path.exists():
+        existing = hashlib.sha256(revision_path.read_bytes()).hexdigest()
+        if existing != record["sha256"]:
+            raise RuntimeError(f"existing revision has unexpected content: {revision_path}")
+    else:
+        revisions_dir.mkdir(parents=True, exist_ok=True)
+        temporary = revision_path.with_suffix(".tmp")
+        temporary.write_text(record["content"], encoding="utf-8")
+        os.replace(temporary, revision_path)
+
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"cannot read source manifest {manifest_path}: {exc}") from exc
+        if manifest.get("original_path") != record["path"]:
+            raise RuntimeError(f"source identity collision at {manifest_path}")
+
+    revisions = manifest.get("revisions", [])
+    if not isinstance(revisions, list):
+        raise RuntimeError(f"invalid revisions list in {manifest_path}")
+    if record["sha256"] not in revisions:
+        revisions.append(record["sha256"])
+    updated = {
+        "schema_version": 1,
+        "original_path": record["path"],
+        "source_kind": source.kind,
+        "scope": record["scope"],
+        "scope_type": source.scope_type,
+        "project_root": source.project_root,
+        "project_key": source.project_key,
+        "latest_sha256": record["sha256"],
+        "latest_mtime_ns": record["mtime_ns"],
+        "latest_bytes": record["bytes"],
+        "revisions": revisions,
+        "last_synchronized_at": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary_manifest = manifest_path.with_suffix(".tmp")
+    temporary_manifest.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    os.replace(temporary_manifest, manifest_path)
+    return revision_path
+
+
+def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout: float, destination_root: Path) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     successful_scopes: set[Path] = set(scopes)
@@ -196,6 +257,7 @@ def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout
         try:
             record = source_record(source)
             records.append(record)
+            persisted_path = persist_source_copy(record, source, destination_root)
             result = _request(base_url, "/memory/ingest", {
                 "path": record["path"],
                 "content": record["content"],
@@ -203,6 +265,7 @@ def synchronize(sources: list[Source], scopes: set[Path], base_url: str, timeout
                 "metadata": record["metadata"],
             }, timeout)
             grouped_paths[source.scope].append(record["path"])
+            record["persisted_path"] = str(persisted_path)
             record["status"] = result.get("status", "ingested")
         except (OSError, UnicodeError, RuntimeError) as exc:
             errors.append({"path": str(source.path), "error": str(exc)})
@@ -238,6 +301,11 @@ def main(argv: list[str] | None = None) -> int:
         help="project root to scan; repeat for each project whose instructions/auto-memory should be ingested",
     )
     parser.add_argument("--url", default=os.environ.get("FLOSSWARE_MEMORY_URL", "http://127.0.0.1:8767"))
+    parser.add_argument(
+        "--destination", type=Path,
+        default=Path.home() / ".FlossWare" / "claude-ensemble" / "shared" / "data" / "memory-sources",
+        help="canonical source archive directory (content-addressed; originals are never modified)",
+    )
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--apply", action="store_true", help="perform import and reconciliation; default is dry-run")
     args = parser.parse_args(argv)
@@ -252,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             record = source_record(source)
             record.pop("content", None)
+            record["destination_revision"] = str(source_revision_path(source, args.destination, record["sha256"]))
             inventory.append(record)
         except (OSError, UnicodeError) as exc:
             errors.append({"path": str(source.path), "error": str(exc)})
@@ -271,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             report["ok"] = False
             report["error"] = "inventory errors detected; refusing to apply partial discovery"
         else:
-            result = synchronize(sources, scopes, args.url, args.timeout)
+            result = synchronize(sources, scopes, args.url, args.timeout, args.destination)
             report["sync"] = result
             report["ok"] = result["ok"]
     print(json.dumps(report, indent=2, sort_keys=True))
