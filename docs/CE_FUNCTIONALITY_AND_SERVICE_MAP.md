@@ -202,3 +202,43 @@ Structured keys (UUIDs, run/event IDs, dotted artifact types) currently use boun
 7. Reassess Knowledge ownership against actual domain write and lifecycle rules.
 
 No runtime code is changed by this document. In particular, this draft does not authorize immediate endpoint removal, result schema changes, or deployment of new daemons.
+
+
+## Additional caller and test inventory
+
+A broader repository-tree trace found additional retrieval-related artifacts that must be classified explicitly rather than assumed to be live service contracts.
+
+| Artifact | Evidence / role | Initial classification |
+|---|---|---|
+| `hooks/memory-search-on-prompt.js` | Current hook calls `POST /memory/search`, requests Memory and Knowledge separately, and can query Graph for bounded relationships. | Active compatibility-critical hook. |
+| `tools/claude-config/tests/test-memory-hook.mjs` | Verifies POST route, source-separated requests, configured limits, context output, and cross-query behavior. | Active regression suite for the current hook. |
+| `hooks/test-memory-search-on-prompt.js` | Tests prompt decomposition and Knowledge retrieval through `/memory/search`. | Hook regression coverage; retain while this hook is installed/supported. |
+| `memory-service/test_hybrid_retrieval.py` | Exercises the persistent SQLite index, warm-up, scoring, embedding, and corpus behavior. | Active unit-level coverage for the index implementation. |
+| `memory-service/test_memory_service.py` | Covers REST search, source separation, exact identifiers, revisions, writes/deletes, readiness, and failure/recovery cases. | Active service/contract coverage. |
+| `memory-service/test_knowledge_status.py` | Tests active indexed Knowledge document count and empty/available status. | Active Knowledge lifecycle/status coverage. |
+| `hooks/memory-rag-search.js` | Older manual RAG helper with its own local memory directory and ChromaDB assumptions; it does not use the current Memory REST contract. | Legacy/manual tool until installation and callers prove otherwise. Do not treat it as a second canonical retrieval API. |
+| `shared/semantic-search.py` | Standalone semantic-search utility outside the managed Memory service path. | Caller inventory required before reuse or removal; not evidence of a managed service. |
+| `docs/MEMORY_RETRIEVAL.md` and `memory-service/test_memory_retrieval_followups.py` | Describe/test execution-aware JSONL retrieval with relationship priority (parent, ancestor, same-request, related-lineage). | Separate retrieval domain from Markdown RAG. Do not collapse these ranking semantics into document relevance ranking. |
+| `knowledge-service/provenance.py` | Shared stable IDs and source-evidence primitives for corpus-derived Knowledge and Graph records. No service entry point or standalone service guide was found in this trace. | Shared capability/module, not proof that a Knowledge service currently exists. |
+
+### Important distinction: two different retrieval domains
+
+CE has at least two retrieval domains with different ranking semantics:
+
+1. **Document RAG retrieval**: Markdown chunks, lexical/vector relevance, source/project scope, and prompt context. This is the domain where Index and Ranking boundaries are candidates.
+2. **Execution-aware Memory retrieval**: JSONL records selected through execution context and relationship priority. Its parent/ancestor/same-request/related-lineage ordering is domain policy, not a generic document relevance score.
+
+A future Ranking service must not absorb both domains into one undifferentiated “score.” It may provide shared mechanics, but the domain contracts and ranking policies remain distinct. Likewise, `knowledge-service/provenance.py` is useful shared code, but the repository does not currently establish a separately managed Knowledge service merely by having that directory.
+
+### Coverage gaps to close before changing behavior
+
+The existing tests already cover several critical properties, including source separation, exact identifier behavior, index freshness, readiness, and hook request shape. The following still need explicit audit/confirmation as contract-level guarantees before a consolidation:
+
+- Whether `project_root` filtering has direct REST regression cases for both matching and non-matching Knowledge scopes.
+- Whether `limit` versus `top_k` precedence and invalid values are tested at the HTTP boundary, including booleans and non-integers.
+- Whether deterministic tie-breaking is asserted for the SQLite hybrid scorer, not only implied by implementation.
+- Whether candidate identity/deduplication is stable across separate queries and across Memory/Knowledge/Graph.
+- Whether the old `/memory/search-hybrid` route has any supported production caller. Current hook tests do not use it.
+- Whether the legacy manual RAG hook or standalone semantic utility is installed/referenced by active configuration, as opposed to simply remaining in the repository.
+
+These are audit items, not assertions that the behavior is absent. Search route changes should wait until the tests and install/configuration references settle each item.
