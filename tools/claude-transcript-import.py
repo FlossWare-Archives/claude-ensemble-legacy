@@ -261,6 +261,7 @@ def synchronize(
 ) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
     successful_scopes: dict[Path, list[str]] = {}
+    failed_scopes: set[Path] = set()
     processed = 0
     for source in sources:
         path: Path = source["path"]
@@ -294,8 +295,11 @@ def synchronize(
             processed += 1
         except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
             errors.append({"path": str(path), "error": str(exc)})
+            failed_scopes.add(scope)
     reconciled: list[dict[str, Any]] = []
     for scope, paths in sorted(successful_scopes.items(), key=lambda pair: str(pair[0])):
+        if scope in failed_scopes:
+            continue
         try:
             result = _request(base_url, "/memory/reconcile", {
                 "source": "claude-code",
