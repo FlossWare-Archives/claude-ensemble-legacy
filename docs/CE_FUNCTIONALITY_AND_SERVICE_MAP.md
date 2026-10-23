@@ -6,8 +6,9 @@ Scope: Claude Ensemble (CE) only. This document maps CE's current responsibiliti
 
 ## Boundary vocabulary
 
-- **Service**: owns a cohesive domain or operational responsibility and exposes a stable contract to other CE components.
-- **Capability**: a named operation with an explicit contract. It may initially be implemented in-process or inside an existing service.
+- **Service**: owns a cohesive domain or operational responsibility and exposes a stable, versioned REST contract to other CE components.
+- **Capability**: a named functional responsibility with an explicit contract and REST endpoint. It may initially be implemented in-process or hosted inside an existing service process.
+- **Internal helper/strategy**: an implementation detail used behind a capability contract. It is not a separately exposed capability unless CE explicitly assigns it an independent responsibility and consumer contract.
 - **Implementation strategy**: a replaceable algorithm or mechanism behind a capability contract.
 - **Adapter/orchestrator**: connects existing contracts or translates between an external runtime and CE; it should not become the owner of the underlying domain logic.
 
@@ -15,7 +16,7 @@ A capability may warrant a service boundary even if its implementation is small.
 
 ## Revised architectural principle: contract-first services
 
-The target should be a complete inventory of CE capabilities, with an explicit REST endpoint and request/response contract for every capability that is part of the CE functional architecture. Do not decide that a capability is “not a service initially” merely because its first implementation can run in-process.
+The target should be a complete inventory of CE capabilities, with an explicit REST endpoint and request/response contract for every capability that is part of the CE functional architecture. In this document, a capability that is part of that architecture is a service contract, even if its implementation is hosted inside another process. Do not decide that a capability is “not a service initially” merely because its first implementation can run in-process.
 
 For every capability, document:
 - its owned responsibility and domain invariants;
@@ -28,7 +29,7 @@ For every capability, document:
 
 **REST addressability and process deployment are separate decisions.** Each capability has a REST endpoint in the architecture. Its endpoint can be hosted by an existing CE process; it does not require a dedicated daemon or independently deployed process. Internal same-process calls may use the same domain interface directly to avoid unnecessary network hops, while the REST adapter exposes the stable capability contract to remote consumers.
 
-The inventory must distinguish functional capabilities from algorithms and helper mechanisms. BM25, cosine similarity, tokenization, score normalization, and chunking algorithms are not automatically separate capabilities or services merely because they are named or replaceable. They are strategies behind the relevant capability contract unless they represent a genuinely distinct functional responsibility with its own consumers and semantics. Thus the rule is not “an endpoint for every function”; it is “an endpoint for every capability in the complete functional inventory.”
+The inventory must distinguish functional capabilities from algorithms and helper mechanisms. BM25, cosine similarity, tokenization, score normalization, and chunking algorithms are not automatically separate capabilities merely because they are named or replaceable. They are strategies behind a capability contract unless CE assigns them a distinct functional responsibility with its own consumers and semantics. Thus the rule is not “an endpoint for every function”; it is “an endpoint for every capability in the complete functional inventory.” If CE decides that chunking or tokenization is an independent capability, it gets a REST contract.
 
 For each item, the architecture review must answer separately:
 1. **What capability does CE provide, and what is its REST contract?**
@@ -75,29 +76,29 @@ The repository also has standalone chunking/search utilities and older retrieval
 
 The table distinguishes logical responsibility from whether it should run as its own process.
 
-| Responsibility | Initial designation | Service-boundary assessment |
-|---|---|---|
-| Memory record lifecycle and episodic storage | Memory service | Existing service; retain ownership of memory writes, reads, append semantics, and record identity. |
-| Durable Knowledge lifecycle, provenance, status, and source scope | Knowledge capability / service candidate | A distinct service is justified if Knowledge needs independently owned records, lifecycle, access policy, or ingestion state. Do not split only to rename existing routes. |
-| Corpus/index ownership | Index capability / strong service candidate | Own canonical indexed document/chunk revisions, index status, corpus metadata/statistics, and consistency/recovery semantics shared by retrieval strategies. |
-| Source discovery, ingestion planning, reconciliation, and archival | Ingestion capability; possible service | Keep explicit dry-run/apply semantics and source ownership. Separate runtime is justified if independent scheduling, workload, or recovery needs require it. |
-| Chunking and section/line provenance | Versioned capability | Contract should specify boundaries, overlap, metadata, identity/revision behavior, and deterministic output. Separate service not yet required. |
-| Tokenization and term normalization | Index/query capability | One consistent contract must be used for both indexing and query processing. |
-| Embedding generation and model identity | Embedding capability / conditional service candidate | Define model identifier, dimensions, normalization, and failure behavior. Separate service if multiple consumers need shared model lifecycle, resource isolation, or independent scaling. |
-| Exact identifier lookup | Retrieval capability | Preserve boundary-aware exact matching; do not force machine identifiers through approximate semantic ranking. |
-| Lexical candidate retrieval | Retrieval capability | Produces candidates and lexical evidence. BM25 is a strategy, not a standalone domain service. |
-| Vector candidate retrieval | Retrieval capability | Produces semantic candidates and similarity evidence against the same canonical corpus/index. |
-| Corpus statistics | Index service responsibility | Statistics must be scoped and consistent with the corpus used by the query. Do not let lexical and vector paths maintain conflicting corpus definitions. |
-| Candidate ranking and fusion | Ranking capability / strong service candidate | Shared policy should accept candidates and evidence from multiple retrieval methods, return stable ordering, and identify the applied policy. |
-| Reranking | Ranking capability; conditional separate service | Keep behind a strategy contract. Separate runtime may be justified by model size, latency, accelerator/resource needs, or independent lifecycle. |
-| Metadata and project-scope filtering | Retrieval/index capability | Scope enforcement must be consistent and must happen before results are exposed. |
-| Result identity and deduplication | Retrieval/ranking capability | Define stable candidate identity across lexical, vector, Memory, Knowledge, and Graph sources. |
-| Provenance/evidence references | Shared capability with domain ownership | Each domain remains responsible for the truth of its records; shared primitives can standardize source references and stable IDs. |
-| Prompt-context assembly and budget enforcement | Hook/orchestration capability | Combines bounded Memory, Knowledge, and Graph results and preserves source distinctions. It should not own retrieval algorithms. |
-| Claude Code hook integration | Adapter | Converts CE results into the supported `UserPromptSubmit` context contract. It should remain fail-open only where that behavior is explicitly intended and observable. |
-| Thompson model/workflow selection | Thompson service | Separate from ranking retrieved documents. |
-| Outcome capture and learner updates | Learning service | Keep outcome evidence and feedback contracts explicit. |
-| Graph traversal and relationship queries | Graph service | Graph owns relationship semantics; retrieval may consume graph-derived candidates as one source. |
+| Responsibility | Contract classification | REST contract / initial route | Service-boundary assessment |
+|---|---|---|---|
+| Memory record lifecycle and episodic storage | Memory service | Existing Memory REST routes; inventory and version each supported operation | Existing service; retain ownership of memory writes, reads, append semantics, and record identity. |
+| Durable Knowledge lifecycle, provenance, status, and source scope | Knowledge capability / service candidate | Proposed `POST /api/v1/knowledge/records`, `GET /api/v1/knowledge/records/{id}`, `GET /api/v1/knowledge/status`; map current Memory routes as compatibility adapters | A distinct service is justified if Knowledge needs independently owned records, lifecycle, access policy, or ingestion state. Do not split only to rename existing routes. |
+| Corpus/index ownership | Index service contract | Proposed `GET /api/v1/index/status`, `POST /api/v1/index/documents:upsert`, `POST /api/v1/index/documents:remove`, `POST /api/v1/index/maintenance:reconcile` | Own canonical indexed document/chunk revisions, index status, corpus metadata/statistics, and consistency/recovery semantics shared by retrieval strategies. |
+| Source discovery, ingestion planning, reconciliation, and archival | Ingestion service contract | Proposed `POST /api/v1/ingestion/plan`, `POST /api/v1/ingestion/runs`, `GET /api/v1/ingestion/runs/{id}` | Keep explicit dry-run/apply semantics and source ownership. Separate runtime is justified if independent scheduling, workload, or recovery needs require it. |
+| Chunking and section/line provenance | Chunking capability contract | Proposed `POST /api/v1/chunking/chunks` | Contract should specify boundaries, overlap, metadata, identity/revision behavior, and deterministic output. Separate service not yet required; endpoint may be hosted by Index. |
+| Tokenization and term normalization | Text normalization capability contract | Proposed `POST /api/v1/text/normalize` | One consistent contract must be used for both indexing and query processing. Host with Index/Retrieval initially if appropriate. |
+| Embedding generation and model identity | Embedding capability contract | Proposed `GET /api/v1/embeddings/models`, `POST /api/v1/embeddings` | Define model identifier, dimensions, normalization, and failure behavior. Separate process if multiple consumers need shared model lifecycle, resource isolation, or independent scaling. |
+| Exact identifier lookup | Retrieval capability contract | Proposed `POST /api/v1/retrieval/exact` | Preserve boundary-aware exact matching; do not force machine identifiers through approximate semantic ranking. |
+| Lexical candidate retrieval | Retrieval capability contract | Proposed `POST /api/v1/retrieval/lexical` | Produces candidates and lexical evidence. BM25 is a strategy, not a standalone domain service. |
+| Vector candidate retrieval | Retrieval capability contract | Proposed `POST /api/v1/retrieval/vector` | Produces semantic candidates and similarity evidence against the same canonical corpus/index. |
+| Corpus statistics | Index capability contract | Proposed `GET /api/v1/index/corpora/{id}/statistics` | Statistics must be scoped and consistent with the corpus used by the query. Do not let lexical and vector paths maintain conflicting corpus definitions. |
+| Candidate ranking and fusion | Ranking service contract | Proposed `POST /api/v1/ranking/rank` | Shared policy should accept candidates and evidence from multiple retrieval methods, return stable ordering, and identify the applied policy. |
+| Reranking | Ranking capability contract | Proposed `POST /api/v1/ranking/rerank` | Keep behind a strategy contract. Separate runtime may be justified by model size, latency, accelerator/resource needs, or independent lifecycle. |
+| Metadata and project-scope filtering | Scope-policy capability contract | Proposed `POST /api/v1/scope/authorize-candidates` | Scope enforcement must be consistent and must happen before results are exposed. Keep policy owned by one component and called by retrieval paths. |
+| Result identity and deduplication | Candidate identity capability contract | Proposed `POST /api/v1/candidates/normalize` | Define stable candidate identity across lexical, vector, Memory, Knowledge, and Graph sources. |
+| Provenance/evidence references | Provenance capability contract | Proposed `POST /api/v1/provenance/resolve` and `POST /api/v1/provenance/validate` | Each domain remains responsible for the truth of its records; shared primitives can standardize source references and stable IDs. |
+| Prompt-context assembly and budget enforcement | Prompt context capability contract | Proposed `POST /api/v1/prompt-context/assemble` | Combines bounded Memory, Knowledge, and Graph results and preserves source distinctions. It should not own retrieval algorithms. |
+| Claude Code hook integration | Adapter contract | Existing hook integration; define its CE-facing contract and version separately from internal REST routes | Converts CE results into the supported `UserPromptSubmit` context contract. It should remain fail-open only where that behavior is explicitly intended and observable. |
+| Thompson model/workflow selection | Thompson service | Existing Thompson REST API; inventory and version every supported operation | Separate from ranking retrieved documents. Selection policy is distinct from relevance ranking. |
+| Outcome capture and learner updates | Learning service | Existing Learning REST API; inventory and version every supported operation | Keep outcome evidence and feedback contracts explicit; integrate with Thompson through an explicit contract. |
+| Graph traversal and relationship queries | Graph service | Existing Graph REST API; inventory and version every supported operation | Graph owns relationship semantics; retrieval may consume graph-derived candidates as one source. |
 
 ## Candidate target architecture
 
@@ -113,7 +114,7 @@ The initial target should have explicit contracts for:
 8. **Ingestion**: explicit source inventory, dry-run, apply, reconciliation, and recovery behavior.
 9. **Prompt context**: bounded composition of results through the hook/orchestration layer.
 
-These are logical responsibilities, not a commitment to nine separate processes. Index and Ranking are strong candidates for service boundaries because they centralize shared policy and state used by multiple retrieval paths. Knowledge needs a domain-boundary review. Embedding and Ingestion should become independent services only when operational requirements justify the cost.
+These are logical responsibilities and REST contracts, not a commitment to nine separate processes. Index and Ranking are strong candidates for separately owned service implementations because they centralize shared policy and state used by multiple retrieval paths. Knowledge needs a domain-boundary review. Embedding and Ingestion have REST contracts even if hosted in an existing process; independent processes require separate operational justification. The route names above are proposed contract paths, not claims that those routes already exist. Existing paths must be mapped as compatibility routes before implementation.
 
 ## Decisions to settle before implementation
 
@@ -124,14 +125,15 @@ These are logical responsibilities, not a commitment to nine separate processes.
 5. Define candidate/result identity and the Retrieval contract.
 6. Define Ranking inputs, score semantics, fusion policy, deterministic ordering, and explanations.
 7. Define chunking and embedding model/version compatibility contracts.
-8. Only then decide which contracts need separate processes and managed endpoints.
+8. Decide which existing process hosts each REST contract. Process extraction is a separate decision; it does not decide whether the endpoint exists.
 
 ## Guardrails
 
 - Do not make BM25, cosine similarity, tokenization, score normalization, or every helper function its own service by default.
 - Do not duplicate corpus statistics, index metadata, source-scope policy, or provenance logic across retrieval methods.
 - Do not confuse Thompson's model/workflow selection with document relevance ranking.
-- Do not introduce a new service until its owner, contract, consumers, failure semantics, and operational reason are explicit.
+- Every functional capability in the approved inventory must have a REST endpoint and versioned request/response contract. Do not leave a capability without an endpoint merely because it is hosted in-process.
+- Do not introduce a new process until its owner, contract, consumers, failure semantics, and operational reason are explicit.
 - Keep this work scoped to CE. This document is a working map, not an ADR and not authorization to split services before the boundaries are reviewed.
 
 
@@ -161,7 +163,7 @@ This is the clearest initial refactoring seam: two lexical/ranking paths current
 
 ## Retrieval contract draft (based on current callers)
 
-This section records a proposed logical contract for review. It does not change the HTTP API or imply that each operation must be a separate process.
+This section records a proposed logical contract for review. It does not change the HTTP API or imply that each operation must be a separate process. The contract-first rule still applies: the canonical retrieval capability needs a versioned REST contract whether its implementation is in the Memory process or another process.
 
 ### Canonical operation
 
@@ -210,10 +212,10 @@ Structured keys (UUIDs, run/event IDs, dotted artifact types) currently use boun
 
 1. **Index service: strong candidate.** It owns canonical document/chunk revisions, chunk identities, index readiness, corpus statistics, source metadata, and durable maintenance/recovery. It is the natural single authority for the data that lexical and vector retrieval both consume. SQLite may remain the initial implementation; a service boundary is a contract/ownership decision, not a requirement to replace SQLite with a database server.
 2. **Ranking service: strong candidate, but only after the contract is stable.** It owns candidate fusion, score semantics, policy/version identity, deterministic tie-breaking, and optional reranking. It should accept candidates plus evidence and return ranked candidates; it should not own corpus/index state.
-3. **Retrieval capability: required; separate service is not yet proven.** Exact, lexical, and vector candidate generation need explicit interfaces and shared scope enforcement. Whether this is hosted by Index or a distinct Retrieval service depends on independent consumers and operational requirements. Do not create a third daemon by reflex.
-4. **Knowledge: currently a Memory-owned capability, not a proven independent service.** Current REST routes, file naming, ingestion ledger, and status operation distinguish durable Knowledge, but it is still stored and served through Memory. Split it only if the review establishes independently owned write/lifecycle/access-policy semantics, not merely because Memory's name is too narrow.
-5. **Embedding: capability with a versioned model/vector contract.** A separate service is justified only if CE has multiple consumers that need shared model lifecycle, independent scaling, or resource isolation.
-6. **Chunking and tokenization: versioned capabilities.** Their outputs and compatibility rules matter to the index, but the algorithms do not need independent network endpoints by default.
+3. **Retrieval service contract: required; separate process is not yet proven.** Exact, lexical, and vector candidate generation need explicit REST operations and shared scope enforcement. The endpoints may be hosted by Index or an existing Memory process initially; a distinct Retrieval process depends on independent consumers and operational requirements.
+4. **Knowledge: currently a Memory-owned domain, with a defined REST contract required.** Current REST routes, file naming, ingestion ledger, and status operation distinguish durable Knowledge, but it is still stored and served through Memory. A Knowledge REST contract can initially be hosted by Memory. A separately deployed Knowledge process requires independently owned write/lifecycle/access-policy semantics, not merely because Memory's name is too narrow.
+5. **Embedding: REST capability with a versioned model/vector contract.** A separate process is justified only if CE has multiple consumers that need shared model lifecycle, independent scaling, or resource isolation.
+6. **Chunking and text normalization: REST capability contracts.** Their outputs and compatibility rules matter to the index. The endpoints can be hosted by Index or Memory; the underlying algorithms remain implementation strategies, not separate services, unless CE defines independent functional ownership.
 
 ### Safe implementation order
 
@@ -225,7 +227,7 @@ Structured keys (UUIDs, run/event IDs, dotted artifact types) currently use boun
 6. Extract Ranking as a managed service only after its contract and independent operational need are established.
 7. Reassess Knowledge ownership against actual domain write and lifecycle rules.
 
-No runtime code is changed by this document. In particular, this draft does not authorize immediate endpoint removal, result schema changes, or deployment of new daemons.
+No runtime code is changed by this document. In particular, this draft does not authorize immediate endpoint removal, result schema changes, or deployment of new daemons. Proposed route paths in the inventory must be reconciled with existing routes and naming conventions before they are treated as implementation-ready contracts.
 
 
 ## Additional caller and test inventory
