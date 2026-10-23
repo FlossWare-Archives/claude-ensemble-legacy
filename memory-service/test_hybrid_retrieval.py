@@ -361,6 +361,73 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertEqual(row["embedding_model"], "fastembed:test-model")
 
 
+    def test_force_rebuilds_unchanged_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3")
+            index.replace_document("notes", "same-signature", [{
+                "header": "Old", "heading_path": "Old", "content": "old indexed content"
+            }])
+            index.replace_document("notes", "same-signature", [{
+                "header": "New", "heading_path": "New", "content": "new indexed content"
+            }], force=True)
+            with index._connect() as db:
+                row = db.execute("SELECT header, content FROM chunks WHERE file='notes'").fetchone()
+            self.assertEqual(row["header"], "New")
+            self.assertEqual(row["content"], "new indexed content")
+
+    def test_incremental_backfill_repairs_partial_embeddings(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[float(i + 1), 1.0] for i, _ in enumerate(texts)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            index = FakeEmbeddingIndex(Path(tmp) / "index.sqlite3", embedding_model="test-model")
+            chunks = [
+                {"header": "One", "heading_path": "One", "content": "first chunk content"},
+                {"header": "Two", "heading_path": "Two", "content": "second chunk content"},
+            ]
+            index.replace_document("notes", "same-signature", chunks)
+            with index._connect() as db:
+                db.execute(
+                    "UPDATE chunks SET embedding=NULL WHERE file='notes' AND ordinal=1"
+                )
+            index.replace_document("notes", "same-signature", chunks)
+            with index._connect() as db:
+                rows = db.execute(
+                    "SELECT embedding, embedding_model FROM chunks WHERE file='notes' ORDER BY ordinal"
+                ).fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(row["embedding"] for row in rows))
+            self.assertTrue(all(row["embedding_model"] == "fastembed:test-model" for row in rows))
+
+
+    def test_embedding_backfill_preserves_chunks_across_model_migration(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[float(len(self.embedding_model_name)), 1.0] for _ in texts]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            old = FakeEmbeddingIndex(path, embedding_model="old-model")
+            chunks = [
+                {"header": "Root", "heading_path": "Architecture > Root", "content": "keep this exact chunk"}
+            ]
+            old.replace_document("notes", "signature", chunks)
+            new = FakeEmbeddingIndex(path, embedding_model="new-model")
+            count = new.reembed_document("notes")
+            with new._connect() as db:
+                row = db.execute(
+                    "SELECT header, heading_path, content, embedding_model, embedding FROM chunks WHERE file='notes'"
+                ).fetchone()
+            self.assertEqual(count, 1)
+            self.assertEqual(row["header"], "Root")
+            self.assertEqual(row["heading_path"], "Architecture > Root")
+            self.assertEqual(row["content"], "keep this exact chunk")
+            self.assertEqual(row["embedding_model"], "new-model")
+            self.assertEqual(row["embedding"], "[9.0, 1.0]")
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
