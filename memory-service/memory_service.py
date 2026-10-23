@@ -1253,6 +1253,16 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
             # REST callers use `limit`; `top_k` is the MemoryStore name and is
             # accepted as an alias. It was previously overwritten silently.
             requested_limit = body.get("limit", body.get("top_k", 10))
+            if operation in {"search_semantic", "search_hybrid"}:
+                if isinstance(requested_limit, bool) or not isinstance(requested_limit, int):
+                    raise ValueError("limit must be an integer")
+                if requested_limit < 1:
+                    raise ValueError("limit must be at least 1")
+                if requested_limit > 100:
+                    raise ValueError("limit must not exceed 100")
+                # Both HTTP search routes share the same bound and limit/top_k
+                # precedence. The socket protocol continues to accept top_k.
+                body["top_k"] = requested_limit
             if operation=="search_semantic":
                 requested_source = body.get("source")
                 if requested_source not in (None, "memory", "claude-code"):
