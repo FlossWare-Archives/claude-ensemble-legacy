@@ -1290,14 +1290,14 @@ class MemoryServiceSecurityTest(unittest.TestCase):
             fake_package = root / "fake_modules" / "fastembed"
             fake_package.mkdir(parents=True)
             (fake_package / "__init__.py").write_text(
-                "import math\\n"
-                "class TextEmbedding:\\n"
-                "    def __init__(self, model_name): pass\\n"
-                "    def embed(self, texts):\\n"
-                "        for text in texts:\\n"
-                "            count = float(len(str(text).split()) or 1)\\n"
-                "            norm = math.sqrt(count * count + 1.0)\\n"
-                "            yield [count / norm, 1.0 / norm]\\n",
+                "import math\n"
+                "class TextEmbedding:\n"
+                "    def __init__(self, model_name): pass\n"
+                "    def embed(self, texts):\n"
+                "        for text in texts:\n"
+                "            count = float(len(str(text).split()) or 1)\n"
+                "            norm = math.sqrt(count * count + 1.0)\n"
+                "            yield [count / norm, 1.0 / norm]\n",
                 encoding="utf-8",
             )
             env["PYTHONPATH"] = os.pathsep.join(
