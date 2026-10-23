@@ -45,13 +45,13 @@ class HybridRetrievalTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
-                with patch.dict(sys.modules, {"sentence_transformers": SimpleNamespace(SentenceTransformer=constructor)}):
+                with patch.dict(sys.modules, {"fastembed": SimpleNamespace(TextEmbedding=constructor)}):
                     first = HybridRetrievalIndex(Path(tmp) / "one.sqlite3", embedding_model="cache-test-model")
                     second = HybridRetrievalIndex(Path(tmp) / "two.sqlite3", embedding_model="cache-test-model")
                     self.assertIs(first._model(), model)
                     self.assertIs(second._model(), model)
                     constructor.assert_called_once_with(
-                        "cache-test-model", device="cpu", backend="onnx"
+                        "cache-test-model", model_name="cache-test-model"
                     )
         finally:
             HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
