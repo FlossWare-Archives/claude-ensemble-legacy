@@ -347,6 +347,40 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=3)
 
+    def test_ingest_rejects_mismatched_expected_memory_dir(self):
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                source = root / "project" / "CLAUDE.md"
+                content = "# Safe import\\n"
+                payload = {
+                    "path": str(source),
+                    "content": content,
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "metadata": {"scope": str(source.parent), "scope_type": "project", "project_root": str(source.parent)},
+                    "expected_memory_dir": str(root / "wrong-memory-dir"),
+                }
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{server.server_address[1]}/memory/ingest",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(request, timeout=3)
+                self.assertEqual(raised.exception.code, 409)
+                self.assertEqual(service.store.list_claude_ingest(include_stale=True), {})
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
     def test_knowledge_search_loads_ingest_index_once(self):
         from memory_service import MemoryStore
 
