@@ -6,7 +6,8 @@ import resource
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 
@@ -36,6 +37,23 @@ class HybridRetrievalTests(unittest.TestCase):
     def tearDown(self):
         self.embedding_patch.stop()
         self.model_patch.stop()
+
+    def test_model_is_shared_between_index_instances(self):
+        self.model_patch.stop()
+        model = object()
+        constructor = Mock(return_value=model)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
+                with patch.dict(sys.modules, {"fastembed": SimpleNamespace(TextEmbedding=constructor)}):
+                    first = HybridRetrievalIndex(Path(tmp) / "one.sqlite3", embedding_model="cache-test-model")
+                    second = HybridRetrievalIndex(Path(tmp) / "two.sqlite3", embedding_model="cache-test-model")
+                    self.assertIs(first._model(), model)
+                    self.assertIs(second._model(), model)
+                    constructor.assert_called_once_with(model_name="cache-test-model")
+        finally:
+            HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
+            self.model_patch.start()
 
     def test_warm_corpus_preloads_model_before_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,14 +96,14 @@ class HybridRetrievalTests(unittest.TestCase):
             self.assertEqual(chunk["start_line"], expected_start)
             self.assertEqual(chunk["end_line"], expected_end)
 
-    @unittest.skipUnless(
-        os.environ.get("ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE") == "1",
-        "set ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 with a local model directory",
-    )
     def test_real_local_model_acceptance(self):
-        model_path = os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
-        self.assertTrue(model_path and Path(model_path).is_dir(),
-                        "ENSEMBLE_MEMORY_EMBEDDING_MODEL must point to a local model directory")
+        # This is a required integration test, not an opt-in smoke test. Use a
+        # pre-provisioned local directory when configured; otherwise provision
+        # the same default model used by CE runtime.
+        model_path = (
+            os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
+            or "sentence-transformers/all-MiniLM-L6-v2"
+        )
         self.embedding_patch.stop()
         self.model_patch.stop()
         try:
@@ -128,7 +146,7 @@ class HybridRetrievalTests(unittest.TestCase):
                         "SELECT embedding, embedding_model FROM chunks WHERE file='target'"
                     ).fetchone()
                     self.assertTrue(stored["embedding"])
-                    self.assertEqual(stored["embedding_model"], model_path)
+                    self.assertEqual(stored["embedding_model"], f"fastembed:{model_path}")
 
                 # Add a meaningful local corpus in one batch, then exercise the
                 # concurrent query fan-out that the prompt hook creates.
@@ -274,7 +292,7 @@ class HybridRetrievalTests(unittest.TestCase):
             with index._connect() as db:
                 row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
             self.assertIsNotNone(row["embedding"])
-            self.assertEqual(row["embedding_model"], "test-model")
+            self.assertEqual(row["embedding_model"], "fastembed:test-model")
             results = index.search("What install root did we establish as the default for Claude Ensemble?", 5, {"installation", "unrelated"})
             self.assertEqual(results[0]["file"], "installation")
             self.assertEqual(results[0]["retrieval"], "hybrid")
@@ -311,6 +329,15 @@ class HybridRetrievalTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(len(rows), 2)
             self.assertTrue(all(row["embedding"] for row in rows))
+            with index._connect() as db:
+                identities = db.execute(
+                    "SELECT embedding_model FROM chunks WHERE file=? ORDER BY ordinal",
+                    ("multi",),
+                ).fetchall()
+            self.assertEqual(
+                [row["embedding_model"] for row in identities],
+                ["fastembed:test-model", "fastembed:test-model"],
+            )
 
     def test_enabling_embeddings_backfills_existing_lexical_index(self):
         class FakeEmbeddingIndex(HybridRetrievalIndex):
@@ -331,7 +358,74 @@ class HybridRetrievalTests(unittest.TestCase):
             with embedded._connect() as db:
                 row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
             self.assertIsNotNone(row["embedding"])
-            self.assertEqual(row["embedding_model"], "test-model")
+            self.assertEqual(row["embedding_model"], "fastembed:test-model")
+
+
+    def test_force_rebuilds_unchanged_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = HybridRetrievalIndex(Path(tmp) / "index.sqlite3")
+            index.replace_document("notes", "same-signature", [{
+                "header": "Old", "heading_path": "Old", "content": "old indexed content"
+            }])
+            index.replace_document("notes", "same-signature", [{
+                "header": "New", "heading_path": "New", "content": "new indexed content"
+            }], force=True)
+            with index._connect() as db:
+                row = db.execute("SELECT header, content FROM chunks WHERE file='notes'").fetchone()
+            self.assertEqual(row["header"], "New")
+            self.assertEqual(row["content"], "new indexed content")
+
+    def test_incremental_backfill_repairs_partial_embeddings(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[float(i + 1), 1.0] for i, _ in enumerate(texts)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            index = FakeEmbeddingIndex(Path(tmp) / "index.sqlite3", embedding_model="test-model")
+            chunks = [
+                {"header": "One", "heading_path": "One", "content": "first chunk content"},
+                {"header": "Two", "heading_path": "Two", "content": "second chunk content"},
+            ]
+            index.replace_document("notes", "same-signature", chunks)
+            with index._connect() as db:
+                db.execute(
+                    "UPDATE chunks SET embedding=NULL WHERE file='notes' AND ordinal=1"
+                )
+            index.replace_document("notes", "same-signature", chunks)
+            with index._connect() as db:
+                rows = db.execute(
+                    "SELECT embedding, embedding_model FROM chunks WHERE file='notes' ORDER BY ordinal"
+                ).fetchall()
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(row["embedding"] for row in rows))
+            self.assertTrue(all(row["embedding_model"] == "fastembed:test-model" for row in rows))
+
+
+    def test_embedding_backfill_preserves_chunks_across_model_migration(self):
+        class FakeEmbeddingIndex(HybridRetrievalIndex):
+            def _embed(self, texts):
+                return [[float(len(self.embedding_model_name)), 1.0] for _ in texts]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.sqlite3"
+            old = FakeEmbeddingIndex(path, embedding_model="old-model")
+            chunks = [
+                {"header": "Root", "heading_path": "Architecture > Root", "content": "keep this exact chunk"}
+            ]
+            old.replace_document("notes", "signature", chunks)
+            new = FakeEmbeddingIndex(path, embedding_model="new-model")
+            count = new.reembed_document("notes")
+            with new._connect() as db:
+                row = db.execute(
+                    "SELECT header, heading_path, content, embedding_model, embedding FROM chunks WHERE file='notes'"
+                ).fetchone()
+            self.assertEqual(count, 1)
+            self.assertEqual(row["header"], "Root")
+            self.assertEqual(row["heading_path"], "Architecture > Root")
+            self.assertEqual(row["content"], "keep this exact chunk")
+            self.assertEqual(row["embedding_model"], "new-model")
+            self.assertEqual(row["embedding"], "[9.0, 1.0]")
+
 
 
     def test_force_rebuilds_unchanged_signature(self):

@@ -98,7 +98,16 @@ def chunk_markdown(text: str, max_chars: int = 1800, overlap_chars: int = 180) -
     return chunks
 
 class HybridRetrievalIndex:
-    """SQLite-backed BM25 + default-on local embedding cosine similarity."""
+    """SQLite-backed BM25 + default-on local embedding cosine similarity.
+
+    SentenceTransformer instances are shared per model name within a process.
+    The Memory daemon and maintenance/test helpers can construct multiple index
+    objects; loading duplicate PyTorch models wastes hundreds of MiB and can
+    exceed the service's 512 MiB memory limit.
+    """
+
+    _MODEL_CACHE: dict[str, Any] = {}
+    _MODEL_CACHE_LOCK = threading.Lock()
 
     def __init__(self, path: Path, embedding_model: str | None = None):
         self.path = Path(path)
@@ -108,6 +117,12 @@ class HybridRetrievalIndex:
             if embedding_model is not None
             else os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
             or "sentence-transformers/all-MiniLM-L6-v2"
+        )
+        # Persist the inference backend as part of the model identity. This
+        # deliberately invalidates vectors previously produced by PyTorch so
+        # they are rebuilt using the lightweight FastEmbed runtime.
+        self.embedding_model_identity = (
+            f"fastembed:{self.embedding_model_name}" if self.embedding_model_name else None
         )
         self._embedder = None
         self._model_lock = threading.Lock()
@@ -143,25 +158,40 @@ class HybridRetrievalIndex:
     def _model(self):
         if not self.embedding_model_name:
             return None
-        if self._embedder is None:
-            with self._model_lock:
-                if self._embedder is None:
-                    try:
-                        from sentence_transformers import SentenceTransformer
-                    except ImportError as exc:
-                        raise RuntimeError(
-                            "Embeddings are configured but sentence-transformers is not installed; "
-                            "install the root requirements.txt"
-                        ) from exc
-                    self._embedder = SentenceTransformer(self.embedding_model_name, device="cpu")
+        if self._embedder is not None:
+            return self._embedder
+        # Cache by exact model identity so separate index instances in one
+        # daemon do not load duplicate copies of the same transformer weights.
+        with self._MODEL_CACHE_LOCK:
+            model = self._MODEL_CACHE.get(self.embedding_model_name)
+            if model is None:
+                try:
+                    from fastembed import TextEmbedding
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "Embeddings are configured but FastEmbed is not installed; "
+                        "install the root requirements.txt"
+                    ) from exc
+                # FastEmbed uses quantized ONNX Runtime without importing PyTorch,
+                # keeping model startup within the Memory service's 512 MiB budget.
+                model = TextEmbedding(model_name=self.embedding_model_name)
+                self._MODEL_CACHE[self.embedding_model_name] = model
+            self._embedder = model
         return self._embedder
 
     def _embed(self, texts: list[str]) -> list[list[float]] | None:
         model = self._model()
         if model is None:
             return None
-        vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
-        return [vector.astype(float).tolist() for vector in vectors]
+        vectors = list(model.embed(texts))
+        normalized: list[list[float]] = []
+        for vector in vectors:
+            values = [float(component) for component in vector]
+            norm = math.sqrt(sum(component * component for component in values))
+            normalized.append(
+                [component / norm for component in values] if norm else values
+            )
+        return normalized
 
     def _invalidate_cache(self) -> None:
         with self._cache_lock:
@@ -303,7 +333,7 @@ class HybridRetrievalIndex:
             return all(row["embedding"] is None for row in rows)
         return all(
             row["embedding"] is not None
-            and row["embedding_model"] == self.embedding_model_name
+            and row["embedding_model"] == self.embedding_model_identity
             for row in rows
         )
 
@@ -328,7 +358,7 @@ class HybridRetrievalIndex:
                 # hide missing vectors on later chunks of the same document.
                 if all(
                     row["embedding"] is not None
-                    and row["embedding_model"] == self.embedding_model_name
+                    and row["embedding_model"] == self.embedding_model_identity
                     for row in rows
                 ):
                     return
@@ -346,7 +376,7 @@ class HybridRetrievalIndex:
                      str(chunk.get("heading_path", chunk.get("header", ""))), content,
                      len(content.encode("utf-8")), json.dumps(tokenize(content)),
                      json.dumps(embeddings[ordinal]) if embeddings else None,
-                     self.embedding_model_name if embeddings else None),
+                     self.embedding_model_identity if embeddings else None),
                 )
 
         self._refresh_cached_document(file)
@@ -409,7 +439,7 @@ class HybridRetrievalIndex:
             exact = bool(phrase and phrase in folded)
             semantic = 0.0
             if query_vector and row["embedding"]:
-                if row.get("embedding_model") != self.embedding_model_name:
+                if row.get("embedding_model") != self.embedding_model_identity:
                     raise RuntimeError(
                         "Memory embeddings use a different model; run the documented "
                         "embedding reindex operation before serving semantic search"

@@ -37,12 +37,14 @@ owns persistent BM25 and semantic retrieval for natural-language prose. Warm-up
 and Memory writes update both; prompt-time searches do not re-embed documents.
 
 The default local embedding model is
-`sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU. The standard Claude
-Ensemble dependency installation includes Sentence Transformers, and the model
-weights are acquired automatically on first use if they are not already cached.
-Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to override the default
-model or point to a preinstalled local model directory. Normal operation does
-not require that setting.
+`sentence-transformers/all-MiniLM-L6-v2`. It runs through FastEmbed, which uses
+quantized ONNX Runtime without importing PyTorch, to keep resident memory within
+the Memory service's 512 MiB limit. The standard Claude Ensemble dependency
+installation includes FastEmbed, and model weights are acquired automatically
+on first use if they are not already cached. FastEmbed supports this model ID
+and produces the same 384-dimensional vector shape used by the persistent index.
+Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to select another
+model supported by FastEmbed. Normal operation does not require that setting.
 
 Existing lexical indexes are backfilled during startup warm-up and as
 documents are written or ingested. Restart the Memory service to incorporate
@@ -57,29 +59,26 @@ query, not the document corpus.
 The model is local inference. Memory content is not sent to an external
 embedding API.
 
-For disconnected environments, provide a local wheelhouse and a pre-cached model
-(or set ENSEMBLE_MEMORY_EMBEDDING_MODEL to a local model directory). The
-versioned installer supports an offline package path through pip's standard
-PIP_NO_INDEX=1 and PIP_FIND_LINKS=/path/to/wheelhouse settings, and
+For disconnected environments, provide a local wheelhouse and pre-cache the
+selected FastEmbed model before enabling offline mode. The versioned installer
+supports an offline package path through pip's standard PIP_NO_INDEX=1 and
+PIP_FIND_LINKS=/path/to/wheelhouse settings, and
 ENSEMBLE_SKIP_MODEL_PROVISION=1 skips model acquisition during installation.
-Set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 to forbid Hugging Face network
-access. The selected model must already be available locally. For a source
+Set HF_HUB_OFFLINE=1 to forbid Hugging Face network access. The selected model
+must already exist in FastEmbed's local cache. For a source
 checkout whose .venv is already provisioned, ENSEMBLE_SKIP_PYTHON_PROVISION=1
 skips all package installation and requires an existing .venv/bin/python.
 
 Activation, recovery, and rollback reuse the immutable release runtime. They do
 not run pip or download model weights.
 
-The opt-in local-model smoke test requires an already installed model directory
-and does not download weights:
+The real-model acceptance test is part of the required Memory test suite.
+It uses the configured FastEmbed model ID from
+`ENSEMBLE_MEMORY_EMBEDDING_MODEL`, or the default
+`sentence-transformers/all-MiniLM-L6-v2`. The test is not skipped by default
+and requires model download access on a clean CI runner.
 
-```bash
-ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 \
-ENSEMBLE_MEMORY_EMBEDDING_MODEL=/path/to/local/model \
-python -m pytest memory-service/test_hybrid_retrieval.py -k real_local_model_acceptance -q
-```
-
-This opt-in acceptance test verifies semantic discrimination against lexical
+The required acceptance test verifies semantic discrimination against lexical
 and topical distractors, persisted-vector reuse after constructing a fresh
 index instance, and concurrent query fan-out. It prints maximum query latency
 and process peak RSS, and fails against configurable budgets:
