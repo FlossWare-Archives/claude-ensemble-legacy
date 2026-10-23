@@ -349,7 +349,7 @@ class HybridRetrievalTests(unittest.TestCase):
             with embedded._connect() as db:
                 row = db.execute("SELECT embedding, embedding_model FROM chunks WHERE file='installation'").fetchone()
             self.assertIsNotNone(row["embedding"])
-            self.assertEqual(row["embedding_model"], "test-model")
+            self.assertEqual(row["embedding_model"], "fastembed:test-model")
 
 
 
