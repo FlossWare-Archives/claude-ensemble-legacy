@@ -243,10 +243,13 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
         if existing_metadata.get("original_path") != record["path"] or existing_metadata.get("sha256") != record["sha256"]:
             raise RuntimeError(f"revision metadata collision at {revision_metadata_path}")
     else:
-        revision_metadata_path.write_text(
+        temporary_metadata = revision_metadata_path.with_suffix(".tmp")
+        temporary_metadata.write_text(
             json.dumps(revision_metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        os.chmod(revision_metadata_path, 0o600)
+        os.chmod(temporary_metadata, 0o600)
+        os.replace(temporary_metadata, revision_metadata_path)
+    os.chmod(revision_metadata_path, 0o600)
 
     manifest: dict[str, Any] = {}
     if manifest_path.exists():
