@@ -37,9 +37,13 @@ owns persistent BM25 and semantic retrieval for natural-language prose. Warm-up
 and Memory writes update both; prompt-time searches do not re-embed documents.
 
 The default local embedding model is
-`sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU. The standard Claude
-Ensemble dependency installation includes Sentence Transformers, and the model
-weights are acquired automatically on first use if they are not already cached.
+`sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU through ONNX Runtime
+by default to reduce resident memory under the Memory service's 512 MiB limit.
+The standard Claude Ensemble dependency installation includes Sentence
+Transformers and ONNX Runtime, and model weights are acquired automatically on
+first use if they are not already cached. Set
+`ENSEMBLE_MEMORY_EMBEDDING_BACKEND=torch` only when deliberately accepting the
+larger PyTorch resident-memory footprint; the default is `onnx`.
 Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to override the default
 model or point to a preinstalled local model directory. Normal operation does
 not require that setting.
