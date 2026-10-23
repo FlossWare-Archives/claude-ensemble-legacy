@@ -1,9 +1,17 @@
+import importlib.util
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.claude_transcript_import import iter_records, normalize_record, transcript_identity
+MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "claude-transcript-import.py"
+SPEC = importlib.util.spec_from_file_location("claude_transcript_import", MODULE_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+SPEC.loader.exec_module(MODULE)
+iter_records = MODULE.iter_records
+normalize_record = MODULE.normalize_record
+transcript_identity = MODULE.transcript_identity
 
 
 class TranscriptImportTest(unittest.TestCase):
