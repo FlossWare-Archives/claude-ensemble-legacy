@@ -329,6 +329,15 @@ class HybridRetrievalTests(unittest.TestCase):
                 ).fetchall()
             self.assertEqual(len(rows), 2)
             self.assertTrue(all(row["embedding"] for row in rows))
+            with index._connect() as db:
+                identities = db.execute(
+                    "SELECT embedding_model FROM chunks WHERE file=? ORDER BY ordinal",
+                    ("multi",),
+                ).fetchall()
+            self.assertEqual(
+                [row["embedding_model"] for row in identities],
+                ["fastembed:test-model", "fastembed:test-model"],
+            )
 
     def test_enabling_embeddings_backfills_existing_lexical_index(self):
         class FakeEmbeddingIndex(HybridRetrievalIndex):
