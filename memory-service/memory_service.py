@@ -1260,6 +1260,19 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 # so unrelated Memory cannot crowd durable Knowledge out.
                 body["top_k"] = requested_limit
             if operation=="ingest_claude_markdown":
+                expected_memory_dir = body.get("expected_memory_dir")
+                if expected_memory_dir is not None:
+                    expected = Path(expected_memory_dir).expanduser()
+                    if (
+                        not expected.is_absolute()
+                        or expected.resolve(strict=False)
+                        != self.server.memory_service.store.memory_dir.resolve(strict=False)
+                    ):
+                        self._send(409, {
+                            "ok": False,
+                            "error": "configured Memory directory does not match the expected shared-data path; refusing ingestion",
+                        })
+                        return
                 result = self.server.memory_service.store.ingest_claude_markdown(
                     body.get("path", ""), body.get("content", ""), body.get("sha256", ""), body.get("metadata", {})
                 )
