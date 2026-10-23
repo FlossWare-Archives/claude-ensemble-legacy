@@ -108,7 +108,10 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
             add(path, global_rules, "claude-rule", "global")
 
     normalized_roots: list[Path] = []
-    project_map: dict[str, Path] = {}
+    # Claude Code encodes project paths by replacing '/' with '-'. Distinct
+    # paths can collide under that encoding, so retain every candidate and only
+    # map auto-memory when the supplied root is unambiguous.
+    project_map: dict[str, list[Path]] = {}
     for root in project_roots:
         try:
             resolved = root.expanduser().resolve(strict=True)
@@ -118,7 +121,7 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
             continue
         if resolved not in normalized_roots:
             normalized_roots.append(resolved)
-        project_map[encode_project_root(resolved)] = resolved
+        project_map.setdefault(encode_project_root(resolved), []).append(resolved)
         reconcile_scopes.add(resolved)
         for path in _markdown_files(resolved):
             name = path.name
@@ -137,14 +140,20 @@ def discover_sources(claude_home: Path, project_roots: list[Path]) -> tuple[list
             if not memory_root.is_dir() or memory_root.is_symlink():
                 continue
             project_key = project_dir.name
-            project_root = project_map.get(project_key)
-            if project_root is None:
+            candidates = project_map.get(project_key, [])
+            if len(candidates) != 1:
+                reason = (
+                    "project key matches multiple supplied roots; excluded because attribution is ambiguous"
+                    if len(candidates) > 1
+                    else "no matching --project-root supplied; excluded from import to prevent cross-project leakage"
+                )
                 unmapped_auto_memory.append({
                     "project_key": project_key,
                     "memory_dir": str(memory_root),
-                    "reason": "no matching --project-root supplied; excluded from import to prevent cross-project leakage",
+                    "reason": reason,
                 })
                 continue
+            project_root = candidates[0]
             reconcile_scopes.add(memory_root.resolve(strict=True))
             for path in _markdown_files(memory_root):
                 add(path, memory_root, "auto-memory", "project", project_root, project_key)
