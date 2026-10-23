@@ -48,6 +48,6 @@ def knowledge_dir() -> Path:
 
 
 def graph_store_path() -> Path:
-    return _configured_path(
-        "ENSEMBLE_GRAPH_STORE", corpus_data_root() / "graph" / "graph.json"
-    )
+    # Match tools/managed_unit_config.py and the standalone deployment's
+    # existing ENSEMBLE_GRAPH_STORE value. Do not silently create a second store.
+    return _configured_path("ENSEMBLE_GRAPH_STORE", corpus_data_root() / "graph.json")
