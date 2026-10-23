@@ -938,10 +938,11 @@ class MemoryStore:
         if not project_root:
             return True
         try:
-            requested = Path(project_root).expanduser().resolve(strict=False)
+            supplied_root = Path(project_root).expanduser()
+            if not supplied_root.is_absolute():
+                return False
+            requested = supplied_root.resolve(strict=False)
         except (OSError, RuntimeError, TypeError):
-            return False
-        if not requested.is_absolute():
             return False
         metadata = entry.get("metadata")
         metadata = metadata if isinstance(metadata, dict) else {}
@@ -1040,7 +1041,7 @@ class MemoryStore:
             and not entry.get("stale", False)
             and isinstance(entry.get("document"), str)
             and entry.get("document", "").startswith("claude-code-")
-                and self._knowledge_matches_project(entry, project_root)
+            and self._knowledge_matches_project(entry, project_root)
         }
 
         query_magnitude = math.sqrt(sum(v**2 for v in query_vector.values()))
