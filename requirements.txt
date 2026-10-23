@@ -6,3 +6,4 @@ joblib==1.5.3
 # Note: filelock and pillow deps handled in api/requirements.txt
 pyyaml==6.0.3
 sentence-transformers>=3.0,<6.0
+onnxruntime>=1.18,<2
