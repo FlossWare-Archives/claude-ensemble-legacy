@@ -118,6 +118,12 @@ class HybridRetrievalIndex:
             else os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_MODEL")
             or "sentence-transformers/all-MiniLM-L6-v2"
         )
+        # Persist the inference backend as part of the model identity. This
+        # deliberately invalidates vectors previously produced by PyTorch so
+        # they are rebuilt using the lightweight FastEmbed runtime.
+        self.embedding_model_identity = (
+            f"fastembed:{self.embedding_model_name}" if self.embedding_model_name else None
+        )
         self._embedder = None
         self._model_lock = threading.Lock()
         self._cache_lock = threading.RLock()
@@ -160,16 +166,14 @@ class HybridRetrievalIndex:
             model = self._MODEL_CACHE.get(self.embedding_model_name)
             if model is None:
                 try:
-                    from sentence_transformers import SentenceTransformer
+                    from fastembed import TextEmbedding
                 except ImportError as exc:
                     raise RuntimeError(
-                        "Embeddings are configured but sentence-transformers is not installed; "
+                        "Embeddings are configured but FastEmbed is not installed; "
                         "install the root requirements.txt"
                     ) from exc
                 # FastEmbed uses quantized ONNX Runtime without importing PyTorch,
                 # keeping model startup within the Memory service's 512 MiB budget.
-                from fastembed import TextEmbedding
-
                 model = TextEmbedding(model_name=self.embedding_model_name)
                 self._MODEL_CACHE[self.embedding_model_name] = model
             self._embedder = model
@@ -329,7 +333,7 @@ class HybridRetrievalIndex:
             return all(row["embedding"] is None for row in rows)
         return all(
             row["embedding"] is not None
-            and row["embedding_model"] == self.embedding_model_name
+            and row["embedding_model"] == self.embedding_model_identity
             for row in rows
         )
 
@@ -364,7 +368,7 @@ class HybridRetrievalIndex:
                      str(chunk.get("heading_path", chunk.get("header", ""))), content,
                      len(content.encode("utf-8")), json.dumps(tokenize(content)),
                      json.dumps(embeddings[ordinal]) if embeddings else None,
-                     self.embedding_model_name if embeddings else None),
+                     self.embedding_model_identity if embeddings else None),
                 )
 
         self._refresh_cached_document(file)
@@ -405,7 +409,7 @@ class HybridRetrievalIndex:
             exact = bool(phrase and phrase in folded)
             semantic = 0.0
             if query_vector and row["embedding"]:
-                if row.get("embedding_model") != self.embedding_model_name:
+                if row.get("embedding_model") != self.embedding_model_identity:
                     raise RuntimeError(
                         "Memory embeddings use a different model; run the documented "
                         "embedding reindex operation before serving semantic search"
