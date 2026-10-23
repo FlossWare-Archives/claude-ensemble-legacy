@@ -70,16 +70,13 @@ skips all package installation and requires an existing .venv/bin/python.
 Activation, recovery, and rollback reuse the immutable release runtime. They do
 not run pip or download model weights.
 
-The opt-in local-model smoke test requires an already installed model directory
-and does not download weights:
+The real-model acceptance test is part of the required Memory test suite.
+It uses the configured local model when `ENSEMBLE_MEMORY_EMBEDDING_MODEL` points
+to a model directory; otherwise it provisions the same default model used by CE:
+`sentence-transformers/all-MiniLM-L6-v2`. The test is not skipped by default
+and requires model download access on a clean CI runner.
 
-```bash
-ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 \
-ENSEMBLE_MEMORY_EMBEDDING_MODEL=/path/to/local/model \
-python -m pytest memory-service/test_hybrid_retrieval.py -k real_local_model_acceptance -q
-```
-
-This opt-in acceptance test verifies semantic discrimination against lexical
+The required acceptance test verifies semantic discrimination against lexical
 and topical distractors, persisted-vector reuse after constructing a fresh
 index instance, and concurrent query fan-out. It prints maximum query latency
 and process peak RSS, and fails against configurable budgets:
