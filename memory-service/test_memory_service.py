@@ -311,10 +311,13 @@ class MemorySearchRegressionTest(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                def search(source):
+                def search(source, project_root=None):
+                    payload = {"query": query, "limit": 10, "source": source}
+                    if project_root is not None:
+                        payload["project_root"] = str(project_root)
                     request = urllib.request.Request(
                         f"http://127.0.0.1:{server.server_address[1]}/memory/search",
-                        data=json.dumps({"query": query, "limit": 10, "source": source}).encode("utf-8"),
+                        data=json.dumps(payload).encode("utf-8"),
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
@@ -322,7 +325,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                         return json.loads(response.read().decode("utf-8"))
 
                 memory = search("memory")
-                knowledge = search("claude-code")
+                knowledge = search("claude-code", root / "project")
                 self.assertTrue(memory["ok"])
                 self.assertTrue(knowledge["ok"])
                 self.assertTrue(memory["results"])
@@ -330,6 +333,50 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 self.assertTrue(all(not item["file"].startswith("claude-code-") for item in memory["results"]))
                 self.assertTrue(all(item["file"].startswith("claude-code-") for item in knowledge["results"]))
                 self.assertIn("does not establish task quality", knowledge["results"][0]["content"])
+                scoped = search("claude-code", root / "project")
+                self.assertTrue(scoped["ok"])
+                self.assertTrue(scoped["results"])
+                expected_file = "claude-code-" + hashlib.sha256(
+                    str(knowledge_path).encode("utf-8")
+                ).hexdigest()[:32]
+                self.assertTrue(all(item["file"] == expected_file for item in scoped["results"]))
+                wrong_scope = search("claude-code", root / "unrelated-project")
+                self.assertEqual(wrong_scope["results"], [])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
+
+    def test_ingest_rejects_mismatched_expected_memory_dir(self):
+        import hashlib
+        from memory_service import MemoryService, create_http_server
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            server = create_http_server(service, "127.0.0.1", 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                source = root / "project" / "CLAUDE.md"
+                content = "# Safe import\\n"
+                payload = {
+                    "path": str(source),
+                    "content": content,
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "metadata": {"scope": str(source.parent), "scope_type": "project", "project_root": str(source.parent)},
+                    "expected_memory_dir": str(root / "wrong-memory-dir"),
+                }
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{server.server_address[1]}/memory/ingest",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(request, timeout=3)
+                self.assertEqual(raised.exception.code, 409)
+                self.assertEqual(service.store.list_claude_ingest(include_stale=True), {})
             finally:
                 server.shutdown()
                 server.server_close()
@@ -361,6 +408,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 results = store.search_semantic(
                     "architecture decisions durable knowledge",
                     source="claude-code",
+                    project_root=str(Path(temp_dir) / "project-0"),
                 )
 
             self.assertTrue(results)

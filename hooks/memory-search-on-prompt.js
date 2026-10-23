@@ -310,7 +310,7 @@ async function searchGraphContext(cwd, config) {
   };
 }
 
-async function searchContext(query, source, config) {
+async function searchContext(query, source, config, projectRoot = '') {
   const controller = new AbortController();
   const section = source === 'claude-code' ? config.knowledge : config.memory;
   const timer = setTimeout(() => controller.abort(), section.timeout_ms);
@@ -322,7 +322,7 @@ async function searchContext(query, source, config) {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({ query, limit: section.max_results, source }),
+      body: JSON.stringify({ query, limit: section.max_results, source, ...(source === 'claude-code' && projectRoot ? { project_root: projectRoot } : {}) }),
       signal: controller.signal,
     });
 
@@ -427,13 +427,15 @@ async function searchMemoryContext(query, config) {
   return { ok: successful.length > 0, results: dedupeResults(merged).slice(0, config.memory.max_results) };
 }
 
-async function searchKnowledgeContext(query, config) {
+async function searchKnowledgeContext(query, config, projectRoot = '') {
+  // Without a reliable working directory, do not risk injecting another project's knowledge.
+  if (!projectRoot || !path.isAbsolute(projectRoot)) return { ok: true, results: [], skipped: 'missing_project_root' };
   if (!config.knowledge.enabled) return { ok: true, results: [], disabled: true };
   const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
   if (!queries.length) return { ok: true, results: [] };
 
   const responses = await Promise.all(queries.map(candidate =>
-    searchContext(candidate, 'claude-code', config).catch(error => ({ error }))
+    searchContext(candidate, 'claude-code', config, projectRoot).catch(error => ({ error }))
   ));
   const successful = responses.filter(response => !response.error && response?.ok === true);
   if (!successful.length && responses.some(response => response.error)) {
@@ -546,7 +548,7 @@ async function main() {
       process.stderr.write('Memory search unavailable: ' + message + '\n');
       return null;
     }) : Promise.resolve({ ok: true, results: [], disabled: true }),
-    searchKnowledgeContext(query, config).catch(error => {
+    searchKnowledgeContext(query, config, event.cwd).catch(error => {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write('Knowledge search unavailable: ' + message + '\n');
       return null;

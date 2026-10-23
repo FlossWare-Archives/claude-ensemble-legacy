@@ -932,7 +932,32 @@ class MemoryStore:
             self._hybrid_index.warm_corpus(indexed_files)
         return len(indexed_files)
 
-    def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _knowledge_matches_project(entry: Dict[str, Any], project_root: Optional[str]) -> bool:
+        """Keep project-scoped Claude Code knowledge inside its project."""
+        metadata = entry.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        if not project_root:
+            # Without an explicit project context, only global sources are safe.
+            return metadata.get("scope_type") == "global"
+        try:
+            supplied_root = Path(project_root).expanduser()
+            if not supplied_root.is_absolute():
+                return False
+            requested = supplied_root.resolve(strict=False)
+        except (OSError, RuntimeError, TypeError):
+            return False
+        if metadata.get("scope_type") == "global":
+            return True
+        candidate = metadata.get("project_root") or metadata.get("scope") or entry.get("scope")
+        if not isinstance(candidate, str) or not candidate.startswith("/"):
+            return False
+        try:
+            return Path(candidate).expanduser().resolve(strict=False) == requested
+        except (OSError, RuntimeError, TypeError):
+            return False
+
+    def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None, project_root: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search using SQLite hybrid retrieval for prose and exact matching for identifiers.
 
         Document chunking and embedding writes happen during warm-up or file
@@ -990,6 +1015,7 @@ class MemoryStore:
                 and not entry.get("stale", False)
                 and isinstance(entry.get("document"), str)
                 and entry.get("document", "").startswith("claude-code-")
+                and self._knowledge_matches_project(entry, project_root)
             }
             allowed_files = set()
             for md_file in self.memory_dir.glob("*.md"):
@@ -1016,6 +1042,7 @@ class MemoryStore:
             and not entry.get("stale", False)
             and isinstance(entry.get("document"), str)
             and entry.get("document", "").startswith("claude-code-")
+            and self._knowledge_matches_project(entry, project_root)
         }
 
         query_magnitude = math.sqrt(sum(v**2 for v in query_vector.values()))
@@ -1234,6 +1261,19 @@ class MemoryHTTPHandler(BaseHTTPRequestHandler):
                 # so unrelated Memory cannot crowd durable Knowledge out.
                 body["top_k"] = requested_limit
             if operation=="ingest_claude_markdown":
+                expected_memory_dir = body.get("expected_memory_dir")
+                if expected_memory_dir is not None:
+                    expected = Path(expected_memory_dir).expanduser()
+                    if (
+                        not expected.is_absolute()
+                        or expected.resolve(strict=False)
+                        != self.server.memory_service.store.memory_dir.resolve(strict=False)
+                    ):
+                        self._send(409, {
+                            "ok": False,
+                            "error": "configured Memory directory does not match the expected shared-data path; refusing ingestion",
+                        })
+                        return
                 result = self.server.memory_service.store.ingest_claude_markdown(
                     body.get("path", ""), body.get("content", ""), body.get("sha256", ""), body.get("metadata", {})
                 )
@@ -1631,7 +1671,7 @@ class MemoryService:
                 query = req_data.get("query", "")
                 top_k = req_data.get("top_k", 10)
                 source = req_data.get("source")
-                results = self.store.search_semantic(query, top_k, source)
+                results = self.store.search_semantic(query, top_k, source, req_data.get("project_root"))
                 return json.dumps({"ok": True, "results": results})
 
             if operation == "search_hybrid":
