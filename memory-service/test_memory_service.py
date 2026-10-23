@@ -948,7 +948,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = MemoryService(root / "memory.sock", root / "memory")
-            service.store.write_file("note", "# Note\\n\\nretrieval contract detail\\n")
+            service.store.write_file("note", "# Note\n\nretrieval contract detail\n")
             service._warm_search_index()
             server = create_http_server(service, "127.0.0.1", 0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
