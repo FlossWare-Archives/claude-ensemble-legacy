@@ -428,6 +428,8 @@ async function searchMemoryContext(query, config) {
 }
 
 async function searchKnowledgeContext(query, config, projectRoot = '') {
+  // Without a reliable working directory, do not risk injecting another project's knowledge.
+  if (!projectRoot || !path.isAbsolute(projectRoot)) return { ok: true, results: [], skipped: 'missing_project_root' };
   if (!config.knowledge.enabled) return { ok: true, results: [], disabled: true };
   const queries = buildKnowledgeQueries(query, config.knowledge.max_queries);
   if (!queries.length) return { ok: true, results: [] };
