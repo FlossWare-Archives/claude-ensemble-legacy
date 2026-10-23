@@ -166,7 +166,13 @@ class HybridRetrievalIndex:
                         "Embeddings are configured but sentence-transformers is not installed; "
                         "install the root requirements.txt"
                     ) from exc
-                model = SentenceTransformer(self.embedding_model_name, device="cpu")
+                # ONNX Runtime reduces resident memory under the Memory service's
+                # 512 MiB limit; PyTorch exceeds that budget in real-model tests.
+                model = SentenceTransformer(
+                    self.embedding_model_name,
+                    device="cpu",
+                    backend=os.environ.get("ENSEMBLE_MEMORY_EMBEDDING_BACKEND", "onnx"),
+                )
                 self._MODEL_CACHE[self.embedding_model_name] = model
             self._embedder = model
         return self._embedder
