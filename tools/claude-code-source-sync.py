@@ -244,7 +244,7 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
             raise RuntimeError(f"revision metadata collision at {revision_metadata_path}")
     else:
         revision_metadata_path.write_text(
-            json.dumps(revision_metadata, indent=2, sort_keys=True) + "\\n", encoding="utf-8"
+            json.dumps(revision_metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
         os.chmod(revision_metadata_path, 0o600)
 
@@ -277,7 +277,7 @@ def persist_source_copy(record: dict[str, Any], source: Source, destination_root
         "last_synchronized_at": datetime.now(timezone.utc).isoformat(),
     }
     temporary_manifest = manifest_path.with_suffix(".tmp")
-    temporary_manifest.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    temporary_manifest.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     os.chmod(temporary_manifest, 0o600)
     os.replace(temporary_manifest, manifest_path)
     os.chmod(manifest_path, 0o600)
