@@ -1,8 +1,14 @@
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.corpus_ingest_plan import inventory
+MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "corpus-ingest-plan.py"
+SPEC = importlib.util.spec_from_file_location("corpus_ingest_plan", MODULE_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+SPEC.loader.exec_module(MODULE)
+inventory = MODULE.inventory
 
 
 class CorpusIngestPlanTest(unittest.TestCase):
