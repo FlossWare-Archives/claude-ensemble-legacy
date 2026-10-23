@@ -93,6 +93,31 @@ systemd's `MemoryLimit=512M` and `CPUQuota=50%` are enforced merely because its
 assertions pass; retain the service-level multi-query acceptance as a deployment
 gate, including first-start warm-up timing and a restart against persisted vectors.
 
+## Operator-controlled reindex and embedding backfill
+
+The Memory service includes a repeatable maintenance CLI that processes existing Markdown files, not just memories created after hybrid retrieval was introduced. It can rebuild chunks, repair missing embeddings, or regenerate embeddings for already-indexed chunks. Run it from the installed release with the same memory directory and embedding-model configuration used by the service.
+
+Stop the service before maintenance to avoid concurrent writes and stale in-process caches. Preview first:
+
+```bash
+CE_ROOT="$HOME/.FlossWare/claude-ensemble"
+cd "$CE_ROOT/current"
+systemctl --user stop claude-memory.service
+trap 'systemctl --user start claude-memory.service' EXIT
+export ENSEMBLE_MEMORY_DIR="$CE_ROOT/shared/data/memory"
+
+"$CE_ROOT/current/.venv/bin/python" memory-service/memory_service.py \\
+  --reindex full --source all --dry-run
+
+# After reviewing the JSON plan, rebuild all eligible existing files:
+"$CE_ROOT/current/.venv/bin/python" memory-service/memory_service.py \\
+  --reindex full --source all
+```
+
+Modes are `full` (rebuild chunks and embeddings), `incremental` (changed files and incomplete embeddings), and `embeddings` (regenerate vectors without changing existing chunk boundaries). Sources can be `all`, `memory`, or `claude-code`. The command emits JSON counts and per-document progress. Do not proceed if the report contains failures or planning errors. Keep the Markdown source files intact; the SQLite index is derived data.
+
+Embedding generation uses the configured local Sentence Transformers model. Ensure the model is installed/cached and that any service-specific `ENSEMBLE_MEMORY_EMBEDDING_MODEL` override is exported in the maintenance environment. The dry-run does not load the model or modify the index.
+
 ## Installation
 
 ```bash
