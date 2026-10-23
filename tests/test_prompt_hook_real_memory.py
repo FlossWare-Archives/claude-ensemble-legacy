@@ -34,7 +34,13 @@ def retrieval_stack(tmp_path, monkeypatch):
     service = module.MemoryService(tmp_path / "memory.sock", tmp_path / "memory")
     historical = "The orbital lighthouse deployment uses a copper release marker."
     knowledge = "The orbital lighthouse architecture requires a cobalt approval gate."
-    assert service.store.write_file("historical-deployment", historical)
+    # Seed more matching documents than the requested top_k so the HTTP contract
+    # test below can detect a handler that silently ignores the requested limit.
+    for index in range(4):
+        assert service.store.write_file(
+            f"historical-deployment-{index}",
+            f"{historical} Historical record {index}.",
+        )
     source = tmp_path / "project" / "CLAUDE.md"
     source.parent.mkdir()
     source.write_text(knowledge, encoding="utf-8")
@@ -102,6 +108,10 @@ def test_semantic_rest_and_copied_hook_retrieve_actual_historical_content(retrie
     with urllib.request.urlopen(request, timeout=3) as response:
         direct = json.load(response)
     assert direct["ok"] is True
+    assert len(direct["results"]) == 2, (
+        "The Memory HTTP handler must honor top_k=2 when more than two matches exist; "
+        f"got {len(direct['results'])} results"
+    )
     assert any(historical in item.get("content", "") for item in direct["results"])
     assert hook.read_bytes() == (ROOT / "hooks" / hook.name).read_bytes()
     result = invoke_hook(retrieval_stack, "Explain the orbital lighthouse deployment and architecture.")
