@@ -2,6 +2,7 @@
 """Tests for the memory service security boundary."""
 
 import json
+import math
 import os
 import socket
 import stat
@@ -23,6 +24,42 @@ sys.path.insert(0, str(SERVICE_DIR))
 from execution.context import ExecutionContext, ExecutionResult, ExecutionStatus  # noqa: E402
 from memory_client import MemoryClient  # noqa: E402
 
+from hybrid_retrieval import HybridRetrievalIndex  # noqa: E402
+
+
+# Keep service tests offline and deterministic. Real model download/inference is
+# covered by installation/runtime acceptance; focused tests verify hybrid ranking.
+def _test_embeddings(self, texts):
+    if not self.embedding_model_name:
+        return None
+    vectors = [[float(len(text.split()) or 1), 1.0] for text in texts]
+    return [
+        [component / math.sqrt(sum(value * value for value in vector)) for component in vector]
+        for vector in vectors
+    ]
+
+
+
+# Keep the deterministic embedding substitute scoped to this test module;
+# do not alter production behavior during pytest collection or later modules.
+_embedding_patch = None
+_model_patch = None
+
+
+def setUpModule():
+    global _embedding_patch, _model_patch
+    _embedding_patch = patch.object(HybridRetrievalIndex, "_embed", _test_embeddings)
+    _model_patch = patch.object(HybridRetrievalIndex, "_model", return_value=object())
+    _embedding_patch.start()
+    _model_patch.start()
+
+
+def tearDownModule():
+    if _embedding_patch is not None:
+        _embedding_patch.stop()
+    if _model_patch is not None:
+        _model_patch.stop()
+
 
 SERVICE = Path(__file__).with_name("memory_service.py")
 
@@ -42,6 +79,7 @@ def send_request(socket_path: Path, request: dict) -> dict:
 
 
 class MemoryClientContextTest(unittest.TestCase):
+
     def test_append_accepts_canonical_context_without_duplicate_schema(self):
         client = MemoryClient(socket_path=Path("/does/not/exist"))
         captured = {}
@@ -77,6 +115,7 @@ class MemoryClientContextTest(unittest.TestCase):
 
 
 class MemorySearchRegressionTest(unittest.TestCase):
+
     def test_operational_learning_artifact_is_findable_by_identifiers(self):
         from memory_service import MemoryStore
 
@@ -113,6 +152,52 @@ class MemorySearchRegressionTest(unittest.TestCase):
                     self.assertTrue(results, f"search returned no results for {query}")
                     self.assertEqual(results[0]["file"], document_name)
                     self.assertIn(run_id, store.read_file(results[0]["file"]))
+
+    def test_warmup_reports_embedding_failure_as_incomplete(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            (Path(temp_dir) / "deployment.md").write_text(
+                "# Deployment\n\nThe deployment root is local.", encoding="utf-8"
+            )
+            with patch.object(
+                store._hybrid_index, "_embed",
+                side_effect=RuntimeError("sentence-transformers is unavailable"),
+            ):
+                report = store.warm_search_index_report(max_passes=1)
+            self.assertFalse(report["complete"])
+            self.assertIn("deployment.md", report["failed_files"])
+            self.assertIn("sentence-transformers is unavailable", report["failed_files"]["deployment.md"])
+
+    def test_empty_corpus_model_load_failure_never_reports_ready(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            with patch.object(
+                service.store._hybrid_index,
+                "_model",
+                side_effect=RuntimeError("local model is unavailable"),
+            ):
+                service._warm_search_index()
+            status = service.search_index_status()
+            self.assertEqual(status["state"], "failed")
+            self.assertIn("local model is unavailable", status["error"])
+
+    def test_prose_search_does_not_rebuild_or_reembed_documents(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("deployment", "# Deployment\n\nThe default deployment root is local.")
+            self.assertIn(frozenset({"deployment"}), store._hybrid_index._corpus_cache)
+            with patch.object(store, "_indexed_chunks", side_effect=AssertionError("prompt search rebuilt a document")):
+                with patch.object(store._hybrid_index, "replace_document", side_effect=AssertionError("prompt search wrote the hybrid index")):
+                    results = store.search_semantic("What is the default deployment root?", source="memory")
+            self.assertTrue(results)
+            self.assertEqual(results[0]["file"], "deployment")
 
     def test_exact_identifier_match_ranks_ahead_of_related_prose(self):
         from memory_service import MemoryStore
@@ -192,12 +277,12 @@ class MemorySearchRegressionTest(unittest.TestCase):
             for index in range(12):
                 service.store.write_file(
                     f"operational-learning-artifact-{index}",
-                    "# Operational Event\\n\\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
+                    "# Operational Event\n\nMemory event from SessionEnd collaboration.result; task quality remains unknown.",
                 )
             knowledge_path = root / "project" / "CLAUDE.md"
             knowledge_path.parent.mkdir()
             knowledge_content = (
-                "# Lifecycle Contract\\n\\n"
+                "# Lifecycle Contract\n\n"
                 "Memory is episodic experience; Knowledge is durable current facts. "
                 "SessionEnd captures metadata only and does not establish task quality."
             )
@@ -211,7 +296,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             distractor_path = root / "other-project" / "CLAUDE.md"
             distractor_path.parent.mkdir()
             distractor_content = (
-                "# Collaboration Event Contract\\n\\n"
+                "# Collaboration Event Contract\n\n"
                 "Collaboration events record operational task metadata and memory state. "
                 "Knowledge is maintained separately from transient collaboration results."
             )
@@ -380,62 +465,340 @@ class MemorySearchRegressionTest(unittest.TestCase):
             chunk.assert_not_called()
 
     def test_search_index_sees_edits_additions_and_deletions(self):
+        """Canonical writes update the index; exact identifiers still prune deletions."""
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("alpha", "# Alpha\n\nzebrafish migration pattern\n")
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["alpha"])
-            # Edit in place (different size) is picked up.
-            store.write_file("alpha", "# Alpha\n\nunrelated content now, much longer than before\n")
-            self.assertEqual(store.search_semantic("zebrafish migration"), [])
-            # New file appears; deleted file disappears and is pruned.
-            store.write_file("beta", "# Beta\n\nzebrafish migration pattern\n")
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish migration")], ["beta"])
+            store.write_file("alpha", "# Alpha\n\nevent-1234\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["alpha"])
+            store.write_file("alpha", "# Alpha\n\nevent-5678 changed content\n")
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            store.write_file("beta", "# Beta\n\nevent-1234\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["beta"])
             (Path(temp_dir) / "beta.md").unlink()
-            self.assertEqual(store.search_semantic("zebrafish migration"), [])
+            self.assertEqual(store.search_semantic("event-1234"), [])
             self.assertNotIn("beta", store._search_index)
 
-    def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
-        """Review finding: (mtime, size) alone served stale vectors here."""
+    def test_warmup_reconciles_hybrid_after_identifier_refresh_of_external_edit(self):
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            store.write_file(
+                "revision-note",
+                "# Revision\n\nartifact_id: revision-1234\nold deployment content",
+            )
+            path = Path(temp_dir) / "revision-note.md"
+            path.write_text(
+                "# Revision\n\nartifact_id: revision-5678\nnew deployment content",
+                encoding="utf-8",
+            )
+
+            # Exact identifier lookup updates only the lexical cache by design.
+            self.assertEqual(store.search_semantic("revision-1234"), [])
+            report = store.warm_search_index_report()
+            self.assertTrue(report["complete"], report)
+
+            with store._hybrid_index._connect() as db:
+                rows = db.execute(
+                    "SELECT signature, content FROM chunks WHERE file=?",
+                    ("revision-note",),
+                ).fetchall()
+            self.assertTrue(rows)
+            self.assertTrue(all("revision-5678" in row["content"] for row in rows))
+            self.assertFalse(any("revision-1234" in row["content"] for row in rows))
+            results = store.search_semantic("new deployment content")
+            self.assertTrue(any(result["file"] == "revision-note" for result in results))
+
+    def test_failed_indexing_is_durable_and_identical_ingest_retries(self):
+        from memory_service import MemoryService, MemoryStore
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            store = MemoryStore(root / "memory")
+            content = "# Durable write\n\nretryable index marker"
+            with patch.object(
+                store._hybrid_index, "replace_document",
+                side_effect=RuntimeError("temporary SQLite failure"),
+            ):
+                self.assertTrue(store.write_file("durable-note", content))
+            pending = store.pending_index_status()
+            self.assertEqual(pending["files"], ["durable-note"])
+            self.assertIn("temporary SQLite failure", pending["errors"]["durable-note"])
+
+            # A repeat write is the bounded recovery path for a durable memory.
+            self.assertTrue(store.write_file("durable-note", content))
+            self.assertEqual(store.pending_index_status()["count"], 0)
+
+            service = MemoryService(root / "memory.sock", root / "memory")
+            source_path = str(root / "project" / "CLAUDE.md")
+            scope = str(root / "project")
+            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            with patch.object(
+                service.store._hybrid_index, "replace_document",
+                side_effect=RuntimeError("temporary ingest index failure"),
+            ):
+                first = service.store.ingest_claude_markdown(
+                    source_path, content, digest, {"scope": scope}
+                )
+            self.assertEqual(first["status"], "ingested")
+            self.assertEqual(service.store.pending_index_status()["count"], 1)
+            with service._index_status_lock:
+                service._index_state = "ready"
+            self.assertEqual(service.search_index_status()["state"], "degraded")
+
+            # The unchanged-ingest fast path must retry indexing, not return early.
+            second = service.store.ingest_claude_markdown(
+                source_path, content, digest, {"scope": scope}
+            )
+            self.assertEqual(second["status"], "unchanged")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(service.search_index_status()["state"], "ready")
+
+    def test_malformed_pending_ledger_recovers_after_full_reconciliation(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            (memory_dir / "note.md").write_text(
+                "# Note\n\nA durable note for index recovery.", encoding="utf-8"
+            )
+            (memory_dir / ".hybrid-index-pending.json").write_text(
+                "{ malformed json", encoding="utf-8"
+            )
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(
+                json.loads((memory_dir / ".hybrid-index-pending.json").read_text(encoding="utf-8")),
+                {},
+            )
+
+    def test_persisted_pending_ledger_error_recovers_after_full_reconciliation(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            (memory_dir / "note.md").write_text(
+                "# Note\n\nA durable note for index recovery.", encoding="utf-8"
+            )
+            (memory_dir / ".hybrid-index-pending.json").write_text(
+                json.dumps({"__ledger_error__": {"error": "previous read failure"}}),
+                encoding="utf-8",
+            )
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(
+                json.loads((memory_dir / ".hybrid-index-pending.json").read_text(encoding="utf-8")),
+                {},
+            )
+
+    def test_pending_ledger_rejects_traversal_keys_and_reconciles_safely(self):
+        from memory_service import MemoryService, MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            memory_dir = root / "memory"
+            memory_dir.mkdir()
+            outside = root / "outside.md"
+            outside.write_text("must not be touched", encoding="utf-8")
+            (memory_dir / "note.md").write_text(
+                "# Note\n\nSafe reconciliation target.", encoding="utf-8"
+            )
+            ledger = memory_dir / ".hybrid-index-pending.json"
+            ledger.write_text(
+                json.dumps({"../outside": {"signature": "x", "error": "untrusted"}}),
+                encoding="utf-8",
+            )
+
+            store = MemoryStore(memory_dir)
+            status = store.pending_index_status()
+            self.assertEqual(status["files"], [])
+            self.assertIn("__ledger_error__", status["errors"])
+            with self.assertRaises(ValueError):
+                store._memory_path("__ledger_error__", ".md")
+            with self.assertRaises(ValueError):
+                store._clear_index_pending("../outside", "x")
+            with self.assertRaises(ValueError):
+                store._mark_index_pending(outside, RuntimeError("must reject outside path"))
+            self.assertEqual(outside.read_text(encoding="utf-8"), "must not be touched")
+
+            service = MemoryService(root / "memory.sock", memory_dir)
+            service._warm_search_index()
+            self.assertEqual(service.search_index_status()["state"], "ready")
+            self.assertEqual(service.store.pending_index_status()["count"], 0)
+            self.assertEqual(json.loads(ledger.read_text(encoding="utf-8")), {})
+            self.assertEqual(outside.read_text(encoding="utf-8"), "must not be touched")
+
+    def test_pending_ledger_rejects_non_object_records_and_recovers(self):
+        from memory_service import MemoryService
+
+        malformed_records = (
+            None,
+            [],
+            "not-an-object",
+            {"signature": "x", "error": "bad", "extra": True},
+        )
+        for malformed_record in malformed_records:
+            with self.subTest(record=malformed_record), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                memory_dir = root / "memory"
+                memory_dir.mkdir()
+                (memory_dir / "note.md").write_text(
+                    "# Note\n\nSafe reconciliation target.", encoding="utf-8"
+                )
+                ledger = memory_dir / ".hybrid-index-pending.json"
+                ledger.write_text(
+                    json.dumps({"note": malformed_record}), encoding="utf-8"
+                )
+
+                service = MemoryService(root / "memory.sock", memory_dir)
+                status = service.store.pending_index_status()
+                self.assertEqual(status["files"], [])
+                self.assertIn("__ledger_error__", status["errors"])
+
+                service._warm_search_index()
+                self.assertEqual(service.search_index_status()["state"], "ready")
+                self.assertEqual(service.store.pending_index_status()["count"], 0)
+                self.assertEqual(json.loads(ledger.read_text(encoding="utf-8")), {})
+
+    def test_pending_index_clear_cannot_remove_a_newer_revision(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("revision-note", "# Note\n\nrevision alpha")
+            path = Path(temp_dir) / "revision-note.md"
+            stale_signature = repr(store._file_signature(path.stat()))
+            path.write_text("# Note\n\nrevision beta", encoding="utf-8")
+            store._mark_index_pending(path, RuntimeError("new revision failed indexing"))
+            current_signature = repr(store._file_signature(path.stat()))
+
+            self.assertNotEqual(stale_signature, current_signature)
+            self.assertFalse(store._clear_index_pending("revision-note", stale_signature))
+            pending = store.pending_index_status()
+            self.assertIn("revision-note", pending["files"])
+            self.assertEqual(
+                pending["errors"]["revision-note"],
+                "new revision failed indexing",
+            )
+
+    def test_concurrent_newer_write_stays_pending_when_older_index_finishes(self):
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            store = MemoryStore(root)
+            store.write_file("race-note", "# Note\n\ninitial revision")
+            path = root / "race-note.md"
+            path.write_text("# Note\n\nolder revision", encoding="utf-8")
+
+            indexed_older_revision = threading.Event()
+            release_older_index = threading.Event()
+            original_indexed_chunks = store._indexed_chunks
+            first_call = True
+
+            def pause_after_index(md_file, *, update_hybrid=True):
+                nonlocal first_call
+                result = original_indexed_chunks(md_file, update_hybrid=update_hybrid)
+                if first_call and update_hybrid:
+                    first_call = False
+                    indexed_older_revision.set()
+                    if not release_older_index.wait(timeout=5):
+                        raise TimeoutError("test did not release older index operation")
+                return result
+
+            with patch.object(store, "_indexed_chunks", side_effect=pause_after_index):
+                worker = threading.Thread(target=store._index_written_file, args=(path,))
+                worker.start()
+                self.assertTrue(indexed_older_revision.wait(timeout=5))
+                path.write_text("# Note\n\nnewer revision", encoding="utf-8")
+                store._mark_index_pending(path, RuntimeError("newer revision indexing failed"))
+                newer_signature = repr(store._file_signature(path.stat()))
+                release_older_index.set()
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive(), "older index operation did not finish")
+
+            pending = store.pending_index_status()
+            self.assertIn("race-note", pending["files"])
+            self.assertEqual(
+                json.loads((root / ".hybrid-index-pending.json").read_text(encoding="utf-8"))["race-note"]["signature"],
+                newer_signature,
+            )
+            self.assertEqual(
+                pending["errors"]["race-note"],
+                "file changed during hybrid indexing; retry required",
+            )
+
+    def test_pending_ledger_write_failure_keeps_readiness_degraded(self):
+        from memory_service import MemoryService
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = MemoryService(root / "memory.sock", root / "memory")
+            path = root / "memory" / "note.md"
+            path.write_text("# Note\n\nledger failure", encoding="utf-8")
+            with patch.object(
+                service.store, "_write_pending_index_records",
+                side_effect=OSError("read-only ledger"),
+            ):
+                service.store._mark_index_pending(path, RuntimeError("SQLite unavailable"))
+            pending = service.store.pending_index_status()
+            self.assertIn("note", pending["files"])
+            self.assertIn("__ledger_error__", pending["errors"])
+            with service._index_status_lock:
+                service._index_state = "ready"
+            self.assertEqual(service.search_index_status()["state"], "degraded")
+
+    def test_search_index_detects_same_size_rewrite_with_restored_mtime(self):
+        """Exact identifier lookup detects out-of-band same-size rewrites."""
+        from memory_service import MemoryStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = MemoryStore(Path(temp_dir))
+            store.write_file("note", "# Note\n\nevent-1234\n")
             path = Path(temp_dir) / "note.md"
             original = path.stat()
-            self.assertEqual([r["file"] for r in store.search_semantic("zebrafish alpha")], ["note"])
-            # Same length, different words, mtime restored to the original.
-            path.write_text("# Note\n\nplatypus gamma!\n")
+            self.assertEqual([r["file"] for r in store.search_semantic("event-1234")], ["note"])
+            path.write_text("# Note\n\nevent-5678\n", encoding="utf-8")
             os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
             self.assertEqual(path.stat().st_size, original.st_size)
             self.assertEqual(path.stat().st_mtime_ns, original.st_mtime_ns)
-            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
-            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
 
     def test_write_during_index_build_never_leaves_stale_results(self):
-        """Review finding: a write between stat and read must not stick."""
+        """A write between stat and read must not leave a stale identifier result."""
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = MemoryStore(Path(temp_dir))
-            store.write_file("note", "# Note\n\nzebrafish alpha\n")
+            store.write_file("note", "# Note\n\nevent-1234\n")
             path = Path(temp_dir) / "note.md"
+            # Force the exact-identifier path to rebuild this revision.
+            store._search_index.pop("note", None)
             real_chunk = store.chunk_document
             state = {"rewritten": False}
 
             def chunk_after_concurrent_write(name, *args, **kwargs):
                 if not state["rewritten"]:
                     state["rewritten"] = True
-                    path.write_text("# Note\n\nplatypus gamma with extra words\n")
+                    path.write_text("# Note\n\nevent-5678 with extra words\n", encoding="utf-8")
                 return real_chunk(name, *args, **kwargs)
 
             with patch.object(store, "chunk_document", side_effect=chunk_after_concurrent_write):
-                store.search_semantic("zebrafish alpha")
-            # The entry was keyed by the pre-write signature, so it is rebuilt.
-            self.assertEqual(store.search_semantic("zebrafish alpha"), [])
-            self.assertEqual([r["file"] for r in store.search_semantic("platypus gamma")], ["note"])
+                store.search_semantic("event-1234")
+            self.assertEqual(store.search_semantic("event-1234"), [])
+            self.assertEqual([r["file"] for r in store.search_semantic("event-5678")], ["note"])
 
     def test_concurrent_searches_stay_within_prompt_hook_budget(self):
         from memory_service import MemoryStore
@@ -462,7 +825,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
             # The hook allows 1500ms per request; require a wide safety margin.
             self.assertLess(max(durations), 0.75)
 
-    def test_concurrent_cold_searches_build_each_file_index_once(self):
+    def test_concurrent_searches_use_warm_hybrid_index_without_revectorizing_files(self):
         from memory_service import MemoryStore
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -485,7 +848,6 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 except Exception as exc:
                     failures.append(exc)
 
-            # Count both per-query vectorization and stored-chunk vectorization.
             with patch.object(store, "vectorize_text", wraps=store.vectorize_text) as vectorize:
                 threads = [threading.Thread(target=run) for _ in range(worker_count)]
                 for thread in threads:
@@ -495,13 +857,8 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
             self.assertTrue(all(not thread.is_alive() for thread in threads), "search thread did not finish")
             self.assertEqual(failures, [])
-            expected_chunk_vectors = sum(
-                max(1, len(store.chunk_document(f"cold-event-{index:03d}")))
-                for index in range(file_count)
-            )
-            # Every search vectorizes its own query, but each stored file revision
-            # must be vectorized only once despite all six searches starting cold.
-            self.assertEqual(vectorize.call_count, worker_count + expected_chunk_vectors)
+            # Hybrid search encodes each query once and reads stored vectors from SQLite.
+            self.assertEqual(vectorize.call_count, worker_count)
             self.assertEqual(len(store._search_index), file_count)
 
     def test_rest_search_accepts_limit_and_top_k_alias(self):
@@ -539,6 +896,7 @@ class MemorySearchRegressionTest(unittest.TestCase):
 
 
 class MemoryServiceIdempotencyTest(unittest.TestCase):
+
     def test_append_once_deduplicates_retries_and_rejects_key_reuse(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -583,7 +941,6 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
             self.assertFalse(response["ok"])
             self.assertIn("event_id", response["error"])
 
-
     def test_append_once_rejects_malformed_and_non_object_jsonl_records(self):
         from memory_service import MemoryStore
 
@@ -621,7 +978,6 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
             store = MemoryStore(Path(temp_dir))
             with self.assertRaisesRegex(ValueError, "non-empty JSON object"):
                 store.append_entry_once("events", "event-1", {})
-
 
     def test_append_once_retries_fsync_failure_before_duplicate_ack(self):
         from unittest.mock import patch
@@ -667,6 +1023,7 @@ class MemoryServiceIdempotencyTest(unittest.TestCase):
 
 
 class MemoryServiceRestIdempotencyTest(unittest.TestCase):
+
     def test_append_once_rest_endpoint_maps_validation_conflict_and_corruption(self):
         from memory_service import MemoryService, create_http_server
 
@@ -756,8 +1113,6 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
-
-
     def test_installed_session_end_hook_round_trips_to_durable_memory_once(self):
         """Exercise the installed Node hook through HTTP and durable Memory storage."""
         from memory_service import MemoryService, create_http_server
@@ -817,6 +1172,7 @@ class MemoryServiceRestIdempotencyTest(unittest.TestCase):
 
 
 class MemoryServiceRestStatusTest(unittest.TestCase):
+
     def test_generic_memory_routes_map_failure_to_non_2xx_status(self):
         from memory_service import MemoryService, create_http_server
 
@@ -871,7 +1227,6 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2)
 
-
     def test_semantic_search_enrichment_read_failure_returns_500(self):
         from memory_service import MemoryService, create_http_server
 
@@ -912,6 +1267,7 @@ class MemoryServiceRestStatusTest(unittest.TestCase):
 
 
 class MemoryServiceSecurityTest(unittest.TestCase):
+
     def test_private_runtime_directory_socket_permissions_and_name_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -927,6 +1283,31 @@ class MemoryServiceSecurityTest(unittest.TestCase):
             env["ENSEMBLE_MEMORY_DIR"] = str(root / "memory")
             env["ENSEMBLE_LOG_DIR"] = str(root / "logs")
             env["ENSEMBLE_MEMORY_HTTP_PORT"] = "0"
+
+            # The subprocess has its own interpreter, so module-scoped mocks in
+            # this test process do not apply. Supply a deterministic local model
+            # double instead of allowing a test to download real weights.
+            fake_package = root / "fake_modules" / "sentence_transformers"
+            fake_package.mkdir(parents=True)
+            (fake_package / "__init__.py").write_text(
+                "import math\n"
+                "class _Vector(list):\n"
+                "    def astype(self, dtype): return self\n"
+                "    def tolist(self): return list(self)\n"
+                "class SentenceTransformer:\n"
+                "    def __init__(self, model_name, device='cpu'): pass\n"
+                "    def encode(self, texts, **kwargs):\n"
+                "        vectors = []\n"
+                "        for text in texts:\n"
+                "            count = float(len(str(text).split()) or 1)\n"
+                "            norm = math.sqrt(count * count + 1.0)\n"
+                "            vectors.append(_Vector([count / norm, 1.0 / norm]))\n"
+                "        return vectors\n",
+                encoding="utf-8",
+            )
+            env["PYTHONPATH"] = os.pathsep.join(
+                filter(None, [str(root / "fake_modules"), env.get("PYTHONPATH", "")])
+            )
 
             process = subprocess.Popen(
                 [sys.executable, str(SERVICE)],
@@ -987,6 +1368,7 @@ class MemoryServiceSecurityTest(unittest.TestCase):
 
 
 class MemoryServiceContextTest(unittest.TestCase):
+
     def test_execution_aware_retrieval_returns_related_prior_context(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1343,6 +1725,7 @@ class MemoryServiceContextTest(unittest.TestCase):
 
 
 class MemorySchemaVersionTest(unittest.TestCase):
+
     def test_current_context_includes_schema_version(self):
         context = ExecutionContext(
             request_id="request-1",
@@ -1401,6 +1784,7 @@ class MemorySchemaVersionTest(unittest.TestCase):
 
 
 class MemoryIndexReadinessTest(unittest.TestCase):
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         root = Path(self.temp_dir.name)

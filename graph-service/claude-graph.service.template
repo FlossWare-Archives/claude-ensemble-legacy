@@ -16,7 +16,7 @@ SyslogIdentifier=claude-ensemble-graph-service
 EnvironmentFile=-%h/.config/claude-ensemble/environment
 
 # Environment
-Environment="PATH=%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
+Environment="PATH=%REPO_PATH%/.venv/bin:%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="ENSEMBLE_GRAPH_HOST=127.0.0.1"
 Environment="ENSEMBLE_GRAPH_PORT=8766"

@@ -26,8 +26,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Allow execution from the repository without requiring package installation.
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 from execution.context import ExecutionContext
 from shared.runtime_config import log_dir, memory_dir, runtime_dir, socket_path
+from hybrid_retrieval import HybridRetrievalIndex, chunk_markdown
 
 
 RUNTIME_SUBDIR = "claude-ensemble"
@@ -56,12 +58,14 @@ def get_socket_path() -> Path:
 
 def validate_memory_name(name: str) -> str:
     """Validate a memory name before using it as part of a filesystem path."""
-    if not isinstance(name, str) or not MEMORY_NAME_PATTERN.fullmatch(name) or name in (
-        "..",
-        ".",
+    if (
+        not isinstance(name, str)
+        or not MEMORY_NAME_PATTERN.fullmatch(name)
+        or name in (".", "..", "__ledger_error__")
     ):
         raise ValueError(
-            "Invalid memory name: use only letters, numbers, '.', '_' and '-'; not '.' or '..'"
+            "Invalid memory name or reserved name: use only letters, numbers, '.', '_' and '-'; "
+            "not '.', '..', or the reserved ledger key"
         )
     return name
 
@@ -93,10 +97,17 @@ class MemoryStore:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.Lock()
         self.chunk_size = chunk_size
+        self._hybrid_index = HybridRetrievalIndex(self.memory_dir / ".hybrid-retrieval.sqlite3")
         # Search index keyed by file name. Each entry is validated against the
         # file's (mtime_ns, size) on every search, so external edits are seen.
         self._search_index: Dict[str, Tuple[Tuple[int, int], List[Dict[str, Any]]]] = {}
         self._search_index_lock = threading.Lock()
+        self._pending_index_lock = threading.Lock()
+        self._pending_index_path = self.memory_dir / ".hybrid-index-pending.json"
+        # A failed ledger write must still fail readiness closed for this process.
+        # Entries are revision-specific and disappear only after that revision is
+        # confirmed present in the persistent hybrid index.
+        self._pending_index_faults: Dict[str, Dict[str, str]] = {}
         # Per-file locks make cache population single-flight without serializing
         # independent files. Locks are retained for deleted names to avoid a
         # second lock being created while an older builder is still active.
@@ -108,7 +119,10 @@ class MemoryStore:
         path = self.memory_dir / f"{name}{suffix}"
         resolved_root = self.memory_dir.resolve()
         resolved_path = path.resolve()
-        if resolved_path.parent != resolved_root:
+        if (
+            not resolved_path.is_relative_to(resolved_root)
+            or resolved_path.parent != resolved_root
+        ):
             raise ValueError("Memory path escapes the configured memory directory")
         return path
 
@@ -129,12 +143,230 @@ class MemoryStore:
         path = self._memory_path(name, ".md")
         try:
             with self.lock:
-                with open(path, "w") as f:
+                with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
+            # Keep the persistent hybrid index current at write time. If indexing
+            # fails, retain a durable retry record and fail readiness closed.
+            self._index_written_file(path)
             logger.info(f"Wrote memory: {name}")
             return True
         except Exception as e:
             logger.error(f"Error writing {name}: {e}")
+            return False
+
+    @staticmethod
+    def _ledger_error(message: str) -> Dict[str, Dict[str, str]]:
+        """Return a fail-closed ledger representation without trusting its keys."""
+        return {"__ledger_error__": {"error": message}}
+
+    def _pending_index_records(self) -> Dict[str, Dict[str, str]]:
+        """Read and validate the durable retry ledger before using any key as a path."""
+        try:
+            value = json.loads(self._pending_index_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            logger.error("Cannot read hybrid-index retry ledger: %s", exc)
+            return self._ledger_error(str(exc))
+
+        if not isinstance(value, dict):
+            return self._ledger_error("retry ledger is not a JSON object")
+
+        validated: Dict[str, Dict[str, str]] = {}
+        for name, record in value.items():
+            if name == "__ledger_error__":
+                if (
+                    not isinstance(record, dict)
+                    or set(record) != {"error"}
+                    or not isinstance(record.get("error"), str)
+                ):
+                    return self._ledger_error("retry ledger has an invalid __ledger_error__ record")
+                validated[name] = {"error": record["error"]}
+                continue
+            try:
+                validate_memory_name(name)
+            except (TypeError, ValueError):
+                logger.error("Retry ledger contains an invalid memory name")
+                return self._ledger_error("retry ledger contains an invalid memory name")
+            if (
+                not isinstance(record, dict)
+                or set(record) != {"signature", "error"}
+                or not isinstance(record.get("signature"), str)
+                or not isinstance(record.get("error"), str)
+            ):
+                logger.error("Retry ledger contains a malformed record for %s", name)
+                return self._ledger_error("retry ledger contains a malformed record")
+            validated[name] = {
+                "signature": record["signature"],
+                "error": record["error"],
+            }
+        return validated
+
+    def pending_index_status(self) -> Dict[str, Any]:
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+            # In-memory faults are authoritative if persistence failed or a
+            # concurrent ledger update has not yet become durable. Validate
+            # these keys too: status must never turn corrupt state into a path.
+            for name, record in self._pending_index_faults.items():
+                if name == "__ledger_error__":
+                    if isinstance(record, dict) and set(record) == {"error"} and isinstance(record.get("error"), str):
+                        records[name] = {"error": record["error"]}
+                    else:
+                        records = self._ledger_error("in-memory ledger fault is malformed")
+                    continue
+                try:
+                    validate_memory_name(name)
+                except (TypeError, ValueError):
+                    records = self._ledger_error("in-memory retry ledger contains an invalid memory name")
+                    continue
+                if (
+                    not isinstance(record, dict)
+                    or set(record) != {"signature", "error"}
+                    or not isinstance(record.get("signature"), str)
+                    or not isinstance(record.get("error"), str)
+                ):
+                    records = self._ledger_error("in-memory retry ledger contains a malformed record")
+                    continue
+                records[name] = {"signature": record["signature"], "error": record["error"]}
+        return {
+            "count": len(records),
+            "files": sorted(name for name in records if name != "__ledger_error__"),
+            "errors": {
+                name: record.get("error", "indexing pending")
+                for name, record in records.items()
+            },
+        }
+
+    def _write_pending_index_records(self, records: Dict[str, Dict[str, str]]) -> None:
+        temporary = self._pending_index_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, self._pending_index_path)
+
+    def _mark_index_pending(self, path: Path, error: Exception) -> None:
+        # Do not accept an arbitrary Path as authority for a ledger key or
+        # filesystem target. It must be exactly the validated Markdown path.
+        name = validate_memory_name(path.stem)
+        safe_path = self._memory_path(name, ".md")
+        if path.resolve() != safe_path.resolve():
+            raise ValueError("Pending-index path is outside the configured memory directory")
+        path = safe_path
+        try:
+            signature = repr(self._file_signature(path.stat())) if path.exists() else "missing"
+        except OSError:
+            signature = "unknown"
+        record = {"signature": signature, "error": str(error)}
+        with self._pending_index_lock:
+            self._pending_index_faults[name] = record
+            try:
+                records = self._pending_index_records()
+                records[name] = record
+                self._write_pending_index_records(records)
+                self._pending_index_faults.pop("__ledger_error__", None)
+            except OSError as ledger_error:
+                # Keep a durable-write/index failure visible even if its retry
+                # ledger cannot be written. Readiness must not silently recover.
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not persist retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not persist hybrid-index retry record for %s: %s", path, ledger_error)
+
+    def _clear_index_pending(self, file_name: str, signature: str | None = None) -> bool:
+        # Successful indexing of revision A must never clear pending revision B.
+        # For a missing-file cleanup, callers omit signature and we only clear
+        # after confirming the source file no longer exists.
+        file_name = validate_memory_name(file_name)
+        path = self._memory_path(file_name, ".md")
+        if signature is None:
+            if path.exists():
+                return False
+        elif not self._hybrid_index.document_revision_matches(file_name, signature):
+            return False
+
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+            record = records.get(file_name)
+            fault = self._pending_index_faults.get(file_name)
+            if signature is not None:
+                if record and record.get("signature") not in (None, signature):
+                    return False
+                if fault and fault.get("signature") not in (None, signature):
+                    return False
+            records.pop(file_name, None)
+            self._pending_index_faults.pop(file_name, None)
+            try:
+                # Do not clear a global ledger fault merely because one file
+                # recovered. A complete corpus reconciliation is required to
+                # prove no failed ledger write hid pending work for another file.
+                self._write_pending_index_records(records)
+            except OSError as ledger_error:
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not update retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not clear hybrid-index retry record for %s: %s", file_name, ledger_error)
+                return False
+            return True
+
+    def _clear_ledger_fault_after_reconciliation(self, present: Dict[str, Path]) -> None:
+        """Clear a ledger fault only after every live file is indexed.
+
+        The sentinel may originate from this process's in-memory fault latch or
+        from a malformed/unreadable ledger discovered after service startup.
+        Both sources require the same full-corpus reconciliation before repair.
+        """
+        with self._pending_index_lock:
+            has_memory_fault = "__ledger_error__" in self._pending_index_faults
+            ledger_records = self._pending_index_records()
+            has_persisted_fault = "__ledger_error__" in ledger_records
+        if not has_memory_fault and not has_persisted_fault:
+            return
+        for name, path in present.items():
+            try:
+                signature = repr(self._file_signature(path.stat()))
+            except OSError:
+                return
+            if not self._hybrid_index.document_revision_matches(Path(name).stem, signature):
+                return
+        with self._pending_index_lock:
+            records = self._pending_index_records()
+            if any(name != "__ledger_error__" for name in records):
+                return
+            try:
+                self._write_pending_index_records({})
+            except OSError as ledger_error:
+                self._pending_index_faults["__ledger_error__"] = {
+                    "error": f"Could not reconcile retry ledger: {ledger_error}"
+                }
+                logger.exception("Could not reconcile hybrid-index retry ledger: %s", ledger_error)
+                return
+            self._pending_index_faults.pop("__ledger_error__", None)
+
+    def _index_written_file(self, path: Path) -> bool:
+        """Index a durable Markdown write or record explicit deferred work."""
+        # Publish the current revision as pending before starting work. This
+        # supersedes stale failures for an older revision and prevents an older
+        # in-flight indexer from clearing a newer writer's recovery marker.
+        self._mark_index_pending(path, RuntimeError("hybrid indexing in progress"))
+        try:
+            self._indexed_chunks(path)
+            # The file may have changed while indexing was in progress. Only
+            # report success if SQLite contains the exact latest durable revision.
+            signature = repr(self._file_signature(path.stat()))
+            if not self._hybrid_index.document_revision_matches(path.stem, signature):
+                raise RuntimeError("file changed during hybrid indexing; retry required")
+            present_stems = {item.stem for item in self.memory_dir.glob("*.md") if item.is_file()}
+            if (
+                self._hybrid_index._full_corpus_key is None
+                or present_stems != set(self._hybrid_index._full_corpus_key)
+            ):
+                self._hybrid_index.warm_corpus(present_stems)
+            if not self._clear_index_pending(path.stem, signature):
+                logger.warning("Memory %s is indexed but pending-index bookkeeping is not reconciled", path.stem)
+                return False
+            return True
+        except Exception as index_error:
+            self._mark_index_pending(path, index_error)
+            logger.warning("Memory %s was written but indexing is pending: %s", path.stem, index_error)
             return False
 
     def append_entry(self, name: str, entry: Dict[str, Any]) -> bool:
@@ -411,6 +643,9 @@ class MemoryStore:
                 except OSError:
                     stored_sha = None
                 if stored_sha == sha256:
+                    # An identical ingest retry must also retry any failed index
+                    # work; durable Markdown alone does not imply retrievability.
+                    self._index_written_file(path)
                     return {"status": "unchanged", "source_path": source_path, "sha256": sha256}
             with path.open("w", encoding="utf-8") as handle:
                 handle.write(content)
@@ -424,6 +659,8 @@ class MemoryStore:
                 "stale": False,
             }
             self._save_ingest_index(index)
+        # This work happens on the ingestion/write path, never during prompt search.
+        self._index_written_file(path)
         logger.info("Ingested Claude Code memory: %s", source_path)
         return {"status": "ingested", "source_path": source_path, "sha256": sha256, "document": document_key}
 
@@ -550,21 +787,25 @@ class MemoryStore:
         """
         return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
 
-    def _indexed_chunks(self, md_file: Path) -> List[Dict[str, Any]]:
-        """Return search-ready chunks for one file, rebuilt only when it changes.
+    def _indexed_chunks(self, md_file: Path, *, update_hybrid: bool = True) -> List[Dict[str, Any]]:
+        """Return cached chunks, updating SQLite only during warm-up or writes.
 
-        Prompt-time retrieval issues several searches concurrently. Re-reading,
-        re-chunking and re-vectorizing the whole corpus per search is CPU-bound
-        under the GIL, so latency grew linearly with concurrency and callers
-        timed out. The per-file work now happens once per file revision.
+        Exact-identifier fallback may refresh the in-memory lexical cache, but
+        passes update_hybrid=False so prompt-time searches never rewrite vectors.
         """
         file_name = md_file.stem
         signature = self._file_signature(md_file.stat())
         with self._search_index_lock:
             cached = self._search_index.get(file_name)
-            if cached is not None and cached[0] == signature:
-                return cached[1]
+            indexed_cached = cached[1] if cached is not None and cached[0] == signature else None
             file_lock = self._file_index_locks.setdefault(file_name, threading.Lock())
+
+        if indexed_cached is not None:
+            if update_hybrid:
+                if not self._hybrid_index.document_revision_matches(file_name, repr(signature)):
+                    self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
+                self._clear_index_pending(file_name, repr(signature))
+            return indexed_cached
 
         # Recheck after acquiring the per-file lock: another search or the
         # background warm-up may have populated this revision while we waited.
@@ -578,8 +819,13 @@ class MemoryStore:
             signature = self._file_signature(stat)
             with self._search_index_lock:
                 cached = self._search_index.get(file_name)
-                if cached is not None and cached[0] == signature:
-                    return cached[1]
+                indexed_cached = cached[1] if cached is not None and cached[0] == signature else None
+            if indexed_cached is not None:
+                if update_hybrid:
+                    if not self._hybrid_index.document_revision_matches(file_name, repr(signature)):
+                        self._hybrid_index.replace_document(file_name, repr(signature), indexed_cached)
+                    self._clear_index_pending(file_name, repr(signature))
+                return indexed_cached
             # The signature is taken BEFORE the file is read. If a writer
             # changes the file in between, the entry holds newer content under
             # an older signature, so the next search sees a different signature
@@ -595,14 +841,20 @@ class MemoryStore:
                 indexed.append(
                     {
                         "header": chunk.get("header", ""),
-                        "size_bytes": len(content),
+                        "heading_path": chunk.get("heading_path", chunk.get("header", "")),
+                        "content": content,
+                        "size_bytes": len(content.encode("utf-8")),
                         "folded": content.casefold(),
                         "vector": vector,
                         "magnitude": math.sqrt(sum(v**2 for v in vector.values())),
                     }
                 )
+            if update_hybrid:
+                self._hybrid_index.replace_document(file_name, repr(signature), indexed)
             with self._search_index_lock:
                 self._search_index[file_name] = (signature, indexed)
+            if update_hybrid:
+                self._clear_index_pending(file_name, repr(signature))
             return indexed
 
     def _prune_search_index(self, present: set) -> None:
@@ -640,7 +892,17 @@ class MemoryStore:
             added = sorted(final_names - set(initial))
             removed = sorted(set(initial) - final_names)
             stable = not added and not removed
-            complete = stable and not failures and len(indexed) == len(initial)
+            if stable and not failures:
+                self._clear_ledger_fault_after_reconciliation(initial)
+            present_stems = {Path(name).stem for name in final_names}
+            for pending_name in self.pending_index_status()["files"]:
+                if pending_name not in present_stems:
+                    self._clear_index_pending(pending_name)
+            pending_status = self.pending_index_status()
+            complete = (
+                stable and not failures and len(indexed) == len(initial)
+                and pending_status["count"] == 0
+            )
             last_report = {
                 "pass": pass_number,
                 "expected_files": sorted(initial),
@@ -648,23 +910,34 @@ class MemoryStore:
                 "failed_files": failures,
                 "added_files": added,
                 "removed_files": removed,
+                "pending_index_files": pending_status["files"],
+                "pending_index_errors": pending_status["errors"],
                 "complete": complete,
             }
             if complete:
+                present_stems = {Path(name).stem for name in final_names}
+                self._hybrid_index.remove_missing(present_stems)
+                self._prune_search_index(present_stems)
+                # Populate the SQLite-backed corpus cache before readiness flips
+                # to ready; the first prompt must not pay the cold corpus scan.
+                self._hybrid_index.warm_corpus(present_stems)
                 return last_report
         return last_report
 
     def warm_search_index(self) -> int:
         """Build the search index for every file; returns the file count."""
         report = self.warm_search_index_report()
-        return len(report.get("indexed_files", []))
+        indexed_files = {Path(name).stem for name in report.get("indexed_files", [])}
+        if report.get("complete"):
+            self._hybrid_index.warm_corpus(indexed_files)
+        return len(indexed_files)
 
     def search_semantic(self, query: str, top_k: int = 10, source: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Search memory with exact-phrase priority and local token similarity.
+        """Search using SQLite hybrid retrieval for prose and exact matching for identifiers.
 
-        This is a lightweight lexical search, not embedding-based semantic
-        search. Exact identifiers such as run IDs and event IDs must remain
-        discoverable even when their length makes cosine similarity low.
+        Document chunking and embedding writes happen during warm-up or file
+        writes, never on this prompt-time search path. Exact identifiers such
+        as run IDs and event IDs retain their boundary-aware lexical path.
         """
         if not isinstance(query, str) or not query.strip():
             return []
@@ -708,6 +981,29 @@ class MemoryStore:
             re.UNICODE,
         )
 
+        if not identifier_query:
+            ingest_index = self._load_ingest_index() if source != "memory" else {}
+            active_knowledge_documents = {
+                entry.get("document")
+                for entry in ingest_index.values()
+                if isinstance(entry, dict)
+                and not entry.get("stale", False)
+                and isinstance(entry.get("document"), str)
+                and entry.get("document", "").startswith("claude-code-")
+            }
+            allowed_files = set()
+            for md_file in self.memory_dir.glob("*.md"):
+                file_name = md_file.stem
+                is_knowledge = file_name.startswith("claude-code-")
+                if source == "claude-code" and not is_knowledge:
+                    continue
+                if source == "memory" and is_knowledge:
+                    continue
+                if is_knowledge and file_name not in active_knowledge_documents:
+                    continue
+                allowed_files.add(file_name)
+            return self._hybrid_index.search(normalized_query, top_k, allowed_files)
+
         # Load the ingestion index once per search, not once per Knowledge file.
         # _active_ingest_entry() reads and parses the entire JSON index on every
         # call; invoking it inside this loop turns a search into repeated disk I/O
@@ -736,7 +1032,7 @@ class MemoryStore:
                     continue
                 if is_knowledge and file_name not in active_knowledge_documents:
                     continue
-                for chunk in self._indexed_chunks(md_file):
+                for chunk in self._indexed_chunks(md_file, update_hybrid=False):
                     normalized_content = chunk["folded"]
                     exact_match = (
                         bool(identifier_pattern.search(normalized_content))
@@ -774,57 +1070,14 @@ class MemoryStore:
         )[:top_k]
 
     def chunk_document(self, name: str) -> List[Dict[str, Any]]:
-        """Chunk a document by headers (semantic chunking)."""
+        """Chunk Markdown by heading hierarchy and paragraph boundaries."""
         file_path = self._memory_path(name, ".md")
         if not file_path.exists():
             return []
         try:
-            with open(file_path, "r") as f:
-                lines = f.readlines()
-            chunks = []
-            current_chunk = []
-            current_header = "intro"
-            max_chunk_size = 2000
-            for i, line in enumerate(lines):
-                if line.startswith("#"):
-                    if current_chunk:
-                        chunks.append(
-                            {
-                                "header": current_header,
-                                "start_line": i - len(current_chunk),
-                                "end_line": i,
-                                "content": "".join(current_chunk),
-                                "size": sum(len(l) for l in current_chunk),
-                            }
-                        )
-                    current_header = line.lstrip("#").strip()
-                    current_chunk = [line]
-                else:
-                    current_chunk.append(line)
-                    if sum(len(l) for l in current_chunk) > max_chunk_size:
-                        chunks.append(
-                            {
-                                "header": current_header,
-                                "start_line": i - len(current_chunk) + 1,
-                                "end_line": i + 1,
-                                "content": "".join(current_chunk),
-                                "size": sum(len(l) for l in current_chunk),
-                            }
-                        )
-                        current_chunk = []
-            if current_chunk:
-                chunks.append(
-                    {
-                        "header": current_header,
-                        "start_line": len(lines) - len(current_chunk),
-                        "end_line": len(lines),
-                        "content": "".join(current_chunk),
-                        "size": sum(len(l) for l in current_chunk),
-                    }
-                )
-            return chunks
-        except Exception as e:
-            logger.debug(f"Error chunking {name}: {e}")
+            return chunk_markdown(file_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug("Error chunking %s: %s", name, exc)
             return []
 
     def search(self, keywords: List[str]) -> List[Dict[str, Any]]:
@@ -1100,10 +1353,20 @@ class MemoryService:
                     should_log = True
             if should_log:
                 logger.warning("%s", error)
+        pending = self.store.pending_index_status()
+        if pending["count"] and state == "ready":
+            state = "degraded"
+            error = (
+                f"{pending['count']} document(s) have durable pending hybrid-index work; "
+                "retry the write/ingest or restart Memory to retry indexing"
+            )
         return {
             "state": state,
             "indexed_files": indexed,
             "expected_files": expected,
+            "pending_index_files": pending["files"],
+            "pending_index_count": pending["count"],
+            "pending_index_errors": pending["errors"],
             "elapsed_seconds": round(elapsed, 3),
             "warmup_timeout_seconds": self._index_warmup_timeout_seconds,
             **({"error": error} if error else {}),

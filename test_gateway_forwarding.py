@@ -253,6 +253,8 @@ def test_gateway_uses_service_url_environment_configuration(tmp_path, monkeypatc
     try:
         status, result = request(gateway, "GET", "/api/v1/graph/health")
         assert status == 200
+        # The gateway strips its public graph route prefix before forwarding
+        # to the configured base service URL.
         assert result["path"] == "/health"
     finally:
         stop(gateway, gateway_thread)

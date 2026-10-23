@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import atexit
 import http.server
 import json
 import os
@@ -14,6 +15,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER_TEXT = (ROOT / "install.sh").read_text(encoding="utf-8")
+if 'configuration."\\\\n' in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer prints a literal \\n escape")
+if "config.sh" in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer still advertises removed config.sh")
+if "--copies" not in INSTALLER_TEXT or "ENSEMBLE_SKIP_MODEL_PROVISION" not in INSTALLER_TEXT:
+    raise SystemExit("FAIL: installer runtime provisioning lacks safe/offline controls")
+
+# The installer integration test must never download dependencies or model
+# weights. Use a disposable executable placeholder only when the checkout has
+# no pre-provisioned runtime, and remove it on process exit.
+TEST_VENV = ROOT / ".venv"
+CREATED_TEST_VENV = False
+if not TEST_VENV.exists():
+    (TEST_VENV / "bin").mkdir(parents=True)
+    fake_python = TEST_VENV / "bin" / "python"
+    fake_python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    CREATED_TEST_VENV = True
+
+
+def _cleanup_test_venv():
+    if CREATED_TEST_VENV:
+        shutil.rmtree(TEST_VENV, ignore_errors=True)
+
+
+atexit.register(_cleanup_test_venv)
 if "sys.version_info >= (3, 11)" not in INSTALLER_TEXT:
     raise SystemExit("FAIL: installer does not enforce Python 3.11 minimum")
 if "major >= 22" not in INSTALLER_TEXT:
@@ -82,6 +109,7 @@ def make_harness(base: Path, *, claude: bool = True) -> tuple[Path, dict[str, st
     env["CLAUDE_CONFIG_DIR"] = env["ENSEMBLE_CLAUDE_CODE_CONFIG_DIR"]
     env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
     env["SYSTEMCTL_LOG"] = str(systemctl_log)
+    env["ENSEMBLE_SKIP_PYTHON_PROVISION"] = "1"
     env["SYSTEMCTL_BIN"] = str(systemctl)
     env["ENSEMBLE_READINESS_URL"] = (
         f"http://127.0.0.1:{readiness_server.server_port}/api/v1/ready"
@@ -196,6 +224,9 @@ with tempfile.TemporaryDirectory(prefix="ce-install-e2e-") as temp:
     result = run_installer(env)
     if result.returncode != 0:
         fail(f"full installer failed ({result.returncode}):\n{result.stdout}\n{result.stderr}")
+
+    if "Skipping network provisioning" not in result.stdout:
+        fail("top-level installer did not honor ENSEMBLE_SKIP_PYTHON_PROVISION")
 
     if identical_deployment.read_bytes() != original_hook_bytes or not identical_deployment.stat().st_mode & 0o111:
         fail("identical non-executable hook was not preserved and repaired")

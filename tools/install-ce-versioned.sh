@@ -86,12 +86,12 @@ assert_managed_layout() {
     "$RELEASES" "$SHARED" "$SHARED/claude-code" "$SHARED/config" "$SHARED/data" \
     "$SHARED/data/memory" "$SHARED/data/learning" "$SHARED/data/alerts" \
     "$SHARED/runtime" "$SHARED/logs" "$SHARED/activation-backups"; do
-    [[ ! -L "$path" ]] || { printf 'ERROR: managed deployment path must not be a symlink: %s\\n' "$path" >&2; exit 1; }
-    [[ ! -e "$path" || -d "$path" ]] || { printf 'ERROR: managed deployment path is not a directory: %s\\n' "$path" >&2; exit 1; }
+    [[ ! -L "$path" ]] || { printf 'ERROR: managed deployment path must not be a symlink: %s\n' "$path" >&2; exit 1; }
+    [[ ! -e "$path" || -d "$path" ]] || { printf 'ERROR: managed deployment path is not a directory: %s\n' "$path" >&2; exit 1; }
   done
   path="$SHARED/config/environment"
-  [[ ! -L "$path" ]] || { printf 'ERROR: managed service environment must not be a symlink: %s\\n' "$path" >&2; exit 1; }
-  [[ ! -e "$path" || -f "$path" ]] || { printf 'ERROR: managed service environment is not a regular file: %s\\n' "$path" >&2; exit 1; }
+  [[ ! -L "$path" ]] || { printf 'ERROR: managed service environment must not be a symlink: %s\n' "$path" >&2; exit 1; }
+  [[ ! -e "$path" || -f "$path" ]] || { printf 'ERROR: managed service environment is not a regular file: %s\n' "$path" >&2; exit 1; }
 }
 assert_managed_layout
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ce-versioned.XXXXXX")"
@@ -274,6 +274,32 @@ if [[ "$STAGING_ONLY" == "1" ]]; then
   printf 'To activate later, inspect the release and explicitly run: ENSEMBLE_INSTALL_ROOT=%q bash %q activate %q\n' "$ROOT" "$RELEASE/tools/ce-deployment" "$VERSION"
   exit 0
 fi
+# Provision the immutable release runtime once, before activation. Activation,
+# recovery, and rollback reuse it without package/model network access.
+if [[ -f "$RELEASE/requirements.txt" ]]; then
+  if [[ "${ENSEMBLE_SKIP_PYTHON_PROVISION:-0}" == "1" ]]; then
+    [[ -x "$RELEASE/.venv/bin/python" ]] || {
+      printf 'ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires a pre-provisioned release .venv/bin/python.\n' >&2
+      exit 1
+    }
+    printf 'Using pre-provisioned Python runtime; package installation skipped.\n'
+  else
+    if [[ ! -x "$RELEASE/.venv/bin/python" ]]; then
+      python3 -m venv --copies "$RELEASE/.venv"
+    fi
+    "$RELEASE/.venv/bin/python" -m pip install --upgrade pip
+    "$RELEASE/.venv/bin/python" -m pip install -r "$RELEASE/requirements.txt"
+  fi
+  if [[ "${ENSEMBLE_SKIP_MODEL_PROVISION:-0}" == "1" ]]; then
+    printf 'Skipping model preload; ensure the configured local model is already cached for offline use.\n'
+  else
+    ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+      "$RELEASE/.venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
+  fi
+else
+  printf 'Skipping Python runtime provisioning for minimal deployment fixture (no requirements.txt).\n'
+fi
+
 if ! bash "$RELEASE/tools/ce-deployment" activate "$VERSION"; then
   printf 'ERROR: Activation failed. The release was retained for diagnosis and retry.\n' >&2
   exit 1

@@ -23,6 +23,76 @@ Central memory authority for all Claude Code sessions. Runs as a systemd user se
 - **Restricted permissions:** Runtime directory is `0700`; socket is `0600`
 - **Validated names:** Memory names allow only letters, numbers, `.`, `_`, and `-`
 
+## Hybrid retrieval
+
+Natural-language searches use hybrid retrieval by default: SQLite-backed BM25
+plus local semantic embeddings. SQLite is an embedded file, not another service;
+the index is stored beside the memory documents as
+`.hybrid-retrieval.sqlite3` and is rebuilt incrementally as documents change.
+Markdown is chunked at heading and paragraph boundaries, with heading paths
+retained as retrieval metadata. Structured identifiers continue through the
+existing exact-identifier path. The two indexes are intentionally split for now:
+the in-memory lexical cache preserves the exact identifier path, while SQLite
+owns persistent BM25 and semantic retrieval for natural-language prose. Warm-up
+and Memory writes update both; prompt-time searches do not re-embed documents.
+
+The default local embedding model is
+`sentence-transformers/all-MiniLM-L6-v2`. It runs on CPU. The standard Claude
+Ensemble dependency installation includes Sentence Transformers, and the model
+weights are acquired automatically on first use if they are not already cached.
+Set `ENSEMBLE_MEMORY_EMBEDDING_MODEL` only when you need to override the default
+model or point to a preinstalled local model directory. Normal operation does
+not require that setting.
+
+Existing lexical indexes are backfilled during startup warm-up and as
+documents are written or ingested. Restart the Memory service to incorporate
+external Markdown edits or to retry a failed index write; prompt-time prose
+search deliberately does not repair the index. The companion reindex-operations
+change adds explicit full, incremental, and embedding-only maintenance commands.
+Vectors and model identity are stored with each chunk in SQLite. The first model
+load and initial backfill take longer; later searches reuse stored document
+vectors. Prompt-time searches read the persisted SQLite index and embed only the
+query, not the document corpus.
+
+The model is local inference. Memory content is not sent to an external
+embedding API.
+
+For disconnected environments, provide a local wheelhouse and a pre-cached model
+(or set ENSEMBLE_MEMORY_EMBEDDING_MODEL to a local model directory). The
+versioned installer supports an offline package path through pip's standard
+PIP_NO_INDEX=1 and PIP_FIND_LINKS=/path/to/wheelhouse settings, and
+ENSEMBLE_SKIP_MODEL_PROVISION=1 skips model acquisition during installation.
+Set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 to forbid Hugging Face network
+access. The selected model must already be available locally. For a source
+checkout whose .venv is already provisioned, ENSEMBLE_SKIP_PYTHON_PROVISION=1
+skips all package installation and requires an existing .venv/bin/python.
+
+Activation, recovery, and rollback reuse the immutable release runtime. They do
+not run pip or download model weights.
+
+The opt-in local-model smoke test requires an already installed model directory
+and does not download weights:
+
+```bash
+ENSEMBLE_RUN_LOCAL_EMBEDDING_ACCEPTANCE=1 \
+ENSEMBLE_MEMORY_EMBEDDING_MODEL=/path/to/local/model \
+python -m pytest memory-service/test_hybrid_retrieval.py -k real_local_model_acceptance -q
+```
+
+This opt-in acceptance test verifies semantic discrimination against lexical
+and topical distractors, persisted-vector reuse after constructing a fresh
+index instance, and concurrent query fan-out. It prints maximum query latency
+and process peak RSS, and fails against configurable budgets:
+
+- `ENSEMBLE_MEMORY_ACCEPTANCE_LATENCY_SECONDS` (default `1.5`)
+- `ENSEMBLE_MEMORY_ACCEPTANCE_MEMORY_KIB` (default `524288`, Linux `ru_maxrss` units)
+
+Run it on the installed host with the same local model and under the actual
+Memory service resource limits. The standalone test process cannot prove that
+systemd's `MemoryLimit=512M` and `CPUQuota=50%` are enforced merely because its
+assertions pass; retain the service-level multi-query acceptance as a deployment
+gate, including first-start warm-up timing and a restart against persisted vectors.
+
 ## Installation
 
 ```bash
@@ -74,9 +144,10 @@ Services communicate via JSON over the private Unix socket `$XDG_RUNTIME_DIR/cla
 - `ENSEMBLE_MEMORY_WARMUP_TIMEOUT_SECONDS` controls the warm-up readiness budget and defaults to 30 seconds. It must be finite and greater than zero. Exceeding it reports `timed_out` and logs a warning once; the service remains live, and readiness can recover if the active warm-up later completes.
 - Startup warm-up retries incomplete or failed passes up to three times with bounded delays. If all attempts fail, Memory remains not-ready. The terminal `degraded`/`failed` state returns `retryable: false`; restart the Memory service after correcting the underlying problem. Requests never trigger an unbounded cold rebuild.
 - Semantic and hybrid search requests in `not_started`, `warming`, `timed_out`, `degraded`, or `failed` state return HTTP 503 with `error_code: index_not_ready`. Only `warming` and `timed_out` responses are marked `retryable: true`, because the active warm-up can still complete.
+- If a durable Markdown write succeeds but SQLite/vector indexing fails, Memory records the file and error in `.hybrid-index-pending.json`. The readiness response becomes `degraded` and search fails closed until the pending work succeeds. Repeating the write/ingest retries indexing; restarting Memory retries the full startup warm-up. A successful file write alone is not proof that its content is searchable.
 - The gateway's `GET /api/v1/ready` uses Memory readiness, while `GET /api/v1/memory/health` remains a liveness probe.
 
-Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files added or changed after startup are indexed on demand; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
+Readiness is derived from per-file indexing outcomes and a stable directory membership snapshot, not from matching file counts. The first search after a restart should not perform a full corpus build on the request path. Files written through the Memory service are indexed at write time. External edits are incorporated during the next startup warm-up or explicit maintenance reindex. Prompt-time retrieval does not rebuild document chunks or write the hybrid index; readiness describes completion of the initial pass, not a guarantee that every later query has a fixed latency.
 
 ### Ping
 ```json

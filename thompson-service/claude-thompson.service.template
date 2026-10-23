@@ -16,7 +16,7 @@ SyslogIdentifier=claude-ensemble-thompson-service
 EnvironmentFile=-%h/.config/claude-ensemble/environment
 
 # Environment
-Environment="PATH=%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
+Environment="PATH=%REPO_PATH%/.venv/bin:%h/.local/bin:%REPO_PATH%/tools:/usr/local/bin:/usr/bin"
 Environment="PYTHONUNBUFFERED=1"
 
 # Resource limits

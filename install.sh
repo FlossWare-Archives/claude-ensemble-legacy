@@ -74,9 +74,45 @@ for required_path in \
     fi
 done
 
+# Install the complete Python runtime in a checkout-local virtualenv. All CE
+# services use this environment, including the default local embedding backend.
+install_python_runtime() {
+    local venv="$REPO_PATH/.venv"
+    echo "Installing Claude Ensemble Python dependencies (including Sentence Transformers)..."
+    python3 -m venv --copies "$venv"
+    "$venv/bin/python" -m pip install --upgrade pip
+    "$venv/bin/python" -m pip install -r "$REPO_PATH/requirements.txt"
+    if [[ "${ENSEMBLE_SKIP_MODEL_PROVISION:-0}" == "1" ]]; then
+        echo "Skipping model preload; ensure the configured local model is already cached for offline use."
+    else
+        echo "Provisioning the configured local embedding model..."
+        ENSEMBLE_MEMORY_EMBEDDING_MODEL="${ENSEMBLE_MEMORY_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}" \
+            "$venv/bin/python" -c 'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["ENSEMBLE_MEMORY_EMBEDDING_MODEL"], device="cpu")'
+    fi
+}
+
 # Snapshot the selected profile, existing CE deployment state, and managed units
 # before the first configuration or service mutation. If backup fails, stop here.
 bash "$REPO_PATH/tools/backup-ce-state.sh" "pre-runtime-install" "${ENSEMBLE_INSTALL_ROOT:-$HOME/.FlossWare/claude-ensemble}" "$CLAUDE_HOME"
+
+# Versioned deployment provisions its immutable release before activation. Do not
+# mutate that runtime during activation, recovery, or rollback.
+if [[ "${ENSEMBLE_STANDALONE_INSTALL:-0}" == "1" ]]; then
+    [[ -x "$REPO_PATH/.venv/bin/python" ]] || {
+        echo "ERROR: Standalone release runtime was not provisioned before activation." >&2
+        exit 1
+    }
+    echo "Using the pre-provisioned standalone release runtime."
+elif [[ "${ENSEMBLE_SKIP_PYTHON_PROVISION:-0}" == "1" ]]; then
+    [[ -x "$REPO_PATH/.venv/bin/python" ]] || {
+        echo "ERROR: ENSEMBLE_SKIP_PYTHON_PROVISION=1 requires an existing .venv/bin/python runtime." >&2
+        exit 1
+    }
+    echo "Skipping network provisioning; using the pre-provisioned local runtime."
+else
+    install_python_runtime
+fi
+
 
 # Migrate existing service state by copying missing files only. The original
 # ~/.claude data remains untouched and the backup above captures it first.
@@ -234,13 +270,11 @@ install_managed_copy() {
     fi
 }
 
-# Step 4: Install toolkit initialization and configuration links
+# Step 4: Install toolkit initialization
 echo ""
 echo "4. Installing toolkit scripts..."
 INIT_SOURCE="$REPO_PATH/scripts/ensemble-init.sh"
-CONFIG_SOURCE="$REPO_PATH/scripts/config.sh"
 install_managed_copy "$CLAUDE_HOME/ensemble-init.sh" "$INIT_SOURCE" "ensemble-init.sh"
-install_managed_copy "$CLAUDE_HOME/config.sh" "$CONFIG_SOURCE" "config.sh"
 
 # Step 4c: Install ensemble practices guide
 echo ""
@@ -472,19 +506,7 @@ echo "  Configuration"
 echo "================================================"
 echo ""
 
-# Never block a non-interactive install (for example, curl | bash).
-if [ -t 0 ] && [ -t 1 ]; then
-    read -r -p "Would you like to configure which tools/features to enable? [y/N]: " -n 1 REPLY
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        bash "$CONFIG_SOURCE"
-    else
-        echo "   ℹ You can configure anytime by running: $CLAUDE_HOME/config.sh"
-    fi
-else
-    echo "   ℹ Non-interactive install: keeping default feature configuration."
-fi
-
+echo "All Claude Ensemble features are installed with their default enabled configuration."
 echo ""
 echo "================================================"
 echo "  Installation Complete!"
@@ -495,7 +517,7 @@ echo "1. Edit $CLAUDE_HOME/.mcp.json with your credentials"
 echo "2. Ensure API tokens are set in environment"
 echo "3. Exit and restart your terminal"
 echo "4. Run: $CLAUDE_HOME/ensemble-init.sh (should be automatic at shell start)"
-echo "5. To reconfigure tools/features: $CLAUDE_HOME/config.sh"
+echo "5. Feature defaults are enabled; edit settings in $CLAUDE_HOME/.mcp.json and the service environment."
 echo ""
 echo "Verify installation:"
 echo "  cost-dashboard.py (view cost tracking)"

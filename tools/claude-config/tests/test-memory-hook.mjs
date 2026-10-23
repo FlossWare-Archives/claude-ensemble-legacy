@@ -374,7 +374,7 @@ try {
     );
     assert.ok(compound.includes('What did we decide about the memory service boundary, and how does the installer handle the acceptance profile?'), JSON.stringify(compound));
     assert.ok(compound.includes('What did we decide about the memory service boundary'), JSON.stringify(compound));
-    assert.ok(compound.includes('and how does the installer handle the acceptance profile'), JSON.stringify(compound));
+    assert.ok(compound.includes('decide about memory service boundary installer handle acceptance profile'), JSON.stringify(compound));
     assert.ok(compound.length <= 3, JSON.stringify(compound));
 
     // The letter "n" must not split a prompt that has no clause boundary.
@@ -431,7 +431,19 @@ try {
         res.end(JSON.stringify({ ok: true, results: [] }));
         return;
       }
-      if (request.query === 'install root default Claude Ensemble') {
+      if (request.query === 'install root establish default Claude Ensemble') {
+        res.end(JSON.stringify({
+          ok: true,
+          results: [{
+            file: 'claude-code-deployment-default',
+            section: 'Install root',
+            score: 0.99,
+            content: 'Claude Ensemble default install root: ~/.FlossWare/claude-ensemble.',
+          }],
+        }));
+        return;
+      }
+      if (request.query !== 'What install root did we establish as the default for Claude Ensemble?') {
         res.end(JSON.stringify({
           ok: true,
           results: [{
@@ -464,12 +476,128 @@ try {
     const knowledgeQueries = retrievalRequests
       .filter(request => request.source === 'claude-code')
       .map(request => request.query);
-    assert.ok(knowledgeQueries.includes('install root default Claude Ensemble'), JSON.stringify(knowledgeQueries));
+    assert.ok(knowledgeQueries.includes('install root establish default Claude Ensemble'), JSON.stringify(knowledgeQueries));
     const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
     assert.ok(context.includes('~/.FlossWare/claude-ensemble'));
     assert.ok(context.indexOf('~/.FlossWare/claude-ensemble') < context.indexOf('Unrelated deployment note'));
+
+    // Two qualifying clauses must not consume all three query slots before
+    // the compact keyword query is attempted.
+    const compoundPrompt = 'The service uses SQLite for persistence. The default install root is under FlossWare. Which directory did we choose for production?';
+    const compound = await runHook({
+      url: `http://127.0.0.1:${retrievalPort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: compoundPrompt },
+    });
+    assert.equal(compound.code, 0, compound.stderr);
+    const compoundQueries = retrievalRequests
+      .filter(request => request.source === 'claude-code')
+      .map(request => request.query);
+    assert.ok(compoundQueries.includes('service uses SQLite persistence default install root under FlossWare directory choose production'),
+      JSON.stringify(compoundQueries));
   } finally {
     await close(retrievalServer);
+  }
+}
+
+
+{
+  // Knowledge result count must honor rag.json rather than the global constant.
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'ce-rag-config-'));
+  const configPath = path.join(configDir, 'rag.json');
+  const limitRequests = [];
+  const limitServer = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (req.url === '/memory/knowledge/status') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 1 }));
+        return;
+      }
+      const request = JSON.parse(body);
+      limitRequests.push(request);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      const results = Array.from({ length: 10 }, (_, index) => ({
+        file: 'claude-code-knowledge-' + index,
+        section: 'Limit test',
+        score: 1 - index * 0.01,
+        content: 'Knowledge result ' + index,
+      }));
+      res.end(JSON.stringify({ ok: true, results: request.source === 'claude-code' ? results : [] }));
+    });
+  });
+  const limitPort = await listen(limitServer);
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      knowledge: { max_results: 3, max_queries: 3 },
+      memory: { enabled: false },
+      graph: { enabled: false },
+    }));
+    const limited = await runHook({
+      url: `http://127.0.0.1:${limitPort}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      env: { FLOSSWARE_CE_RAG_CONFIG: configPath },
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'Explain knowledge result limits clearly' },
+    });
+    assert.equal(limited.code, 0, limited.stderr);
+    const output = JSON.parse(limited.stdout);
+    assert.equal(output.hookSpecificOutput.contextRetrieval.knowledgeCount, 3);
+    assert.equal((output.hookSpecificOutput.additionalContext.match(/Knowledge result \d+/g) || []).length, 3);
+    assert.ok(limitRequests.filter(request => request.source === 'claude-code').every(request => request.limit === 3));
+  } finally {
+    await close(limitServer);
+    await rm(configDir, { recursive: true, force: true });
+  }
+}
+
+
+// Cross-query scores are normalized independently by Memory. Rank fusion must
+// prefer a result repeated by a focused query over a single high raw score.
+{
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      if (req.url === '/memory/knowledge/status') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, source: 'claude-code', status: 'available', indexed_document_count: 2 }));
+        return;
+      }
+      const request = JSON.parse(body);
+      requests.push(request);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (request.source !== 'claude-code') {
+        res.end(JSON.stringify({ ok: true, results: [] }));
+        return;
+      }
+      const results = request.query === 'Alpha question about memory. Beta details about memory?'
+        ? [
+          { file: 'claude-code-alpha', section: 'Alpha', score: 0.99, content: 'Alpha is a one-off high score.' },
+          { file: 'claude-code-beta', section: 'Beta', score: 0.18, content: 'Beta is corroborated by a focused query.' },
+        ]
+        : [
+          { file: 'claude-code-beta', section: 'Beta', score: 0.22, content: 'Beta is corroborated by a focused query.' },
+        ];
+      res.end(JSON.stringify({ ok: true, results }));
+    });
+  });
+  const port = await listen(server);
+  try {
+    const result = await runHook({
+      url: `http://127.0.0.1:${port}/`,
+      graphUrl: 'http://127.0.0.1:1/',
+      input: { hook_event_name: 'UserPromptSubmit', prompt: 'Alpha question about memory. Beta details about memory?' },
+    });
+    assert.equal(result.code, 0, result.stderr);
+    const knowledgeRequests = requests.filter(request => request.source === 'claude-code');
+    assert.ok(knowledgeRequests.length >= 2, JSON.stringify(knowledgeRequests));
+    const context = JSON.parse(result.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(context.indexOf('Beta is corroborated') < context.indexOf('Alpha is a one-off'),
+      context);
+  } finally {
+    await close(server);
   }
 }
 

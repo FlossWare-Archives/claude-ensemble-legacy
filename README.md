@@ -73,7 +73,7 @@ After reviewing the staged tree and manifest, a **separate non-staging install a
 bash "$SOURCE/install-standalone.sh"
 ```
 
-The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapshots the existing service units and active-service state, validates the release, switches `current` atomically, starts services in dependency order, and checks both service activity and gateway readiness. A failed activation attempts to restore the previous release. Do not run the activation command against a disposable staging root as a substitute for testing on an isolated system: activation controls the current user's systemd units and checks the configured gateway endpoint.
+The default deployment root is `~/.FlossWare/claude-ensemble`. Activation snapshots the existing service units and active-service state, validates the release, switches `current` atomically, starts services in dependency order, and checks both service activity and gateway readiness. A failed activation attempts to restore the previous release. The gateway readiness wait defaults to 180 seconds to allow first-run local model and corpus warm-up; set `ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS` to a different positive number when needed. Do not run the activation command against a disposable staging root as a substitute for testing on an isolated system: activation controls the current user's systemd units and checks the configured gateway endpoint.
 
 The deployment keeps mutable CE Claude Code configuration in `~/.FlossWare/claude-ensemble/shared/claude-code/`; ordinary `~/.claude/` is not the CE profile and is left untouched. The previous known-good release is recorded separately from staged or failed releases. Every non-staging versioned install or upgrade first writes a private recovery snapshot outside the deployment root under `~/.FlossWare/claude-ensemble-backups/`; if the snapshot fails, installation stops. See [Profiles, installation modes, and backups](docs/PROFILES_AND_BACKUPS.md) for profile boundaries, verification, backup contents, and recovery guidance.
 
@@ -107,6 +107,10 @@ bash "$ROOT/current/tools/ce-deployment" prune
 Rollback selects the recorded previous known-good release, not simply the highest version number. Pruning retains the active and previous known-good releases and refuses to proceed when activation history is missing or inconsistent. If an activation is interrupted, inspect the journal and run `recover` from any retained release, even if `current` is missing: set `VERSION` to an existing release (for example `0.1`) and run `bash "$ROOT/releases/$VERSION/tools/ce-deployment" recover` before attempting another activation.
 
 For a deployment built from an existing checkout, pass that checkout as the second argument, as shown above. Without a checkout argument, the installer downloads the current source archive. The root `install.sh` is the per-release runtime installer used by the deployment manager, not the supported first-install or upgrade entry point. Use `install-standalone.sh`, `upgrade.sh`, and `uninstall.sh` for the deployment lifecycle.
+
+#### Offline or air-gapped provisioning
+
+The default runtime install provisions the Python dependencies and preloads the configured local Sentence Transformers model. For a disconnected host, provision a compatible `.venv` with `--copies` and the root `requirements.txt` in the source checkout, and ensure the selected model is already available in the host's local Hugging Face cache. Then set both `ENSEMBLE_SKIP_PYTHON_PROVISION=1` and `ENSEMBLE_SKIP_MODEL_PROVISION=1` for the versioned install or per-release installer. The Python skip flag fails closed if `.venv/bin/python` is missing; the model skip flag does not disable embeddings or silently substitute a different model. If the model is not already cached, the service may fail readiness when it tries to load it, so verify the configured `ENSEMBLE_MEMORY_EMBEDDING_MODEL` before activation.
 
 The versioned installer:
 1. Keeps immutable release trees under `~/.FlossWare/claude-ensemble/releases/` without Git metadata
@@ -383,7 +387,7 @@ All dashboards read from local JSON files (no database):
 ```
 scripts/
   ensemble-init.sh            # Session initialization
-  config.sh                   # Interactive tool configuration
+  config.sh                   # Legacy helper; installer enables features by default
   ga-tuning-schedule.sh       # Cron: GA every 4 hours
 
 memory-service/

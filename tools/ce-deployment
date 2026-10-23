@@ -50,7 +50,7 @@ case "$ROOT" in
     exit 1
     ;;
 esac
-[[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\\n' "$ROOT" >&2; exit 1; }
+[[ ! -L "$ROOT" ]] || { printf 'ERROR: Install root must not be a symlink: %s\n' "$ROOT" >&2; exit 1; }
 RELEASES="$ROOT/releases"
 CURRENT="$ROOT/current"
 KNOWN_GOOD="$ROOT/known-good.json"
@@ -152,16 +152,27 @@ start_services() {
   # The gateway readiness endpoint verifies application/dependency health, not
   # merely systemd process liveness.
   python3 - <<'PY'
+import math
+import os
 import time
 import urllib.error
 import urllib.request
 
-url = __import__("os").environ.get("ENSEMBLE_READY_URL", "http://127.0.0.1:8080/api/v1/ready")
-deadline = time.monotonic() + 20
+# Readiness is a local service check. Ignore proxy variables deliberately:
+# offline deployment tests set dead proxies to prove no network provisioning.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+url = os.environ.get("ENSEMBLE_READY_URL", "http://127.0.0.1:8080/api/v1/ready")
+try:
+    timeout = float(os.environ.get("ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS", "180"))
+except ValueError:
+    raise SystemExit("ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS must be a positive number")
+if not math.isfinite(timeout) or timeout <= 0:
+    raise SystemExit("ENSEMBLE_GATEWAY_READINESS_TIMEOUT_SECONDS must be a positive number")
+deadline = time.monotonic() + timeout
 last_error = "readiness endpoint did not become ready"
 while time.monotonic() < deadline:
     try:
-        with urllib.request.urlopen(url, timeout=2) as response:
+        with opener.open(url, timeout=2) as response:
             if response.status == 200:
                 raise SystemExit(0)
             last_error = f"HTTP {response.status}"
@@ -500,7 +511,7 @@ case "$cmd" in
       [[ -d "$dir" ]] || continue
       version="${dir##*/}"
       if [[ "$version" != "$active" && "$version" != "$previous" ]]; then
-        printf 'Removing old release %s\\n' "$version"
+        printf 'Removing old release %s\n' "$version"
         rm -rf -- "$dir"
       fi
     done
