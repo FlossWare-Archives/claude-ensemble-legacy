@@ -6,7 +6,8 @@ import resource
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 
@@ -36,6 +37,23 @@ class HybridRetrievalTests(unittest.TestCase):
     def tearDown(self):
         self.embedding_patch.stop()
         self.model_patch.stop()
+
+    def test_model_is_shared_between_index_instances(self):
+        self.model_patch.stop()
+        model = object()
+        constructor = Mock(return_value=model)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
+                with patch.dict(sys.modules, {"sentence_transformers": SimpleNamespace(SentenceTransformer=constructor)}):
+                    first = HybridRetrievalIndex(Path(tmp) / "one.sqlite3", embedding_model="cache-test-model")
+                    second = HybridRetrievalIndex(Path(tmp) / "two.sqlite3", embedding_model="cache-test-model")
+                    self.assertIs(first._model(), model)
+                    self.assertIs(second._model(), model)
+                    constructor.assert_called_once_with("cache-test-model", device="cpu")
+        finally:
+            HybridRetrievalIndex._MODEL_CACHE.pop("cache-test-model", None)
+            self.model_patch.start()
 
     def test_warm_corpus_preloads_model_before_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
