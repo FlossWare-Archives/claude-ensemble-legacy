@@ -194,6 +194,7 @@ def source_identity(source_path: str) -> str:
 
 
 def source_revision_path(source: Source, destination_root: Path, digest: str) -> Path:
+    destination_root = destination_root.expanduser().absolute()
     return destination_root / source.kind / source_identity(str(source.path)) / "revisions" / f"{digest}.md"
 
 
