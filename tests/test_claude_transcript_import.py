@@ -80,6 +80,7 @@ class TranscriptImportTest(unittest.TestCase):
             self.assertEqual(first.read_text(), raw)
             self.assertEqual(source.read_text(), raw)
             self.assertEqual(first.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
 
     def test_rejects_malformed_jsonl_with_line(self):
         with tempfile.TemporaryDirectory() as directory:
