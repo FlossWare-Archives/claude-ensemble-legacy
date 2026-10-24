@@ -342,6 +342,16 @@ class MemorySearchRegressionTest(unittest.TestCase):
                 self.assertTrue(all(item["file"] == expected_file for item in scoped["results"]))
                 wrong_scope = search("claude-code", root / "unrelated-project")
                 self.assertEqual(wrong_scope["results"], [])
+
+                # Omitting project_root must never widen a project-scoped
+                # Knowledge query to documents from arbitrary projects.
+                missing_scope = search("claude-code")
+                self.assertEqual(missing_scope["results"], [])
+
+                # A non-absolute scope must not accidentally match project
+                # documents or act as an unscoped query.
+                invalid_scope = search("claude-code", "relative/project")
+                self.assertEqual(invalid_scope["results"], [])
             finally:
                 server.shutdown()
                 server.server_close()
