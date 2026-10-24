@@ -1,3 +1,0 @@
-# Compatibility requirements file for older setup instructions.
-# Sentence Transformers is installed by the standard repository requirements.txt.
--r ../requirements.txt

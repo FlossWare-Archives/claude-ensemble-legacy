@@ -1,8 +1,0 @@
-# Ignore audit trails and cache
-.audit.jsonl
-.last_model_discovery
-.pre-prompt
-__pycache__/
-
-# Memory files are committed (tracked)
-# Only exclude the above temp/sensitive items

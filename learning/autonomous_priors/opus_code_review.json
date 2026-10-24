@@ -1,8 +1,0 @@
-{
-  "model_name": "opus",
-  "task_type": "code_review",
-  "alpha": 2.0,
-  "beta": 1.0,
-  "updates": 1,
-  "last_updated": "2026-09-25T19:56:04.287000"
-}

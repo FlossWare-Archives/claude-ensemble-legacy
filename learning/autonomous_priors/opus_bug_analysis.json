@@ -1,8 +1,0 @@
-{
-  "model_name": "opus",
-  "task_type": "bug_analysis",
-  "alpha": 2.0,
-  "beta": 1.0,
-  "updates": 1,
-  "last_updated": "2026-09-25T19:56:04.293937"
-}
